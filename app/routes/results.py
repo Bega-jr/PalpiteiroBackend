@@ -1,10 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from app.services.lotofacil_service import load_lotofacil_data
 
-router = APIRouter(
-    prefix="/lotofacil",
-    tags=["Lotofácil"]
-)
+router = APIRouter()
 
 
 @router.get("/concurso/{numero}")
