@@ -1,5 +1,6 @@
 import pandas as pd
-from app import config
+from app.config import localizar_arquivo_lotofacil
 
 def load_lotofacil_data():
-    return "config importado"
+    path = localizar_arquivo_lotofacil()
+    return str(path)
