@@ -1,4 +1,4 @@
-# TESTE MINIMO - NÃO IMPORTA NADA
+import pandas as pd
 
 def load_lotofacil_data():
-    return "service carregou"
+    return "pandas importado"
