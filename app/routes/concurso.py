@@ -9,6 +9,9 @@ def obter_concurso(numero: int):
     try:
         df = load_lotofacil_data()
 
+        # 🔥 CORREÇÃO CRÍTICA
+        df["Concurso"] = df["Concurso"].astype(int)
+
         resultado = df[df["Concurso"] == numero]
 
         if resultado.empty:
