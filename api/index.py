@@ -1,13 +1,12 @@
 from flask import Flask
 
-# teste de import isolado
-from app import config
+from app.services.lotofacil_service import load_lotofacil_data
 
 app = Flask(__name__)
 
 @app.route("/")
 def root():
-    return "OK - Flask + config importado"
+    return "OK - Flask + service importado"
 
 @app.route("/health")
 def health():
