@@ -1,5 +1,3 @@
 fastapi
 pandas
 openpyxl
-babel
-python-dateutil
