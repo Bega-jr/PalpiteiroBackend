@@ -1,16 +1,33 @@
 from fastapi import APIRouter
-from app.loader import load_lotofacil_data
+from app.statistics import estatisticas_globais
 
-router = APIRouter(prefix="/lotofacil", tags=["Estatísticas"])
+router = APIRouter(
+    prefix="/lotofacil",
+    tags=["Estatísticas"]
+)
 
-@router.get("/estatisticas")
+
+@router.get(
+    "/estatisticas",
+    summary="Estatísticas completas da Lotofácil",
+    description="""
+Retorna estatísticas completas da Lotofácil brasileira, calculadas
+diretamente a partir do arquivo XLSX oficial da Caixa.
+
+Inclui:
+- Total de concursos
+- Intervalo de concursos
+- Frequência de dezenas (01 a 25)
+- Dezenas mais e menos sorteadas
+- Pares x ímpares
+- Soma das dezenas
+- Estatísticas de prêmios
+- Estatísticas de arrecadação
+- Análise de sequências consecutivas
+"""
+)
 def estatisticas():
-    df = load_lotofacil_data()
-
-    return {
-        "total_concursos": int(df.shape[0]),
-        "maior_premio": float(df["rateio_15"].max()),
-        "media_arrecadacao": float(df["arrecadacao"].mean()),
-        "primeiro_concurso": int(df["concurso"].min()),
-        "ultimo_concurso": int(df["concurso"].max()),
-    }
+    """
+    Endpoint principal de estatísticas globais da Lotofácil.
+    """
+    return estatisticas_globais()
