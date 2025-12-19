@@ -1,14 +1,18 @@
-from flask import Blueprint, jsonify
-from app.statistics import estatisticas_globais
+from fastapi import APIRouter, HTTPException
+from app.statistics import gerar_estatisticas_lotofacil
 
-stats_bp = Blueprint(
-    "stats",
-    __name__,
-    url_prefix="/lotofacil"
+router = APIRouter(
+    prefix="/lotofacil",
+    tags=["Lotofácil - Estatísticas"]
 )
 
 
-@stats_bp.route("/estatisticas", methods=["GET"])
-def estatisticas():
-    return jsonify(estatisticas_globais())
-
+@router.get("/estatisticas")
+def estatisticas_lotofacil():
+    try:
+        return gerar_estatisticas_lotofacil()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao gerar estatísticas da Lotofácil: {str(e)}"
+        )
