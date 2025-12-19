@@ -1,6 +1,2 @@
-fastapi
-uvicorn
+Flask
 pandas
-openpyxl
-python-dateutil
-babel
