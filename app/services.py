@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from app.loader import load_lotofacil_data
 from app.utils import format_dezena
 
@@ -5,7 +6,15 @@ from app.utils import format_dezena
 def get_concurso(concurso_id: int):
     df = load_lotofacil_data()
 
-    row = df[df["concurso"] == concurso_id].iloc[0]
+    resultado = df[df["concurso"] == concurso_id]
+
+    if resultado.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Concurso {concurso_id} não encontrado"
+        )
+
+    row = resultado.iloc[0]
 
     dezenas = sorted(
         format_dezena(row[f"bola{i}"])
@@ -14,7 +23,7 @@ def get_concurso(concurso_id: int):
 
     return {
         "concurso": int(row["concurso"]),
-        "data_sorteio": row["data_sorteio"],
+        "data_sorteio": str(row["data_sorteio"]),
         "dezenas": dezenas,
         "premio_principal": float(row["rateio_15"]),
         "ganhadores_15": int(row["ganhadores_15"]),
@@ -33,7 +42,7 @@ def get_ultimos_concursos(qtd: int = 5):
     for _, row in df.iterrows():
         concursos.append({
             "concurso": int(row["concurso"]),
-            "data_sorteio": row["data_sorteio"],
+            "data_sorteio": str(row["data_sorteio"]),
             "dezenas": sorted(
                 format_dezena(row[f"bola{i}"])
                 for i in range(1, 16)
