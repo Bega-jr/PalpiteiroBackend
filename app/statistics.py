@@ -1,31 +1,18 @@
-import pandas as pd
-from collections import Counter
-from app.loader import load_lotofacil_data
+from app.services.lotofacil_service import carregar_dataframe
 
 
-def estatisticas_globais():
-    df = load_lotofacil_data()
+def gerar_estatisticas():
+    df = carregar_dataframe()
 
-    dezenas = df[[f"bola{i}" for i in range(1, 16)]].values.flatten()
+    dezenas = []
+    for i in range(1, 16):
+        dezenas.extend(df[f"Bola{i}"].tolist())
 
-    freq = Counter(dezenas)
+    frequencia = {i: dezenas.count(i) for i in range(1, 26)}
 
     return {
         "total_concursos": int(df.shape[0]),
-        "primeiro_concurso": int(df["concurso"].min()),
-        "ultimo_concurso": int(df["concurso"].max()),
-
-        "frequencia_dezenas": {
-            f"{k:02d}": int(v) for k, v in sorted(freq.items())
-        },
-
-        "mais_sorteadas": [
-            {"dezena": f"{d:02d}", "frequencia": int(f)}
-            for d, f in freq.most_common(10)
-        ],
-
-        "menos_sorteadas": [
-            {"dezena": f"{d:02d}", "frequencia": int(f)}
-            for d, f in sorted(freq.items(), key=lambda x: x[1])[:10]
-        ]
+        "frequencia_dezenas": frequencia,
+        "mais_sorteados": sorted(frequencia, key=frequencia.get, reverse=True)[:5],
+        "menos_sorteados": sorted(frequencia, key=frequencia.get)[:5],
     }
