@@ -1,2 +1,4 @@
-Flask
+fastapi
 pandas
+openpyxl
+python-multipart
