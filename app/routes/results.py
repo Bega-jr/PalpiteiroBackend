@@ -1,20 +1,36 @@
-from fastapi import APIRouter
-from app.services import get_concurso, get_ultimos_concursos
+from fastapi import APIRouter, HTTPException
+import pandas as pd
 
-router = APIRouter(
-    prefix="/lotofacil",
-    tags=["Resultados"]
-)
+from app.services.lotofacil_service import load_lotofacil_data
 
-
-@router.get("/concurso/{concurso_id}")
-def concurso(concurso_id: int):
-    return get_concurso(concurso_id)
+router = APIRouter(prefix="/lotofacil", tags=["Lotofácil"])
 
 
-@router.get("/ultimos/{quantidade}")
-def ultimos(quantidade: int):
-    return {
-        "quantidade": quantidade,
-        "concursos": get_ultimos_concursos(quantidade)
-    }
+@router.get("/concurso/{numero}")
+def obter_concurso(numero: int):
+    try:
+        df = load_lotofacil_data()
+
+        concurso = df[df["Concurso"] == numero]
+
+        if concurso.empty:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Concurso {numero} não encontrado"
+            )
+
+        registro = concurso.iloc[0].to_dict()
+
+        return {
+            "status": "ok",
+            "concurso": registro
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao buscar concurso {numero}: {str(e)}"
+        )
