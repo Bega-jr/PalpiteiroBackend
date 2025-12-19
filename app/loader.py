@@ -1,12 +1,24 @@
 import pandas as pd
+from fastapi import HTTPException
 from app.config import DATA_FILE
 
 
 def load_lotofacil_data() -> pd.DataFrame:
-    if not DATA_FILE.exists():
-        raise FileNotFoundError("Arquivo Lotofacil.xlsx não encontrado")
-
-    df = pd.read_excel(DATA_FILE)
+    try:
+        df = pd.read_excel(
+            DATA_FILE,
+            engine="openpyxl"
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="Arquivo Lotofacil.xlsx não encontrado no servidor"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao ler XLSX: {str(e)}"
+        )
 
     df.columns = [
         "concurso",
