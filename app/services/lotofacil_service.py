@@ -1,52 +1,47 @@
 import pandas as pd
 from pathlib import Path
-from datetime import datetime
 
-# 📁 caminhos seguros (funciona local + Vercel)
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-EXCEL_FILE = DATA_DIR / "lotofacil.xlsx"
+XLSX_FILE = DATA_DIR / "lotofacil.xlsx"
 CSV_FILE = DATA_DIR / "lotofacil.csv"
-
-
-def _excel_existe() -> bool:
-    return EXCEL_FILE.exists()
-
-
-def _csv_existe() -> bool:
-    return CSV_FILE.exists()
-
-
-def _csv_esta_desatualizado() -> bool:
-    if not _csv_existe() or not _excel_existe():
-        return True
-
-    return EXCEL_FILE.stat().st_mtime > CSV_FILE.stat().st_mtime
-
-
-def _gerar_csv_do_excel():
-    df = pd.read_excel(EXCEL_FILE)
-    df.to_csv(CSV_FILE, index=False)
 
 
 def load_lotofacil_data() -> pd.DataFrame:
     """
-    Carrega os dados da Lotofácil de forma segura:
-    - Usa CSV (performance)
-    - Atualiza automaticamente se o Excel mudar
+    Carrega os dados da Lotofácil.
+    - Se o CSV não existir ou estiver vazio, recria a partir do XLSX
+    - Se o XLSX for mais recente que o CSV, atualiza o CSV automaticamente
     """
 
-    if _excel_existe() and _csv_esta_desatualizado():
-        _gerar_csv_do_excel()
+    if not XLSX_FILE.exists():
+        raise RuntimeError("Arquivo XLSX da Lotofácil não encontrado")
 
-    if not _csv_existe():
-        raise RuntimeError("Arquivo CSV da Lotofácil não encontrado")
+    # CSV não existe ou está vazio
+    if not CSV_FILE.exists() or CSV_FILE.stat().st_size == 0:
+        df = _criar_csv_do_xlsx()
+        return df
 
-    df = pd.read_csv(CSV_FILE)
+    # XLSX atualizado depois do CSV
+    if XLSX_FILE.stat().st_mtime > CSV_FILE.stat().st_mtime:
+        df = _criar_csv_do_xlsx()
+        return df
 
-    # 🔥 normalização crítica
-    if "Concurso" in df.columns:
-        df["Concurso"] = df["Concurso"].astype(int)
+    # Caminho normal
+    return pd.read_csv(CSV_FILE)
 
-    return df
+
+def _criar_csv_do_xlsx() -> pd.DataFrame:
+    try:
+        df = pd.read_excel(XLSX_FILE, engine="openpyxl")
+
+        # Garantia mínima
+        if "Concurso" not in df.columns:
+            raise RuntimeError("Coluna 'Concurso' não encontrada no XLSX")
+
+        df.to_csv(CSV_FILE, index=False)
+        return df
+
+    except Exception as e:
+        raise RuntimeError(f"Erro ao gerar CSV a partir do XLSX: {e}")
