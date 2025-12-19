@@ -1,6 +1,5 @@
 fastapi
-uvicorn
 pandas
 openpyxl
-python-dateutil
 babel
+python-dateutil
