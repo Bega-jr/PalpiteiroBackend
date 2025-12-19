@@ -1,8 +1,17 @@
 import pandas as pd
-from pathlib import Path
+from app.config import localizar_arquivo_lotofacil
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_FILE = BASE_DIR / "data" / "lotofacil.csv"
 
-def load_lotofacil_data():
-    return pd.read_csv(DATA_FILE)
+def load_lotofacil_data() -> pd.DataFrame:
+    try:
+        arquivo = localizar_arquivo_lotofacil()
+
+        df = pd.read_excel(
+            arquivo,
+            engine="openpyxl"
+        )
+
+        return df
+
+    except Exception as e:
+        raise RuntimeError(f"Erro ao carregar dados da Lotofácil: {e}")
