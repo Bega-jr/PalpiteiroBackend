@@ -1,1 +1,6 @@
-Flask
+fastapi
+uvicorn
+pandas
+openpyxl
+python-dateutil
+babel
