@@ -6,7 +6,12 @@ DATA_DIR = BASE_DIR / "data"
 
 
 def normalizar_nome(nome: str) -> str:
-    return unicodedata.normalize("NFKD", nome).encode("ASCII", "ignore").decode("utf-8").lower()
+    return (
+        unicodedata.normalize("NFKD", nome)
+        .encode("ASCII", "ignore")
+        .decode("utf-8")
+        .lower()
+    )
 
 
 def localizar_arquivo_lotofacil():
@@ -19,9 +24,4 @@ def localizar_arquivo_lotofacil():
             if "lotofacil" in nome_normalizado:
                 return arquivo
 
-    raise FileNotFoundError(
-        "Arquivo Lotofácil.xlsx não encontrado em data/"
-    )
-
-
-LOTOFACIL_FILE = localizar_arquivo_lotofacil()
+    raise FileNotFoundError("Arquivo Lotofácil.xlsx não encontrado em data/")
