@@ -1,167 +1,62 @@
+import json
+import os
 import random
-import datetime
-from collections import Counter
-from functools import lru_cache
+from datetime import date
+from app.services.estatisticas_service import obter_estatisticas_base
 
-# =====================================================
-# CONFIGURAÇÕES GERAIS
-# =====================================================
-
-TOTAL_NUMEROS = 25
-NUMEROS_POR_JOGO = 15
+CACHE_DIR = "app/cache"
+CACHE_FILE = os.path.join(CACHE_DIR, "palpite_fixo.json")
 
 
 # =====================================================
-# FUNÇÃO AUXILIAR
+# GARANTE PASTA DE CACHE
 # =====================================================
-
-def _sortear(grupo, qtd):
-    if not grupo:
-        return []
-    return random.sample(grupo, min(qtd, len(grupo)))
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 
 # =====================================================
-# CLASSIFICAÇÃO DOS NÚMEROS
+# PALPITE FIXO DIÁRIO
 # =====================================================
-
-def classificar_numeros(historico=None):
-    """
-    Classifica os números da Lotofácil em:
-    quentes, equilibrados, frios e atrasados
-    """
-
-    # 🔹 fallback caso ainda não venha histórico da API
-    if not historico:
-        historico = []
-
-    # Conta frequência
-    contador = Counter()
-    for concurso in historico:
-        contador.update(concurso)
-
-    todos = list(range(1, TOTAL_NUMEROS + 1))
-
-    # Frequência padrão caso histórico esteja vazio
-    frequencias = {n: contador.get(n, 0) for n in todos}
-
-    # Ordena por frequência (desc)
-    ordenados = sorted(frequencias.items(), key=lambda x: x[1], reverse=True)
-    apenas_numeros = [n for n, _ in ordenados]
-
-    quentes = apenas_numeros[:8]
-    equilibrados = apenas_numeros[8:16]
-    frios = apenas_numeros[16:22]
-    atrasados = apenas_numeros[22:]
-
-    return {
-        "quentes": quentes,
-        "equilibrados": equilibrados,
-        "frios": frios,
-        "atrasados": atrasados
-    }
-
-
-# =====================================================
-# PALPITE FIXO (1 VEZ POR DIA)
-# =====================================================
-
-@lru_cache(maxsize=1)
-def _palpite_fixo_cache(data):
-    """
-    Gera um único palpite por dia
-    """
-    grupos = classificar_numeros()
-
-    jogo = (
-        _sortear(grupos["quentes"], 6) +
-        _sortear(grupos["equilibrados"], 5) +
-        _sortear(grupos["frios"], 4)
-    )
-
-    jogo = list(set(jogo))
-    universo = list(range(1, TOTAL_NUMEROS + 1))
-
-    while len(jogo) < NUMEROS_POR_JOGO:
-        n = random.choice(universo)
-        if n not in jogo:
-            jogo.append(n)
-
-    return sorted(jogo)
-
-
 def gerar_palpite_fixo():
-    """
-    Palpite fixo público – atualiza automaticamente 1x por dia
-    """
-    hoje = datetime.date.today().isoformat()
-    return _palpite_fixo_cache(hoje)
+    hoje = date.today().isoformat()
 
+    # 🔹 tenta ler cache
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            cache = json.load(f)
 
-# =====================================================
-# GERAÇÃO DOS 7 PALPITES (PASSO 2)
-# =====================================================
+        if cache.get("data") == hoje:
+            return cache["numeros"]
 
-def gerar_7_palpites(historico=None):
-    grupos = classificar_numeros(historico)
+    # 🔹 gera novo palpite
+    numeros = _gerar_palpite_base()
 
-    quentes = grupos["quentes"]
-    equilibrados = grupos["equilibrados"]
-    frios = grupos["frios"]
-    atrasados = grupos["atrasados"]
-
-    palpites = []
-
-    configuracoes = [
-        ("Palpite 1 - Muito Quente", 8, 5, 2),
-        ("Palpite 2 - Quente", 7, 6, 2),
-        ("Palpite 3 - Equilibrado Quente", 5, 7, 3),
-        ("Palpite 4 - Equilibrado Frio", 4, 6, 5),
-        ("Palpite 5 - Frio", 3, 4, 8),
-        ("Palpite 6 - Muito Frio", 2, 3, 10),
-    ]
-
-    universo = list(set(quentes + equilibrados + frios + atrasados))
-
-    for nome, q, e, f in configuracoes:
-        jogo = (
-            _sortear(quentes, q)
-            + _sortear(equilibrados, e)
-            + _sortear(frios, f)
+    # 🔹 salva cache
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            {"data": hoje, "numeros": numeros},
+            f,
+            ensure_ascii=False,
+            indent=2
         )
 
-        jogo = list(set(jogo))
+    return numeros
 
-        # Completa até 15 números
-        while len(jogo) < NUMEROS_POR_JOGO:
-            n = random.choice(universo)
-            if n not in jogo:
-                jogo.append(n)
 
-        palpites.append({
-            "nome": nome,
-            "numeros": sorted(jogo)
-        })
+# =====================================================
+# BASE ESTATÍSTICA DO PALPITE FIXO
+# =====================================================
+def _gerar_palpite_base():
+    df = obter_estatisticas_base()
 
-    # 💤 Palpite 7 – Atrasados
-    jogo7 = []
+    quentes = df.sort_values("frequencia", ascending=False).head(8)["numero"].tolist()
+    equilibrados = df.sort_values("frequencia", ascending=False).iloc[8:16]["numero"].tolist()
+    frios = df.sort_values("frequencia").head(10)["numero"].tolist()
 
-    for grupo in [atrasados, equilibrados, frios, quentes]:
-        for n in grupo:
-            if len(jogo7) >= NUMEROS_POR_JOGO:
-                break
-            if n not in jogo7:
-                jogo7.append(n)
+    jogo = (
+        random.sample(quentes, 6)
+        + random.sample(equilibrados, 6)
+        + random.sample(frios, 3)
+    )
 
-    # fallback extremo
-    while len(jogo7) < NUMEROS_POR_JOGO:
-        n = random.randint(1, TOTAL_NUMEROS)
-        if n not in jogo7:
-            jogo7.append(n)
-
-    palpites.append({
-        "nome": "Palpite 7 - Atrasados",
-        "numeros": sorted(jogo7)
-    })
-
-    return palpites
+    return sorted(set(jogo))
