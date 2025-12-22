@@ -1,3 +1,5 @@
+print("🔥 ROUTER PALPITES CARREGADO")
+
 from fastapi import APIRouter
 from app.services.palpites_service import (
     gerar_palpite_fixo,
