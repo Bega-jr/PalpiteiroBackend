@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.services.lotofacil_service import load_lotofacil_data
+import pandas as pd
 
 router = APIRouter()
 
@@ -9,14 +10,14 @@ def obter_concurso(numero: int):
     try:
         df = load_lotofacil_data()
 
-        # ✅ coluna já vem normalizada
+        # 🔍 DEBUG defensivo
         if "concurso" not in df.columns:
             raise HTTPException(
                 status_code=500,
-                detail="Coluna 'concurso' não encontrada"
+                detail=f"Coluna 'concurso' não encontrada. Colunas: {list(df.columns)}"
             )
 
-        df["concurso"] = df["concurso"].astype(int)
+        df["concurso"] = pd.to_numeric(df["concurso"], errors="coerce")
 
         resultado = df[df["concurso"] == numero]
 
@@ -26,9 +27,11 @@ def obter_concurso(numero: int):
                 detail=f"Concurso {numero} não encontrado"
             )
 
+        registro = resultado.iloc[0].where(pd.notnull(resultado.iloc[0]), None)
+
         return {
             "status": "ok",
-            "concurso": resultado.iloc[0].to_dict()
+            "concurso": registro.to_dict()
         }
 
     except HTTPException:
@@ -36,5 +39,5 @@ def obter_concurso(numero: int):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=f"Erro interno concurso: {str(e)}"
         )
