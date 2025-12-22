@@ -1,20 +1,53 @@
 import random
-import datetime
 from functools import lru_cache
 from app.services.estatisticas_service import obter_estatisticas_base
 
 
 def classificar_numeros():
+    """
+    Classifica os números da Lotofácil em:
+    - quentes
+    - equilibrados
+    - frios
+    - atrasados (exclusivos)
+    """
+
     df = obter_estatisticas_base()
 
-    total = len(df)
+    # 🔒 Garantia defensiva
+    df = df.copy()
+    df["numero"] = df["numero"].astype(int)
 
-    quentes = df.head(int(total * 0.30))["numero"].tolist()
-    equilibrados = df.iloc[int(total * 0.30):int(total * 0.70)]["numero"].tolist()
-    frios = df.tail(int(total * 0.30))["numero"].tolist()
+    # 🔥 QUENTES → alta frequência + baixo atraso
+    quentes = (
+        df.sort_values(["frequencia", "atraso"], ascending=[False, True])
+        .head(8)["numero"]
+        .tolist()
+    )
+
+    # ❄️ FRIOS → baixa frequência
+    frios = (
+        df.sort_values("frequencia", ascending=True)
+        .head(8)["numero"]
+        .tolist()
+    )
+
+    # ⚖️ EQUILIBRADOS → meio estatístico
+    usados = set(quentes + frios)
+
+    equilibrados = (
+        df[~df["numero"].isin(usados)]
+        .sort_values("frequencia", ascending=False)
+        .head(9)["numero"]
+        .tolist()
+    )
+
+    # 💤 ATRASADOS → maior atraso, sem repetir
+    usados = set(quentes + frios + equilibrados)
 
     atrasados = (
-        df.sort_values("atraso", ascending=False)
+        df[~df["numero"].isin(usados)]
+        .sort_values("atraso", ascending=False)
         .head(8)["numero"]
         .tolist()
     )
