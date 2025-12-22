@@ -1,6 +1,5 @@
-# app/services/lotofacil_service.py
-
 import pandas as pd
+import unicodedata
 from functools import lru_cache
 
 CSV_URL = (
@@ -9,22 +8,33 @@ CSV_URL = (
 )
 
 
+def _normalizar_coluna(col: str) -> str:
+    return (
+        unicodedata.normalize("NFKD", col)
+        .encode("ascii", "ignore")
+        .decode("utf-8")
+        .lower()
+        .replace(" ", "_")
+    )
+
+
 @lru_cache(maxsize=1)
 def load_lotofacil_data() -> pd.DataFrame:
-    """
-    Carrega os dados da Lotofácil a partir de um CSV remoto.
-    Usa cache em memória para evitar múltiplos downloads.
-    """
     try:
         df = pd.read_csv(CSV_URL)
 
-        if "Concurso" not in df.columns:
-            raise ValueError("Coluna 'Concurso' não encontrada no CSV")
+        if df.empty:
+            raise RuntimeError("CSV da Lotofácil está vazio")
 
-        df["Concurso"] = df["Concurso"].astype(int)
+        # normaliza colunas
+        df.columns = [_normalizar_coluna(c) for c in df.columns]
+
+        if "concurso" not in df.columns:
+            raise RuntimeError("Coluna 'Concurso' não encontrada no CSV")
+
+        df["concurso"] = df["concurso"].astype(int)
 
         return df
 
     except Exception as e:
         raise RuntimeError(f"Erro ao carregar CSV remoto: {e}")
-
