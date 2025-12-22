@@ -10,7 +10,7 @@ def obter_concurso(numero: int):
     try:
         df = load_lotofacil_data()
 
-        # 🔍 DEBUG defensivo
+        # 🔐 Validação defensiva
         if "concurso" not in df.columns:
             raise HTTPException(
                 status_code=500,
@@ -40,4 +40,32 @@ def obter_concurso(numero: int):
         raise HTTPException(
             status_code=500,
             detail=f"Erro interno concurso: {str(e)}"
+        )
+
+
+@router.get("/concurso/ultimo")
+def obter_ultimo_concurso():
+    try:
+        df = load_lotofacil_data()
+
+        if "concurso" not in df.columns:
+            raise HTTPException(
+                status_code=500,
+                detail="Coluna 'concurso' não encontrada"
+            )
+
+        df["concurso"] = pd.to_numeric(df["concurso"], errors="coerce")
+
+        ultimo = df.sort_values("concurso").iloc[-1]
+        ultimo = ultimo.where(pd.notnull(ultimo), None)
+
+        return {
+            "status": "ok",
+            "concurso": ultimo.to_dict()
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao buscar último concurso: {str(e)}"
         )
