@@ -6,17 +6,35 @@ router = APIRouter()
 
 @router.get("/concurso/{numero}")
 def obter_concurso(numero: int):
-    df = load_lotofacil_data()
+    try:
+        df = load_lotofacil_data()
 
-    resultado = df[df["concurso"] == numero]
+        # ✅ coluna já vem normalizada
+        if "concurso" not in df.columns:
+            raise HTTPException(
+                status_code=500,
+                detail="Coluna 'concurso' não encontrada"
+            )
 
-    if resultado.empty:
+        df["concurso"] = df["concurso"].astype(int)
+
+        resultado = df[df["concurso"] == numero]
+
+        if resultado.empty:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Concurso {numero} não encontrado"
+            )
+
+        return {
+            "status": "ok",
+            "concurso": resultado.iloc[0].to_dict()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
-            status_code=404,
-            detail=f"Concurso {numero} não encontrado"
+            status_code=500,
+            detail=str(e)
         )
-
-    return {
-        "status": "ok",
-        "concurso": resultado.iloc[0].to_dict()
-    }
