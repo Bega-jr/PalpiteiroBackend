@@ -1,5 +1,7 @@
 import random
+import datetime
 from collections import Counter
+from functools import lru_cache
 
 # =====================================================
 # CONFIGURAÇÕES GERAIS
@@ -14,6 +16,8 @@ NUMEROS_POR_JOGO = 15
 # =====================================================
 
 def _sortear(grupo, qtd):
+    if not grupo:
+        return []
     return random.sample(grupo, min(qtd, len(grupo)))
 
 
@@ -41,7 +45,7 @@ def classificar_numeros(historico=None):
     # Frequência padrão caso histórico esteja vazio
     frequencias = {n: contador.get(n, 0) for n in todos}
 
-    # Ordena por frequência
+    # Ordena por frequência (desc)
     ordenados = sorted(frequencias.items(), key=lambda x: x[1], reverse=True)
     apenas_numeros = [n for n, _ in ordenados]
 
@@ -56,6 +60,42 @@ def classificar_numeros(historico=None):
         "frios": frios,
         "atrasados": atrasados
     }
+
+
+# =====================================================
+# PALPITE FIXO (1 VEZ POR DIA)
+# =====================================================
+
+@lru_cache(maxsize=1)
+def _palpite_fixo_cache(data):
+    """
+    Gera um único palpite por dia
+    """
+    grupos = classificar_numeros()
+
+    jogo = (
+        _sortear(grupos["quentes"], 6) +
+        _sortear(grupos["equilibrados"], 5) +
+        _sortear(grupos["frios"], 4)
+    )
+
+    jogo = list(set(jogo))
+    universo = list(range(1, TOTAL_NUMEROS + 1))
+
+    while len(jogo) < NUMEROS_POR_JOGO:
+        n = random.choice(universo)
+        if n not in jogo:
+            jogo.append(n)
+
+    return sorted(jogo)
+
+
+def gerar_palpite_fixo():
+    """
+    Palpite fixo público – atualiza automaticamente 1x por dia
+    """
+    hoje = datetime.date.today().isoformat()
+    return _palpite_fixo_cache(hoje)
 
 
 # =====================================================
@@ -112,6 +152,12 @@ def gerar_7_palpites(historico=None):
                 break
             if n not in jogo7:
                 jogo7.append(n)
+
+    # fallback extremo
+    while len(jogo7) < NUMEROS_POR_JOGO:
+        n = random.randint(1, TOTAL_NUMEROS)
+        if n not in jogo7:
+            jogo7.append(n)
 
     palpites.append({
         "nome": "Palpite 7 - Atrasados",
