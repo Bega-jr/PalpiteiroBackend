@@ -1,47 +1,30 @@
+# app/services/lotofacil_service.py
+
 import pandas as pd
-from pathlib import Path
+from functools import lru_cache
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+CSV_URL = (
+    "https://raw.githubusercontent.com/"
+    "Bega-jr/PalpiteiroBackend/main/data/lotofacil.csv"
+)
 
-XLSX_FILE = DATA_DIR / "lotofacil.xlsx"
-CSV_FILE = DATA_DIR / "lotofacil.csv"
 
-
+@lru_cache(maxsize=1)
 def load_lotofacil_data() -> pd.DataFrame:
     """
-    Carrega os dados da Lotofácil.
-    - Se o CSV não existir ou estiver vazio, recria a partir do XLSX
-    - Se o XLSX for mais recente que o CSV, atualiza o CSV automaticamente
+    Carrega os dados da Lotofácil a partir de um CSV remoto.
+    Usa cache em memória para evitar múltiplos downloads.
     """
-
-    if not XLSX_FILE.exists():
-        raise RuntimeError("Arquivo XLSX da Lotofácil não encontrado")
-
-    # CSV não existe ou está vazio
-    if not CSV_FILE.exists() or CSV_FILE.stat().st_size == 0:
-        df = _criar_csv_do_xlsx()
-        return df
-
-    # XLSX atualizado depois do CSV
-    if XLSX_FILE.stat().st_mtime > CSV_FILE.stat().st_mtime:
-        df = _criar_csv_do_xlsx()
-        return df
-
-    # Caminho normal
-    return pd.read_csv(CSV_FILE)
-
-
-def _criar_csv_do_xlsx() -> pd.DataFrame:
     try:
-        df = pd.read_excel(XLSX_FILE, engine="openpyxl")
+        df = pd.read_csv(CSV_URL)
 
-        # Garantia mínima
         if "Concurso" not in df.columns:
-            raise RuntimeError("Coluna 'Concurso' não encontrada no XLSX")
+            raise ValueError("Coluna 'Concurso' não encontrada no CSV")
 
-        df.to_csv(CSV_FILE, index=False)
+        df["Concurso"] = df["Concurso"].astype(int)
+
         return df
 
     except Exception as e:
-        raise RuntimeError(f"Erro ao gerar CSV a partir do XLSX: {e}")
+        raise RuntimeError(f"Erro ao carregar CSV remoto: {e}")
+
