@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.routes.concurso import router as concurso_router
+from app.routes.debug import router as debug_router
 
 app = FastAPI(
     title="Palpiteiro Backend",
@@ -12,3 +13,4 @@ def root():
 
 # 🔥 REGISTRA A ROTA
 app.include_router(concurso_router)
+app.include_router(debug_router)
