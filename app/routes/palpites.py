@@ -1,38 +1,8 @@
-print("🔥 ROUTER PALPITES CARREGADO")
-
 from fastapi import APIRouter
-from app.services.palpites_service import (
-    gerar_palpite_fixo,
-    gerar_7_palpites
-)
 
-router = APIRouter(
-    prefix="/palpites",
-    tags=["Palpites"]
-)
+router = APIRouter(prefix="/palpites")
 
-# =====================================================
-# PALPITE FIXO (PÚBLICO)
-# =====================================================
+@router.get("/teste")
+def teste():
+    return {"ok": True}
 
-@router.get("/fixo")
-def palpite_fixo():
-    jogo = gerar_palpite_fixo()
-    if not jogo:
-        return {"erro": "Estatísticas indisponíveis"}
-    return {"tipo": "palpite_fixo", "numeros": jogo
-           }
-
-
-# =====================================================
-# PALPITES ESTATÍSTICOS (FUTURO VIP)
-# =====================================================
-
-@router.get("/estatisticos")
-def palpites_estatisticos():
-    palpites = gerar_7_palpites()
-    return {
-        "tipo": "estatisticos",
-        "total": len(palpites),
-        "palpites": palpites
-    }
