@@ -7,6 +7,7 @@ def obter_estatisticas_base():
 
     dezenas = [f"bola{i}" for i in range(1, 16)]
 
+    # frequência real
     frequencia = (
         df[dezenas]
         .stack()
@@ -19,6 +20,7 @@ def obter_estatisticas_base():
         "frequencia": frequencia.values
     })
 
+    # atraso real
     ultimo_concurso = df["concurso"].max()
     atraso = {}
 
@@ -29,28 +31,3 @@ def obter_estatisticas_base():
     freq_df["atraso"] = freq_df["numero"].map(atraso)
 
     return freq_df.sort_values("frequencia", ascending=False).reset_index(drop=True)
-
-
-def calcular_metricas_jogo(jogo):
-    jogo = sorted(jogo)
-
-    soma = sum(jogo)
-    pares = len([n for n in jogo if n % 2 == 0])
-
-    maior_seq = 1
-    seq = 1
-
-    for i in range(1, len(jogo)):
-        if jogo[i] == jogo[i - 1] + 1:
-            seq += 1
-            maior_seq = max(maior_seq, seq)
-        else:
-            seq = 1
-
-    return {
-        "soma": soma,
-        "pares": pares,
-        "impares": len(jogo) - pares,
-        "maior_sequencia": maior_seq
-    }
-
