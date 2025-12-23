@@ -1,18 +1,18 @@
 import random
 import datetime
+from collections import Counter
 from functools import lru_cache
 
-from app.services.estatisticas_service import obter_estatisticas_base
-# futuramente:
-# from app.services.estatisticas_validator import validar_palpite
-
+from app.services.estatisticas_validator import validar_jogo
+from app.services.estatisticas_services import obter_estatisticas_base
 
 # =====================================================
-# CONFIGURAÇÕES GERAIS
+# CONFIGURAÇÕES
 # =====================================================
 
 TOTAL_NUMEROS = 25
 NUMEROS_POR_JOGO = 15
+MAX_TENTATIVAS = 50
 
 
 # =====================================================
@@ -26,30 +26,30 @@ def _sortear(grupo, qtd):
 
 
 # =====================================================
-# CLASSIFICAÇÃO DOS NÚMEROS (BASE REAL DO CSV)
+# CLASSIFICAÇÃO DOS NÚMEROS
 # =====================================================
 
 def classificar_numeros():
     """
-    Classifica números com base em:
-    - frequência (quentes / equilibrados / frios)
-    - atraso real (atrasados)
+    Classifica números com base no histórico real.
+    Se falhar, usa fallback seguro.
     """
+    try:
+        estatisticas = obter_estatisticas_base()
 
-    df = obter_estatisticas_base()
+        if estatisticas is None or estatisticas.empty:
+            raise ValueError("Estatísticas vazias")
 
-    total = len(df)
+        numeros_ordenados = estatisticas["numero"].tolist()
 
-    # 🔥 percentuais reais
-    quentes = df.head(int(total * 0.30))["numero"].tolist()
-    equilibrados = df.iloc[int(total * 0.30):int(total * 0.70)]["numero"].tolist()
-    frios = df.tail(int(total * 0.30))["numero"].tolist()
+    except Exception:
+        # 🔥 fallback absoluto
+        numeros_ordenados = list(range(1, TOTAL_NUMEROS + 1))
 
-    atrasados = (
-        df.sort_values("atraso", ascending=False)
-        .head(8)["numero"]
-        .tolist()
-    )
+    quentes = numeros_ordenados[:8]
+    equilibrados = numeros_ordenados[8:16]
+    frios = numeros_ordenados[16:22]
+    atrasados = numeros_ordenados[22:]
 
     return {
         "quentes": quentes,
@@ -60,56 +60,46 @@ def classificar_numeros():
 
 
 # =====================================================
-# PALPITE FIXO (CACHE DIÁRIO)
+# PALPITE FIXO DIÁRIO (COM CACHE + VALIDAÇÃO)
 # =====================================================
 
 @lru_cache(maxsize=1)
 def _palpite_fixo_cache(data):
-    """
-    Gera um único palpite por dia (cacheado)
-    """
-
     grupos = classificar_numeros()
-
-    jogo = (
-        _sortear(grupos["quentes"], 6) +
-        _sortear(grupos["equilibrados"], 5) +
-        _sortear(grupos["frios"], 4)
-    )
-
-    jogo = list(set(jogo))
     universo = list(range(1, TOTAL_NUMEROS + 1))
 
-    while len(jogo) < NUMEROS_POR_JOGO:
-        n = random.choice(universo)
-        if n not in jogo:
-            jogo.append(n)
+    for _ in range(MAX_TENTATIVAS):
+        jogo = (
+            _sortear(grupos["quentes"], 6) +
+            _sortear(grupos["equilibrados"], 5) +
+            _sortear(grupos["frios"], 4)
+        )
 
-    jogo = sorted(jogo)
+        jogo = list(set(jogo))
 
-    # futuramente:
-    # if not validar_palpite(jogo):
-    #     return None
+        while len(jogo) < NUMEROS_POR_JOGO:
+            n = random.choice(universo)
+            if n not in jogo:
+                jogo.append(n)
 
-    return jogo
+        jogo = sorted(jogo)
+
+        # ✅ validação estatística
+        resultado = validar_jogo(jogo)
+        if resultado["aprovado"]:
+            return jogo
+
+    # 🔥 fallback final (nunca quebra)
+    return sorted(random.sample(universo, NUMEROS_POR_JOGO))
 
 
 def gerar_palpite_fixo():
-    """
-    Palpite fixo público – atualiza 1x por dia
-    """
     hoje = datetime.date.today().isoformat()
-    jogo = _palpite_fixo_cache(hoje)
-
-    # fallback extremo (não deve acontecer)
-    if not jogo:
-        jogo = sorted(random.sample(range(1, 26), 15))
-
-    return jogo
+    return _palpite_fixo_cache(hoje)
 
 
 # =====================================================
-# GERAÇÃO DOS 7 PALPITES ESTATÍSTICOS
+# GERAÇÃO DOS 7 PALPITES (COM VALIDAÇÃO)
 # =====================================================
 
 def gerar_7_palpites():
@@ -120,8 +110,6 @@ def gerar_7_palpites():
     frios = grupos["frios"]
     atrasados = grupos["atrasados"]
 
-    palpites = []
-
     configuracoes = [
         ("Palpite 1 - Muito Quente", 8, 5, 2),
         ("Palpite 2 - Quente", 7, 6, 2),
@@ -131,18 +119,15 @@ def gerar_7_palpites():
         ("Palpite 6 - Muito Frio", 2, 3, 10),
     ]
 
-    universo = list(set(quentes + equilibrados + frios + atrasados))
+    universo = list(range(1, TOTAL_NUMEROS + 1))
+    palpites = []
 
     for nome, q, e, f in configuracoes:
-        tentativas = 0
-
-        while True:
-            tentativas += 1
-
+        for _ in range(MAX_TENTATIVAS):
             jogo = (
-                _sortear(quentes, q) +
-                _sortear(equilibrados, e) +
-                _sortear(frios, f)
+                _sortear(quentes, q)
+                + _sortear(equilibrados, e)
+                + _sortear(frios, f)
             )
 
             jogo = list(set(jogo))
@@ -154,23 +139,16 @@ def gerar_7_palpites():
 
             jogo = sorted(jogo)
 
-            # futuramente:
-            # if validar_palpite(jogo):
-            #     break
-
-            break  # por enquanto aceita direto
-
-            if tentativas > 30:
+            if validar_jogo(jogo)["aprovado"]:
+                palpites.append({
+                    "nome": nome,
+                    "numeros": jogo
+                })
                 break
 
-        palpites.append({
-            "nome": nome,
-            "numeros": jogo
-        })
-
-    # =================================================
-    # PALPITE 7 – ATRASADOS (PURO)
-    # =================================================
+    # -------------------------------------------------
+    # Palpite 7 – Atrasados (mais permissivo)
+    # -------------------------------------------------
 
     jogo7 = []
 
@@ -181,7 +159,6 @@ def gerar_7_palpites():
             if n not in jogo7:
                 jogo7.append(n)
 
-    # fallback extremo
     while len(jogo7) < NUMEROS_POR_JOGO:
         n = random.randint(1, TOTAL_NUMEROS)
         if n not in jogo7:
@@ -193,3 +170,4 @@ def gerar_7_palpites():
     })
 
     return palpites
+
