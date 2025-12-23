@@ -1,7 +1,9 @@
 import random
 import datetime
+import csv
 from collections import Counter
 from functools import lru_cache
+from pathlib import Path
 
 # =====================================================
 # CONFIGURAÇÕES GERAIS
@@ -10,6 +12,8 @@ from functools import lru_cache
 TOTAL_NUMEROS = 25
 NUMEROS_POR_JOGO = 15
 
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+CSV_PATH = BASE_DIR / "data" / "historico_lotofacil.csv"
 
 # =====================================================
 # FUNÇÃO AUXILIAR
@@ -20,6 +24,34 @@ def _sortear(grupo, qtd):
         return []
     return random.sample(grupo, min(qtd, len(grupo)))
 
+# =====================================================
+# LEITURA DO HISTÓRICO (CSV)
+# =====================================================
+
+@lru_cache(maxsize=1)
+def carregar_historico():
+    """
+    Carrega o histórico real da Lotofácil a partir do CSV.
+    Usa cache para não reler o arquivo a cada request.
+    """
+    historico = []
+
+    if not CSV_PATH.exists():
+        print("⚠️ CSV não encontrado, usando fallback aleatório")
+        return historico
+
+    try:
+        with open(CSV_PATH, newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                numeros = [int(n) for n in row if n.isdigit()]
+                if len(numeros) == 15:
+                    historico.append(numeros)
+    except Exception as e:
+        print("❌ Erro ao ler CSV:", e)
+        return []
+
+    return historico
 
 # =====================================================
 # CLASSIFICAÇÃO DOS NÚMEROS
@@ -31,11 +63,9 @@ def classificar_numeros(historico=None):
     quentes, equilibrados, frios e atrasados
     """
 
-    # 🔹 fallback caso ainda não venha histórico da API
     if not historico:
         historico = []
 
-    # Conta frequência
     contador = Counter()
     for concurso in historico:
         contador.update(concurso)
@@ -45,22 +75,15 @@ def classificar_numeros(historico=None):
     # Frequência padrão caso histórico esteja vazio
     frequencias = {n: contador.get(n, 0) for n in todos}
 
-    # Ordena por frequência (desc)
     ordenados = sorted(frequencias.items(), key=lambda x: x[1], reverse=True)
     apenas_numeros = [n for n, _ in ordenados]
 
-    quentes = apenas_numeros[:8]
-    equilibrados = apenas_numeros[8:16]
-    frios = apenas_numeros[16:22]
-    atrasados = apenas_numeros[22:]
-
     return {
-        "quentes": quentes,
-        "equilibrados": equilibrados,
-        "frios": frios,
-        "atrasados": atrasados
+        "quentes": apenas_numeros[:8],
+        "equilibrados": apenas_numeros[8:16],
+        "frios": apenas_numeros[16:22],
+        "atrasados": apenas_numeros[22:]
     }
-
 
 # =====================================================
 # PALPITE FIXO (1 VEZ POR DIA)
@@ -69,9 +92,10 @@ def classificar_numeros(historico=None):
 @lru_cache(maxsize=1)
 def _palpite_fixo_cache(data):
     """
-    Gera um único palpite por dia
+    Gera um único palpite fixo por dia
     """
-    grupos = classificar_numeros()
+    historico = carregar_historico()
+    grupos = classificar_numeros(historico)
 
     jogo = (
         _sortear(grupos["quentes"], 6) +
@@ -82,6 +106,7 @@ def _palpite_fixo_cache(data):
     jogo = list(set(jogo))
     universo = list(range(1, TOTAL_NUMEROS + 1))
 
+    # Completa até 15 números
     while len(jogo) < NUMEROS_POR_JOGO:
         n = random.choice(universo)
         if n not in jogo:
@@ -89,20 +114,21 @@ def _palpite_fixo_cache(data):
 
     return sorted(jogo)
 
-
 def gerar_palpite_fixo():
     """
-    Palpite fixo público – atualiza automaticamente 1x por dia
+    Palpite fixo público – atualizado automaticamente 1x por dia
     """
     hoje = datetime.date.today().isoformat()
     return _palpite_fixo_cache(hoje)
-
 
 # =====================================================
 # GERAÇÃO DOS 7 PALPITES (PASSO 2)
 # =====================================================
 
 def gerar_7_palpites(historico=None):
+    if historico is None:
+        historico = carregar_historico()
+
     grupos = classificar_numeros(historico)
 
     quentes = grupos["quentes"]
@@ -132,7 +158,6 @@ def gerar_7_palpites(historico=None):
 
         jogo = list(set(jogo))
 
-        # Completa até 15 números
         while len(jogo) < NUMEROS_POR_JOGO:
             n = random.choice(universo)
             if n not in jogo:
@@ -143,7 +168,7 @@ def gerar_7_palpites(historico=None):
             "numeros": sorted(jogo)
         })
 
-    # 💤 Palpite 7 – Atrasados
+    # Palpite 7 – Atrasados
     jogo7 = []
 
     for grupo in [atrasados, equilibrados, frios, quentes]:
@@ -153,7 +178,6 @@ def gerar_7_palpites(historico=None):
             if n not in jogo7:
                 jogo7.append(n)
 
-    # fallback extremo
     while len(jogo7) < NUMEROS_POR_JOGO:
         n = random.randint(1, TOTAL_NUMEROS)
         if n not in jogo7:
