@@ -1,0 +1,39 @@
+name: Atualizar histórico Lotofácil
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Todos os dias às 06:00 UTC (03:00 Brasil)
+  workflow_dispatch:
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 Instalar dependências
+        run: |
+          pip install pandas openpyxl requests
+
+      - name: 🔄 Atualizar histórico
+        run: python scripts/atualizar_historico.py
+
+      - name: 📤 Commit automático se houver mudanças
+        run: |
+          git config --local user.email "github-actions@github.com"
+          git config --local user.name "GitHub Actions"
+
+          git add data/historico_lotofacil.csv
+          git diff --cached --quiet || git commit -m "Atualiza histórico Lotofácil (auto)"
+
+      - name: 🚀 Push
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
