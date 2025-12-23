@@ -4,7 +4,7 @@ from app.services.estatisticas_services import (
 )
 
 # =====================================================
-# CONFIGURAÇÕES DE VALIDAÇÃO
+# REGRAS PADRÃO
 # =====================================================
 
 REGRAS_PADRAO = {
@@ -14,11 +14,11 @@ REGRAS_PADRAO = {
 }
 
 
-def validar_jogo(jogo, regras=REGRAS_PADRAO):
-    """
-    Valida um jogo com base em regras estatísticas fixas
-    """
+# =====================================================
+# VALIDAÇÃO SIMPLES
+# =====================================================
 
+def validar_jogo(jogo, regras=REGRAS_PADRAO):
     metricas = calcular_metricas_jogo(jogo)
 
     validacoes = {
@@ -27,20 +27,18 @@ def validar_jogo(jogo, regras=REGRAS_PADRAO):
         "sequencia_ok": metricas["maior_sequencia"] <= regras["sequencia_max"]
     }
 
-    aprovado = all(validacoes.values())
-
     return {
-        "aprovado": aprovado,
+        "aprovado": all(validacoes.values()),
         "metricas": metricas,
         "validacoes": validacoes
     }
 
 
-def validar_jogo_com_estatisticas(jogo):
-    """
-    Valida um jogo e adiciona contexto estatístico real
-    """
+# =====================================================
+# VALIDAÇÃO COM CONTEXTO REAL
+# =====================================================
 
+def validar_jogo_com_estatisticas(jogo):
     estatisticas = obter_estatisticas_base()
     resultado = validar_jogo(jogo)
 
@@ -57,17 +55,22 @@ def validar_jogo_com_estatisticas(jogo):
     resultado["contexto"] = {
         "frequencia_total": sum(mapa_freq[n] for n in jogo),
         "atraso_medio": round(
-            sum(mapa_atraso[n] for n in jogo) / len(jogo), 2
+            sum(mapa_atraso[n] for n in jogo if mapa_atraso[n] is not None) / len(jogo),
+            2
         )
     }
 
     return resultado
 
 
-def filtrar_jogos_validos(lista_jogos, minimo_validos=1):
+# =====================================================
+# FILTRO DE JOGOS (SEM FALLBACK)
+# =====================================================
+
+def filtrar_jogos_validos(lista_jogos):
     """
-    Filtra jogos aprovados estatisticamente.
-    Se não atingir o mínimo, lança erro (sem fallback falso).
+    Retorna SOMENTE jogos aprovados.
+    Se nenhum passar, retorna lista vazia.
     """
 
     validos = []
@@ -76,9 +79,6 @@ def filtrar_jogos_validos(lista_jogos, minimo_validos=1):
         r = validar_jogo(jogo)
         if r["aprovado"]:
             validos.append(jogo)
-
-    if len(validos) < minimo_validos:
-        raise RuntimeError("Nenhum jogo válido estatisticamente")
 
     return validos
 
