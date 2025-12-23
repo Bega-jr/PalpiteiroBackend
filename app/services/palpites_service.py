@@ -1,7 +1,11 @@
 import random
 import datetime
-from collections import Counter
 from functools import lru_cache
+
+from app.services.estatisticas_service import obter_estatisticas_base
+# futuramente:
+# from app.services.estatisticas_validator import validar_palpite
+
 
 # =====================================================
 # CONFIGURAÇÕES GERAIS
@@ -22,112 +26,94 @@ def _sortear(grupo, qtd):
 
 
 # =====================================================
-# CLASSIFICAÇÃO DOS NÚMEROS
+# CLASSIFICAÇÃO DOS NÚMEROS (BASE REAL DO CSV)
 # =====================================================
 
-def classificar_numeros(historico=None):
+def classificar_numeros():
     """
-    Classifica os números da Lotofácil em:
-    quentes, equilibrados, frios e atrasados
+    Classifica números com base em:
+    - frequência (quentes / equilibrados / frios)
+    - atraso real (atrasados)
     """
 
-    if not historico:
-        historico = []
+    df = obter_estatisticas_base()
 
-    contador = Counter()
-    for concurso in historico:
-        contador.update(concurso)
+    total = len(df)
 
-    todos = list(range(1, TOTAL_NUMEROS + 1))
+    # 🔥 percentuais reais
+    quentes = df.head(int(total * 0.30))["numero"].tolist()
+    equilibrados = df.iloc[int(total * 0.30):int(total * 0.70)]["numero"].tolist()
+    frios = df.tail(int(total * 0.30))["numero"].tolist()
 
-    frequencias = {n: contador.get(n, 0) for n in todos}
-
-    ordenados = sorted(
-        frequencias.items(),
-        key=lambda x: x[1],
-        reverse=True
+    atrasados = (
+        df.sort_values("atraso", ascending=False)
+        .head(8)["numero"]
+        .tolist()
     )
 
-    apenas_numeros = [n for n, _ in ordenados]
-
     return {
-        "quentes": apenas_numeros[:8],
-        "equilibrados": apenas_numeros[8:16],
-        "frios": apenas_numeros[16:22],
-        "atrasados": apenas_numeros[22:]
+        "quentes": quentes,
+        "equilibrados": equilibrados,
+        "frios": frios,
+        "atrasados": atrasados
     }
 
 
 # =====================================================
-# PALPITE FIXO (1 VEZ POR DIA)
+# PALPITE FIXO (CACHE DIÁRIO)
 # =====================================================
 
 @lru_cache(maxsize=1)
 def _palpite_fixo_cache(data):
     """
-    Gera um único palpite fixo por dia
+    Gera um único palpite por dia (cacheado)
     """
+
     grupos = classificar_numeros()
 
     jogo = (
-        _sortear(grupos["quentes"], 6)
-        + _sortear(grupos["equilibrados"], 5)
-        + _sortear(grupos["frios"], 4)
+        _sortear(grupos["quentes"], 6) +
+        _sortear(grupos["equilibrados"], 5) +
+        _sortear(grupos["frios"], 4)
     )
 
-    jogo = set(jogo)
+    jogo = list(set(jogo))
     universo = list(range(1, TOTAL_NUMEROS + 1))
 
     while len(jogo) < NUMEROS_POR_JOGO:
-        jogo.add(random.choice(universo))
+        n = random.choice(universo)
+        if n not in jogo:
+            jogo.append(n)
 
-    return sorted(jogo)
+    jogo = sorted(jogo)
+
+    # futuramente:
+    # if not validar_palpite(jogo):
+    #     return None
+
+    return jogo
 
 
 def gerar_palpite_fixo():
     """
-    Palpite fixo público – atualiza automaticamente 1x por dia
+    Palpite fixo público – atualiza 1x por dia
     """
     hoje = datetime.date.today().isoformat()
-    return _palpite_fixo_cache(hoje)
+    jogo = _palpite_fixo_cache(hoje)
+
+    # fallback extremo (não deve acontecer)
+    if not jogo:
+        jogo = sorted(random.sample(range(1, 26), 15))
+
+    return jogo
 
 
 # =====================================================
-# FECHAMENTO DOS PALPITES EQUILIBRADOS
+# GERAÇÃO DOS 7 PALPITES ESTATÍSTICOS
 # =====================================================
 
-def gerar_palpites_equilibrados_fechados(qtd=3):
-    """
-    Gera palpites equilibrados garantindo
-    cobertura total dos números (1–25)
-    """
-    todos = list(range(1, TOTAL_NUMEROS + 1))
-    random.shuffle(todos)
-
-    palpites = []
-    indice = 0
-
-    for i in range(qtd):
-        jogo = set()
-
-        while len(jogo) < NUMEROS_POR_JOGO:
-            jogo.add(todos[indice % TOTAL_NUMEROS])
-            indice += 1
-
-        palpites.append({
-            "nome": f"Palpite {i+3} - Equilibrado Fechado",
-            "numeros": sorted(jogo)
-        })
-
-    return palpites
-
-
-# =====================================================
-# GERAÇÃO DOS 7 PALPITES (PASSO 2 + FECHAMENTO)
-# =====================================================
-
-def gerar_7_palpites(historico=None):
-    grupos = classificar_numeros(historico)
+def gerar_7_palpites():
+    grupos = classificar_numeros()
 
     quentes = grupos["quentes"]
     equilibrados = grupos["equilibrados"]
@@ -136,54 +122,56 @@ def gerar_7_palpites(historico=None):
 
     palpites = []
 
-    # 🔥 Palpites quentes
-    configuracoes_quentes = [
+    configuracoes = [
         ("Palpite 1 - Muito Quente", 8, 5, 2),
         ("Palpite 2 - Quente", 7, 6, 2),
+        ("Palpite 3 - Equilibrado Quente", 5, 7, 3),
+        ("Palpite 4 - Equilibrado Frio", 4, 6, 5),
+        ("Palpite 5 - Frio", 3, 4, 8),
+        ("Palpite 6 - Muito Frio", 2, 3, 10),
     ]
 
     universo = list(set(quentes + equilibrados + frios + atrasados))
-    if not universo:
-        universo = list(range(1, TOTAL_NUMEROS + 1))
 
-    for nome, q, e, f in configuracoes_quentes:
-        jogo = (
-            _sortear(quentes, q)
-            + _sortear(equilibrados, e)
-            + _sortear(frios, f)
-        )
+    for nome, q, e, f in configuracoes:
+        tentativas = 0
 
-        jogo = set(jogo)
+        while True:
+            tentativas += 1
 
-        while len(jogo) < NUMEROS_POR_JOGO:
-            jogo.add(random.choice(universo))
+            jogo = (
+                _sortear(quentes, q) +
+                _sortear(equilibrados, e) +
+                _sortear(frios, f)
+            )
+
+            jogo = list(set(jogo))
+
+            while len(jogo) < NUMEROS_POR_JOGO:
+                n = random.choice(universo)
+                if n not in jogo:
+                    jogo.append(n)
+
+            jogo = sorted(jogo)
+
+            # futuramente:
+            # if validar_palpite(jogo):
+            #     break
+
+            break  # por enquanto aceita direto
+
+            if tentativas > 30:
+                break
 
         palpites.append({
             "nome": nome,
-            "numeros": sorted(jogo)
+            "numeros": jogo
         })
 
-    # ⚖️ Palpites equilibrados com FECHAMENTO
-    palpites.extend(gerar_palpites_equilibrados_fechados(3))
+    # =================================================
+    # PALPITE 7 – ATRASADOS (PURO)
+    # =================================================
 
-    # ❄️ Palpite frio
-    jogo_frio = (
-        _sortear(frios, 8)
-        + _sortear(equilibrados, 4)
-        + _sortear(quentes, 3)
-    )
-
-    jogo_frio = set(jogo_frio)
-
-    while len(jogo_frio) < NUMEROS_POR_JOGO:
-        jogo_frio.add(random.choice(universo))
-
-    palpites.append({
-        "nome": "Palpite 6 - Frio",
-        "numeros": sorted(jogo_frio)
-    })
-
-    # 💤 Palpite atrasados
     jogo7 = []
 
     for grupo in [atrasados, equilibrados, frios, quentes]:
@@ -193,6 +181,7 @@ def gerar_7_palpites(historico=None):
             if n not in jogo7:
                 jogo7.append(n)
 
+    # fallback extremo
     while len(jogo7) < NUMEROS_POR_JOGO:
         n = random.randint(1, TOTAL_NUMEROS)
         if n not in jogo7:
