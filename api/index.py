@@ -1,14 +1,7 @@
 from fastapi import FastAPI
+from app.routes.health import router as health_router
+from app.routes.estatisticas import router as estatisticas_router
 
-app = FastAPI(
-    title="Palpiteiro Backend",
-    version="1.0.0"
-)
-
-@app.get("/")
-def root():
-    return {"status": "ok"}
-
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
+app = FastAPI()
+app.include_router(health_router)
+app.include_router(estatisticas_router)
