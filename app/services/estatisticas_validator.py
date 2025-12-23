@@ -14,13 +14,9 @@ REGRAS_PADRAO = {
 }
 
 
-# =====================================================
-# VALIDAÇÃO PRINCIPAL
-# =====================================================
-
 def validar_jogo(jogo, regras=REGRAS_PADRAO):
     """
-    Valida um jogo estatisticamente com base em regras configuráveis
+    Valida um jogo com base em regras estatísticas fixas
     """
 
     metricas = calcular_metricas_jogo(jogo)
@@ -40,20 +36,13 @@ def validar_jogo(jogo, regras=REGRAS_PADRAO):
     }
 
 
-# =====================================================
-# VALIDAÇÃO COM CONTEXTO ESTATÍSTICO
-# =====================================================
-
 def validar_jogo_com_estatisticas(jogo):
     """
-    Valida o jogo e adiciona contexto estatístico (frequência e atraso)
+    Valida um jogo e adiciona contexto estatístico real
     """
 
     estatisticas = obter_estatisticas_base()
     resultado = validar_jogo(jogo)
-
-    if estatisticas is None or estatisticas.empty:
-        return resultado
 
     mapa_freq = dict(zip(
         estatisticas["numero"],
@@ -65,43 +54,31 @@ def validar_jogo_com_estatisticas(jogo):
         estatisticas["atraso"]
     ))
 
-    freq_total = sum(mapa_freq.get(n, 0) for n in jogo)
-    atraso_medio = round(
-        sum(mapa_atraso.get(n, 0) for n in jogo) / len(jogo), 2
-    )
-
     resultado["contexto"] = {
-        "frequencia_total": freq_total,
-        "atraso_medio": atraso_medio
+        "frequencia_total": sum(mapa_freq[n] for n in jogo),
+        "atraso_medio": round(
+            sum(mapa_atraso[n] for n in jogo) / len(jogo), 2
+        )
     }
 
     return resultado
 
 
-# =====================================================
-# VALIDAÇÃO EM LOTE
-# =====================================================
-
 def filtrar_jogos_validos(lista_jogos, minimo_validos=1):
     """
-    Filtra jogos válidos a partir de uma lista
+    Filtra jogos aprovados estatisticamente.
+    Se não atingir o mínimo, lança erro (sem fallback falso).
     """
 
     validos = []
-    rejeitados = []
 
     for jogo in lista_jogos:
         r = validar_jogo(jogo)
         if r["aprovado"]:
             validos.append(jogo)
-        else:
-            rejeitados.append({
-                "jogo": jogo,
-                "motivo": r["validacoes"]
-            })
 
-    # fallback de segurança
     if len(validos) < minimo_validos:
-        return lista_jogos[:minimo_validos]
+        raise RuntimeError("Nenhum jogo válido estatisticamente")
 
     return validos
+
