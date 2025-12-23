@@ -18,11 +18,3 @@ def validar_jogo(jogo, regras=REGRAS_PADRAO):
         ),
         "metricas": metricas
     }
-
-
-def filtrar_jogos_validos(lista_jogos):
-    return [
-        jogo for jogo in lista_jogos
-        if validar_jogo(jogo)["aprovado"]
-    ]
-
