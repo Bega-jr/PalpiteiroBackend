@@ -1,7 +1,6 @@
 from app.services.estatisticas_service import calcular_metricas_jogo
 
 NUMEROS_POR_JOGO = 15
-SCORE_MINIMO = 0.30  # ajuste fino depois se quiser
 
 
 def validar_estrutura(jogo):
@@ -14,36 +13,31 @@ def validar_estrutura(jogo):
     }
 
 
-def penalidade_sequencia(maior_sequencia):
-    """
-    Penalização progressiva por sequências longas
-    """
-    if maior_sequencia <= 4:
+def calcular_penalidade_sequencia(maior_seq):
+    if maior_seq <= 5:
         return 0.0
-    elif maior_sequencia == 5:
-        return 0.05
-    elif maior_sequencia == 6:
-        return 0.10
-    else:  # 7 ou mais
-        return 0.20
+    if maior_seq <= 7:
+        return 0.1
+    return 0.2
 
 
-def validar_jogo(jogo, score_base=0.5):
+def validar_jogo(jogo):
     metricas = calcular_metricas_jogo(jogo)
 
-    # Penalidade por sequência
-    penalidade = penalidade_sequencia(metricas["maior_sequencia"])
-    score_final = max(0, score_base - penalidade)
+    penalidade_seq = calcular_penalidade_sequencia(metricas["maior_sequencia"])
+
+    score_base = 0.5
+    score_final = max(0, score_base - penalidade_seq)
 
     aprovado = (
         170 <= metricas["soma"] <= 210
         and 6 <= metricas["pares"] <= 9
-        and score_final >= SCORE_MINIMO
+        and score_final >= 0.3
     )
 
     return {
         "aprovado": aprovado,
         "metricas": metricas,
-        "score_final": round(score_final, 3),
-        "penalidade_sequencia": penalidade
+        "score_final": score_final,
+        "penalidade_sequencia": penalidade_seq
     }
