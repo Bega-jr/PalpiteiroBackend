@@ -12,39 +12,31 @@ from app.services.estatisticas_validator import (
 )
 
 # =====================================================
-# CONFIGURAÇÕES GERAIS
+# CONFIGURAÇÕES
 # =====================================================
 
 TOTAL_NUMEROS = 25
 NUMEROS_POR_JOGO = 15
 QTD_FIXOS = 7
-MODO_PADRAO = "free"  # free | vip
 
 SIMILARIDADE_MAXIMA = 9
 SCORE_MINIMO = 0.35
 
-
-# =====================================================
-# CLASSIFICAÇÃO ORIGINAL (BACKUP SEGURO)
-# =====================================================
-
-def classificar_numeros_basico():
-    estatisticas = obter_estatisticas_base()
-
-    return {
-        "quentes": estatisticas.head(8)["numero"].tolist(),
-        "equilibrados": estatisticas.iloc[8:16]["numero"].tolist(),
-        "frios": estatisticas.iloc[16:22]["numero"].tolist()
-    }
+MODO_PADRAO = "free"  # free | vip
 
 
 # =====================================================
-# CLASSIFICAÇÃO COM SCORE (FREQ + ATRASO)
+# CLASSIFICAÇÃO (FREQ + ATRASO)
 # =====================================================
+
+@lru_cache(maxsize=1)
+def _estatisticas_com_score_cache():
+    return obter_estatisticas_com_score()
+
 
 def classificar_numeros():
     try:
-        estatisticas = obter_estatisticas_com_score()
+        estatisticas = _estatisticas_com_score_cache()
 
         return {
             "topo": estatisticas.head(10)["numero"].tolist(),
@@ -52,38 +44,44 @@ def classificar_numeros():
             "base": estatisticas.iloc[18:25]["numero"].tolist()
         }
     except Exception:
-        # fallback absoluto
-        return classificar_numeros_basico()
+        estatisticas = obter_estatisticas_base()
+        return {
+            "topo": estatisticas.head(8)["numero"].tolist(),
+            "meio": estatisticas.iloc[8:16]["numero"].tolist(),
+            "base": estatisticas.iloc[16:25]["numero"].tolist()
+        }
 
 
 # =====================================================
-# FIXOS (INTELIGENTES + TRAVADOS)
+# FIXOS INTELIGENTES (ROBUSTO)
 # =====================================================
 
 def gerar_fixos(grupos):
+    candidatos = []
+
     try:
-        fixos = (
-            random.sample(grupos["topo"], 4) +
-            random.sample(grupos["meio"], 2) +
-            random.sample(grupos["base"], 1)
-        )
+        candidatos.extend(random.sample(grupos["topo"], min(4, len(grupos["topo"]))))
+        candidatos.extend(random.sample(grupos["meio"], min(2, len(grupos["meio"]))))
+        candidatos.extend(random.sample(grupos["base"], min(1, len(grupos["base"]))))
     except Exception:
-        fixos = (
-            random.sample(grupos["quentes"], 3) +
-            random.sample(grupos["equilibrados"], 2) +
-            random.sample(grupos["frios"], 2)
-        )
+        pass
 
-    fixos = sorted(set(fixos))
+    # Fallback absoluto se algo falhar
+    while len(set(candidatos)) < QTD_FIXOS:
+        candidatos.append(random.randint(1, TOTAL_NUMEROS))
 
-    if len(fixos) != QTD_FIXOS:
-        raise RuntimeError("Falha ao gerar fixos")
+    fixos = sorted(set(candidatos))[:QTD_FIXOS]
 
-    return fixos
+    # Garantia final
+    if len(fixos) < QTD_FIXOS:
+        universo = list(set(range(1, 26)) - set(fixos))
+        fixos.extend(random.sample(universo, QTD_FIXOS - len(fixos)))
+
+    return sorted(fixos)
 
 
 # =====================================================
-# FUNÇÕES DE DIVERSIDADE E SCORE
+# DIVERSIDADE
 # =====================================================
 
 def similaridade(jogo_a, jogo_b):
@@ -97,14 +95,23 @@ def jogo_diverso(jogo, palpites_existentes):
     return True
 
 
+# =====================================================
+# SCORE MÉDIO
+# =====================================================
+
+@lru_cache(maxsize=1)
+def _score_map_cache():
+    df = _estatisticas_com_score_cache()
+    return dict(zip(df["numero"], df["score"]))
+
+
 def score_medio_jogo(jogo):
-    df = obter_estatisticas_com_score()
-    score_map = dict(zip(df["numero"], df["score"]))
+    score_map = _score_map_cache()
     return sum(score_map.get(n, 0) for n in jogo) / len(jogo)
 
 
 # =====================================================
-# PALPITE FIXO DIÁRIO (CACHE)
+# PALPITE FIXO DIÁRIO
 # =====================================================
 
 @lru_cache(maxsize=1)
@@ -113,11 +120,7 @@ def _palpite_fixo_cache(data):
     fixos = gerar_fixos(grupos)
 
     universo = list(set(range(1, 26)) - set(fixos))
-
-    complemento = random.sample(
-        universo,
-        NUMEROS_POR_JOGO - len(fixos)
-    )
+    complemento = random.sample(universo, NUMEROS_POR_JOGO - len(fixos))
 
     jogo = sorted(fixos + complemento)
 
@@ -149,15 +152,17 @@ def ajustar_cobertura(palpites):
     for n in faltantes:
         for p in palpites:
             for i in range(len(p["numeros"])):
-                p["numeros"][i] = n
-                break
+                if p["numeros"][i] not in usados:
+                    p["numeros"][i] = n
+                    usados.add(n)
+                    break
             break
 
     return palpites
 
 
 # =====================================================
-# PALPITES ESTATÍSTICOS (FREE / VIP)
+# GERADOR DE 7 PALPITES
 # =====================================================
 
 def gerar_7_palpites(modo=MODO_PADRAO):
@@ -165,16 +170,12 @@ def gerar_7_palpites(modo=MODO_PADRAO):
     palpites = []
 
     tentativas = 0
-    while len(palpites) < 7 and tentativas < 80:
+    while len(palpites) < 7 and tentativas < 120:
         tentativas += 1
 
         fixos = gerar_fixos(grupos)
         universo = list(set(range(1, 26)) - set(fixos))
-
-        complemento = random.sample(
-            universo,
-            NUMEROS_POR_JOGO - len(fixos)
-        )
+        complemento = random.sample(universo, NUMEROS_POR_JOGO - len(fixos))
 
         jogo = sorted(fixos + complemento)
 
@@ -182,7 +183,7 @@ def gerar_7_palpites(modo=MODO_PADRAO):
         estatistica = validar_jogo(jogo)
 
         if modo == "free":
-            if not estatistica["aprovado"]:
+            if not estatistica.get("aprovado", False):
                 continue
             if estrutura["faltantes"] > 0 or estrutura["repetidos"]:
                 continue
