@@ -63,9 +63,9 @@ def classificar_numeros():
 def gerar_fixos(grupos):
     try:
         fixos = (
-            random.sample(grupos["topo"], 3) +
+            random.sample(grupos["topo"], 4) +
             random.sample(grupos["meio"], 2) +
-            random.sample(grupos["base"], 2)
+            random.sample(grupos["base"], 1)
         )
     except Exception:
         fixos = (
