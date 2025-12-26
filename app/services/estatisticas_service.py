@@ -48,19 +48,27 @@ def obter_estatisticas_com_score(
     peso_frequencia=0.6,
     peso_atraso=0.4
 ):
-    df = obter_estatisticas_base()
+    df = obter_estatisticas_base().copy()
 
+    # ===============================
     # Normalização segura (0–1)
+    # ===============================
+    freq_min, freq_max = df["frequencia"].min(), df["frequencia"].max()
+    atraso_min, atraso_max = df["atraso"].min(), df["atraso"].max()
+
     df["freq_norm"] = (
-        (df["frequencia"] - df["frequencia"].min()) /
-        (df["frequencia"].max() - df["frequencia"].min())
+        (df["frequencia"] - freq_min) / (freq_max - freq_min)
+        if freq_max != freq_min else 0
     )
 
     df["atraso_norm"] = (
-        (df["atraso"] - df["atraso"].min()) /
-        (df["atraso"].max() - df["atraso"].min())
+        (df["atraso"] - atraso_min) / (atraso_max - atraso_min)
+        if atraso_max != atraso_min else 0
     )
 
+    # ===============================
+    # SCORE FINAL
+    # ===============================
     df["score"] = (
         df["freq_norm"] * peso_frequencia +
         df["atraso_norm"] * peso_atraso
