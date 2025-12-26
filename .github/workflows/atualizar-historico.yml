@@ -8,6 +8,9 @@ on:
 jobs:
   atualizar:
     runs-on: ubuntu-latest
+    # Adicionado para dar permissão de escrita ao bot
+    permissions:
+      contents: write
 
     steps:
       - name: 📥 Checkout do repositório
@@ -28,12 +31,18 @@ jobs:
       - name: 📤 Commit automático se houver mudanças
         run: |
           git config --local user.email "github-actions@github.com"
-          git config --local user.name "GitHub Actions"
+          git config --local user.name "github-actions[bot]"
 
-          git add data/historico_lotofácil.csv
-          git diff --cached --quiet || git commit -m "Atualiza histórico Lotofácil (auto)"
+          # Verifica se o arquivo existe antes de adicionar para evitar erro de "pathspec"
+          if [ -f "data/historico_lotofácil.csv" ]; then
+            git add data/historico_lotofácil.csv
+            git diff --cached --quiet || git commit -m "Atualiza histórico Lotofácil (auto)"
+          else
+            echo "Arquivo não encontrado, pulando commit."
+          fi
 
       - name: 🚀 Push
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
