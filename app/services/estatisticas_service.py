@@ -3,12 +3,11 @@ from app.services.lotofacil_service import load_lotofacil_data
 
 
 # =====================================================
-# ESTATÍSTICAS BASE (DADOS REAIS)
+# ESTATÍSTICAS BASE
 # =====================================================
 
 def obter_estatisticas_base():
     df = load_lotofacil_data()
-
     dezenas = [f"bola{i}" for i in range(1, 16)]
 
     frequencia = (
@@ -23,36 +22,25 @@ def obter_estatisticas_base():
         "frequencia": frequencia.values
     })
 
-    ultimo_concurso = df["concurso"].max()
+    ultimo_concurso = int(df["concurso"].max())
     atraso = {}
 
     for n in range(1, 26):
         ult = df[df[dezenas].isin([n]).any(axis=1)]["concurso"].max()
-        atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else int(ultimo_concurso)
+        atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else ultimo_concurso
 
     freq_df["atraso"] = freq_df["numero"].map(atraso)
 
-    return (
-        freq_df
-        .sort_values("frequencia", ascending=False)
-        .reset_index(drop=True)
-    )
+    return freq_df.sort_values("frequencia", ascending=False).reset_index(drop=True)
 
 
 # =====================================================
-# SCORE COMBINADO (FREQUÊNCIA + ATRASO)
-# ⚠️ NOVO – NÃO QUEBRA NADA
+# SCORE COMBINADO (FREQ + ATRASO)
 # =====================================================
 
-def obter_estatisticas_com_score(
-    peso_frequencia=0.6,
-    peso_atraso=0.4
-):
+def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
     df = obter_estatisticas_base().copy()
 
-    # ===============================
-    # Normalização segura (0–1)
-    # ===============================
     freq_min, freq_max = df["frequencia"].min(), df["frequencia"].max()
     atraso_min, atraso_max = df["atraso"].min(), df["atraso"].max()
 
@@ -66,9 +54,6 @@ def obter_estatisticas_com_score(
         if atraso_max != atraso_min else 0
     )
 
-    # ===============================
-    # SCORE FINAL
-    # ===============================
     df["score"] = (
         df["freq_norm"] * peso_frequencia +
         df["atraso_norm"] * peso_atraso
@@ -87,9 +72,7 @@ def calcular_metricas_jogo(jogo):
     soma = sum(jogo)
     pares = len([n for n in jogo if n % 2 == 0])
 
-    maior_seq = 1
-    seq = 1
-
+    maior_seq = seq = 1
     for i in range(1, len(jogo)):
         if jogo[i] == jogo[i - 1] + 1:
             seq += 1
@@ -103,3 +86,4 @@ def calcular_metricas_jogo(jogo):
         "impares": len(jogo) - pares,
         "maior_sequencia": maior_seq
     }
+
