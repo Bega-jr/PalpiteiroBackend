@@ -30,7 +30,7 @@ jobs:
           git config --local user.email "github-actions@github.com"
           git config --local user.name "GitHub Actions"
 
-          git add data/historico_lotofacil.csv
+          git add data/historico_lotofácil.csv
           git diff --cached --quiet || git commit -m "Atualiza histórico Lotofácil (auto)"
 
       - name: 🚀 Push
