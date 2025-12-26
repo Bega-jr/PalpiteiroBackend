@@ -2,7 +2,7 @@ import random
 import datetime
 from functools import lru_cache
 
-from app.services.estatisticas_services import obter_estatisticas_base
+from app.services.estatisticas_service import obter_estatisticas_base
 from app.services.estatisticas_validator import (
     validar_jogo,
     validar_estrutura
