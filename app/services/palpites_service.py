@@ -130,6 +130,11 @@ def _palpite_fixo_cache(data):
     if estrutura["faltantes"] > 0 or estrutura["repetidos"]:
         raise RuntimeError("Falha estrutural no palpite fixo")
 
+    registrar_jogo(
+    tipo="fixo",
+    numeros=jogo)
+
+
     return jogo
 
 
