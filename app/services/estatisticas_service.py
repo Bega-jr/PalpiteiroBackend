@@ -40,6 +40,36 @@ def obter_estatisticas_base():
 
 
 # =====================================================
+# SCORE COMBINADO (FREQUÊNCIA + ATRASO)
+# ⚠️ NOVO – NÃO QUEBRA NADA
+# =====================================================
+
+def obter_estatisticas_com_score(
+    peso_frequencia=0.6,
+    peso_atraso=0.4
+):
+    df = obter_estatisticas_base()
+
+    # Normalização segura (0–1)
+    df["freq_norm"] = (
+        (df["frequencia"] - df["frequencia"].min()) /
+        (df["frequencia"].max() - df["frequencia"].min())
+    )
+
+    df["atraso_norm"] = (
+        (df["atraso"] - df["atraso"].min()) /
+        (df["atraso"].max() - df["atraso"].min())
+    )
+
+    df["score"] = (
+        df["freq_norm"] * peso_frequencia +
+        df["atraso_norm"] * peso_atraso
+    )
+
+    return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+# =====================================================
 # MÉTRICAS DE UM JOGO
 # =====================================================
 
