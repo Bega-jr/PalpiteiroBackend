@@ -10,11 +10,9 @@ router = APIRouter(
 def estatisticas():
     try:
         df = load_lotofacil_data()
-
         bolas = [f"bola{i}" for i in range(1, 16)]
         total_concursos = len(df)
 
-        # Frequência dos números
         frequencia = (
             df[bolas]
             .stack()
@@ -26,13 +24,12 @@ def estatisticas():
         numero_mais_sorteado = max(frequencia, key=frequencia.get)
         numero_menos_sorteado = min(frequencia, key=frequencia.get)
 
-        # Atraso dos números
         ultimo_concurso = int(df["concurso"].max())
         atraso = {}
 
         for n in range(1, 26):
-            concursos_numero = df[df[bolas].isin([n]).any(axis=1)]["concurso"]
-            atraso[n] = int(ultimo_concurso - concursos_numero.max())
+            concursos = df[df[bolas].isin([n]).any(axis=1)]["concurso"]
+            atraso[n] = int(ultimo_concurso - concursos.max())
 
         return {
             "status": "ok",
@@ -48,4 +45,3 @@ def estatisticas():
             status_code=500,
             detail=f"Erro ao gerar estatísticas: {str(e)}"
         )
-
