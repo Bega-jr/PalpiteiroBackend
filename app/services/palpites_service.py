@@ -49,7 +49,7 @@ def classificar_numeros():
         return {
             "topo": estatisticas.head(10)["numero"].tolist(),
             "meio": estatisticas.iloc[10:18]["numero"].tolist(),
-            "base": estatisticas.iloc[18:25)["numero"].tolist()
+            "base": estatisticas.iloc[18:25]["numero"].tolist()
         }
     except Exception:
         # fallback absoluto
