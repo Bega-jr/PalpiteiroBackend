@@ -208,5 +208,14 @@ def gerar_7_palpites(modo=MODO_PADRAO):
             "estatistica": estatistica,
             "score_medio": round(score_medio, 3)
         })
+        palpites.append(registro)
+
+        registrar_jogo(
+            tipo="estatistico",
+            numeros=jogo,
+            score_medio=registro["score_medio"],
+            score_final=estatistica.get("score_final"),
+            penalidade_sequencia=estatistica.get("penalidade_sequencia")
+        )
 
     return ajustar_cobertura(palpites)
