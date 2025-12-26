@@ -4,17 +4,17 @@ from datetime import datetime
 
 
 class JogoHistorico(BaseModel):
-    concurso: int
+    id: str
+    data: datetime
     tipo: str  # fixo | estatistico
     numeros: List[int]
-    acertos: int
-    valor_aposta: float
-    valor_premio: float
-    roi: float
 
     score_medio: Optional[float] = None
     score_final: Optional[float] = None
     penalidade_sequencia: Optional[float] = None
-    metricas: Optional[dict] = None
 
-    data_registro: datetime = datetime.utcnow()
+    concurso_referente: Optional[int] = None
+    acertos: Optional[int] = None
+
+    valor_aposta: float = 3.0
+    premio: float = 0.0
