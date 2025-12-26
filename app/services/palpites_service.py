@@ -1,6 +1,8 @@
 import random
 import datetime
 from functools import lru_cache
+from app.services.historico_service import registrar_jogo
+
 
 from app.services.estatisticas_service import (
     obter_estatisticas_base,
