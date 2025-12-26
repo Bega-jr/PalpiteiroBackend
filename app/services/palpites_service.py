@@ -20,6 +20,9 @@ NUMEROS_POR_JOGO = 15
 QTD_FIXOS = 7
 MODO_PADRAO = "free"  # free | vip
 
+SIMILARIDADE_MAXIMA = 9
+SCORE_MINIMO = 0.35
+
 
 # =====================================================
 # CLASSIFICAÇÃO ORIGINAL (BACKUP SEGURO)
@@ -36,7 +39,7 @@ def classificar_numeros_basico():
 
 
 # =====================================================
-# CLASSIFICAÇÃO COM SCORE (NOVA – SEGURA)
+# CLASSIFICAÇÃO COM SCORE (FREQ + ATRASO)
 # =====================================================
 
 def classificar_numeros():
@@ -46,10 +49,10 @@ def classificar_numeros():
         return {
             "topo": estatisticas.head(10)["numero"].tolist(),
             "meio": estatisticas.iloc[10:18]["numero"].tolist(),
-            "base": estatisticas.iloc[18:25]["numero"].tolist()
+            "base": estatisticas.iloc[18:25)["numero"].tolist()
         }
     except Exception:
-        # fallback absoluto (não quebra nada)
+        # fallback absoluto
         return classificar_numeros_basico()
 
 
@@ -64,8 +67,7 @@ def gerar_fixos(grupos):
             random.sample(grupos["meio"], 2) +
             random.sample(grupos["base"], 2)
         )
-    except KeyError:
-        # fallback antigo
+    except Exception:
         fixos = (
             random.sample(grupos["quentes"], 3) +
             random.sample(grupos["equilibrados"], 2) +
@@ -81,6 +83,27 @@ def gerar_fixos(grupos):
 
 
 # =====================================================
+# FUNÇÕES DE DIVERSIDADE E SCORE
+# =====================================================
+
+def similaridade(jogo_a, jogo_b):
+    return len(set(jogo_a) & set(jogo_b))
+
+
+def jogo_diverso(jogo, palpites_existentes):
+    for p in palpites_existentes:
+        if similaridade(jogo, p["numeros"]) > SIMILARIDADE_MAXIMA:
+            return False
+    return True
+
+
+def score_medio_jogo(jogo):
+    df = obter_estatisticas_com_score()
+    score_map = dict(zip(df["numero"], df["score"]))
+    return sum(score_map.get(n, 0) for n in jogo) / len(jogo)
+
+
+# =====================================================
 # PALPITE FIXO DIÁRIO (CACHE)
 # =====================================================
 
@@ -89,9 +112,7 @@ def _palpite_fixo_cache(data):
     grupos = classificar_numeros()
     fixos = gerar_fixos(grupos)
 
-    universo = list(
-        set(range(1, 26)) - set(fixos)
-    )
+    universo = list(set(range(1, 26)) - set(fixos))
 
     complemento = random.sample(
         universo,
@@ -113,6 +134,29 @@ def gerar_palpite_fixo():
 
 
 # =====================================================
+# AJUSTE DE COBERTURA DOS 25 NÚMEROS
+# =====================================================
+
+def ajustar_cobertura(palpites):
+    usados = set()
+    for p in palpites:
+        usados.update(p["numeros"])
+
+    faltantes = set(range(1, 26)) - usados
+    if not faltantes:
+        return palpites
+
+    for n in faltantes:
+        for p in palpites:
+            for i in range(len(p["numeros"])):
+                p["numeros"][i] = n
+                break
+            break
+
+    return palpites
+
+
+# =====================================================
 # PALPITES ESTATÍSTICOS (FREE / VIP)
 # =====================================================
 
@@ -121,14 +165,11 @@ def gerar_7_palpites(modo=MODO_PADRAO):
     palpites = []
 
     tentativas = 0
-    while len(palpites) < 7 and tentativas < 50:
+    while len(palpites) < 7 and tentativas < 80:
         tentativas += 1
 
         fixos = gerar_fixos(grupos)
-
-        universo = list(
-            set(range(1, 26)) - set(fixos)
-        )
+        universo = list(set(range(1, 26)) - set(fixos))
 
         complemento = random.sample(
             universo,
@@ -146,10 +187,18 @@ def gerar_7_palpites(modo=MODO_PADRAO):
             if estrutura["faltantes"] > 0 or estrutura["repetidos"]:
                 continue
 
+        score_medio = score_medio_jogo(jogo)
+        if score_medio < SCORE_MINIMO:
+            continue
+
+        if not jogo_diverso(jogo, palpites):
+            continue
+
         palpites.append({
             "status": "ok",
             "numeros": jogo,
-            "estatistica": estatistica
+            "estatistica": estatistica,
+            "score_medio": round(score_medio, 3)
         })
 
-    return palpites
+    return ajustar_cobertura(palpites)
