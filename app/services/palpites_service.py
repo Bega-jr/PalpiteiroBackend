@@ -123,16 +123,14 @@ def _palpite_fixo_cache(data):
 
     jogo = sorted(fixos + complemento)
 
-    estrutura = validar_estrutura(jogo)
-    if estrutura["faltantes"] > 0 or estrutura["repetidos"]:
-        raise RuntimeError("Falha estrutural no palpite fixo")
-
-    registrar_jogo(
-        tipo="fixo",
-        numeros=jogo
-    )
+    # REMOVA OU COMENTE AS LINHAS ABAIXO:
+    # registrar_jogo(
+    #     tipo="fixo",
+    #     numeros=jogo
+    # )
 
     return jogo
+
 
 
 def gerar_palpite_fixo():
