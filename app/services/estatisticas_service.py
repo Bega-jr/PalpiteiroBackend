@@ -27,7 +27,7 @@ def obter_estatisticas_base():
     })
 
     # -----------------------------
-    # ATRASO
+    # ATRASO (baseado em ordem temporal)
     # -----------------------------
     df["concurso"] = pd.to_datetime(df["data"]).rank(method="dense").astype(int)
     ultimo_concurso = df["concurso"].max()
@@ -35,7 +35,7 @@ def obter_estatisticas_base():
     atraso = {}
     for n in range(1, 26):
         ult = df[df["numeros"] == n]["concurso"].max()
-        atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else ultimo_concurso
+        atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else int(ultimo_concurso)
 
     freq_df["atraso"] = freq_df["numero"].map(atraso)
 
@@ -43,7 +43,7 @@ def obter_estatisticas_base():
 
 
 # =====================================================
-# SCORE COMBINADO
+# SCORE COMBINADO (NORMALIZADO)
 # =====================================================
 
 def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
@@ -52,8 +52,15 @@ def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
     fmin, fmax = df["frequencia"].min(), df["frequencia"].max()
     amin, amax = df["atraso"].min(), df["atraso"].max()
 
-    df["freq_norm"] = (df["frequencia"] - fmin) / (fmax - fmin) if fmax != fmin else 0
-    df["atraso_norm"] = (df["atraso"] - amin) / (amax - amin) if amax != amin else 0
+    df["freq_norm"] = (
+        (df["frequencia"] - fmin) / (fmax - fmin)
+        if fmax != fmin else 0
+    )
+
+    df["atraso_norm"] = (
+        (df["atraso"] - amin) / (amax - amin)
+        if amax != amin else 0
+    )
 
     df["score"] = (
         df["freq_norm"] * peso_frequencia +
@@ -61,6 +68,44 @@ def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
     )
 
     return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+# =====================================================
+# SCORE ADAPTATIVO (APRENDIZADO REAL)
+# =====================================================
+
+def obter_estatisticas_adaptativas():
+    historico = _carregar_historico()
+    if not historico:
+        return obter_estatisticas_com_score()
+
+    df_hist = pd.DataFrame(historico)
+    df_hist = df_hist.explode("numeros")
+    df_hist["numeros"] = df_hist["numeros"].astype(int)
+
+    df_hist["peso"] = (
+        df_hist.get("acertos", 0).fillna(0) * 0.6 +
+        df_hist.get("score_final", 0).fillna(0) * 0.4
+    )
+
+    aprendizado = (
+        df_hist.groupby("numeros")["peso"]
+        .mean()
+        .reset_index()
+        .rename(columns={"numeros": "numero"})
+    )
+
+    base = obter_estatisticas_com_score()
+
+    base = base.merge(aprendizado, on="numero", how="left")
+    base["peso"] = base["peso"].fillna(0)
+
+    base["score_adaptativo"] = (
+        base["score"] * 0.7 +
+        base["peso"] * 0.3
+    )
+
+    return base.sort_values("score_adaptativo", ascending=False).reset_index(drop=True)
 
 
 # =====================================================
