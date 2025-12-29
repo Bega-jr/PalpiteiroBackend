@@ -1,47 +1,38 @@
 from fastapi import APIRouter, HTTPException
-from app.services.lotofacil_service import load_lotofacil_data
+from app.services.estatisticas_service import (
+    obter_estatisticas_base,
+    obter_estatisticas_com_score
+)
 
 router = APIRouter(
     prefix="/estatisticas",
     tags=["Estatísticas"]
 )
 
-@router.get("/")
-def estatisticas():
+
+@router.get("/base")
+def estatisticas_base():
     try:
-        df = load_lotofacil_data()
-        bolas = [f"bola{i}" for i in range(1, 16)]
-        total_concursos = len(df)
-
-        frequencia = (
-            df[bolas]
-            .stack()
-            .value_counts()
-            .sort_index()
-            .to_dict()
-        )
-
-        numero_mais_sorteado = max(frequencia, key=frequencia.get)
-        numero_menos_sorteado = min(frequencia, key=frequencia.get)
-
-        ultimo_concurso = int(df["concurso"].max())
-        atraso = {}
-
-        for n in range(1, 26):
-            concursos = df[df[bolas].isin([n]).any(axis=1)]["concurso"]
-            atraso[n] = int(ultimo_concurso - concursos.max())
-
         return {
             "status": "ok",
-            "total_concursos": total_concursos,
-            "frequencia": frequencia,
-            "numero_mais_sorteado": numero_mais_sorteado,
-            "numero_menos_sorteado": numero_menos_sorteado,
-            "atraso": atraso
+            "dados": obter_estatisticas_base().to_dict(orient="records")
         }
-
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Erro ao gerar estatísticas: {str(e)}"
+            detail=str(e)
+        )
+
+
+@router.get("/score")
+def estatisticas_score():
+    try:
+        return {
+            "status": "ok",
+            "dados": obter_estatisticas_com_score().to_dict(orient="records")
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
         )
