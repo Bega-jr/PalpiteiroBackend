@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+from pandas.errors import EmptyDataError
 
 BASE_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 
@@ -10,7 +11,6 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 CSV_PATH = DATA_DIR / "Lotofacil.csv"
-
 
 CAMPOS = [
     "loteria", "concurso", "data",
@@ -25,9 +25,21 @@ CAMPOS = [
 
 
 def carregar_csv():
-    if CSV_PATH.exists():
-        return pd.read_csv(CSV_PATH)
-    return pd.DataFrame(columns=CAMPOS)
+    """
+    Lê o CSV com segurança.
+    Se estiver vazio ou não existir, cria DataFrame com cabeçalho.
+    """
+    if not CSV_PATH.exists():
+        return pd.DataFrame(columns=CAMPOS)
+
+    try:
+        df = pd.read_csv(CSV_PATH)
+        if df.empty or "concurso" not in df.columns:
+            return pd.DataFrame(columns=CAMPOS)
+        return df
+
+    except EmptyDataError:
+        return pd.DataFrame(columns=CAMPOS)
 
 
 def ultimo_concurso(df):
@@ -89,10 +101,12 @@ def main():
     df = carregar_csv()
     ultimo_salvo = ultimo_concurso(df)
 
-    print(f"📌 Último concurso salvo: {ultimo_salvo}")
+    print(f"📌 Último concurso salvo no CSV: {ultimo_salvo}")
 
-    ultimo_api = int(buscar_concurso()["numero"])
-    print(f"🌐 Último concurso na API: {ultimo_api}")
+    dados_api = buscar_concurso()
+    ultimo_api = int(dados_api["numero"])
+
+    print(f"🌐 Último concurso disponível na API: {ultimo_api}")
 
     novos = []
 
@@ -102,10 +116,10 @@ def main():
         novos.append(normalizar(dados))
 
     if not novos:
-        print("✅ Nenhum concurso novo.")
+        print("✅ Nenhum concurso novo para adicionar.")
         return
 
-    df_novos = pd.DataFrame(novos)
+    df_novos = pd.DataFrame(novos, columns=CAMPOS)
     df_final = pd.concat([df, df_novos], ignore_index=True)
     df_final.sort_values("concurso", inplace=True)
 
