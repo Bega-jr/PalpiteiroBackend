@@ -1,51 +1,40 @@
 import pandas as pd
-import unicodedata
 from functools import lru_cache
 
 CSV_URL = (
     "https://raw.githubusercontent.com/"
-    "Bega-jr/PalpiteiroBackend/main/data/Lotof%C3%A1cil.csv"
+    "Bega-jr/PalpiteiroBackend/main/data/Lotofacil.csv"
 )
-
-
-def _normalizar_coluna(col: str) -> str:
-    return (
-        unicodedata.normalize("NFKD", col)
-        .encode("ascii", "ignore")
-        .decode("utf-8")
-        .lower()
-        .replace(" ", "_")
-    )
 
 
 @lru_cache(maxsize=1)
 def load_lotofacil_data() -> pd.DataFrame:
     """
     Carrega o histórico da Lotofácil a partir do CSV remoto.
-    Usa cache para evitar múltiplos downloads.
+    Compatível com o CSV padronizado via API da Caixa.
     """
 
     try:
-        df = pd.read_csv(
-            CSV_URL,
-            sep=";",                 # 🔥 separador correto
-            encoding="utf-8",        # suporta acentos
-            engine="python",         # parser tolerante
-            on_bad_lines="skip"      # ignora linhas quebradas
-        )
+        df = pd.read_csv(CSV_URL)
 
         if df.empty:
             raise RuntimeError("CSV da Lotofácil está vazio")
 
-        # 🔹 normaliza colunas
-        df.columns = [_normalizar_coluna(c) for c in df.columns]
-
+        # Garantias mínimas
         if "concurso" not in df.columns:
             raise RuntimeError("Coluna 'concurso' não encontrada no CSV")
 
+        dezenas = [f"bola{i}" for i in range(1, 16)]
+        for col in dezenas:
+            if col not in df.columns:
+                raise RuntimeError(f"Coluna ausente no CSV: {col}")
+
+        # Tipagem
         df["concurso"] = df["concurso"].astype(int)
+        for col in dezenas:
+            df[col] = df[col].astype(int)
 
         return df
 
     except Exception as e:
-        raise RuntimeError(f"Erro ao carregar CSV remoto: {e}")
+        raise RuntimeError(f"Erro ao carregar CSV remoto da Lotofácil: {e}")
