@@ -1,74 +1,115 @@
 import requests
-import csv
-import os
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
 
 API_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
-CSV_PATH = "data/Lotofacil.csv"
 
-def buscar_dados():
-    response = requests.get(API_URL, timeout=30)
-    response.raise_for_status()
-    return response.json()
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
 
-def garantir_diretorio():
-    os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
+CSV_PATH = DATA_DIR / "lotofacil_resultados.csv"
 
-def ler_ultimo_concurso():
-    if not os.path.exists(CSV_PATH):
+
+CAMPOS_FIXOS = [
+    "loteria", "concurso", "data",
+    *[f"bola{i}" for i in range(1, 16)],
+    "arrecadacao", "acumulado", "estimativa_proximo",
+    "ganhadores_15", "valor_15",
+    "ganhadores_14", "valor_14",
+    "ganhadores_13", "valor_13",
+    "ganhadores_12", "valor_12",
+    "ganhadores_11", "valor_11",
+]
+
+
+def carregar_csv():
+    if CSV_PATH.exists():
+        return pd.read_csv(CSV_PATH)
+    return pd.DataFrame(columns=CAMPOS_FIXOS)
+
+
+def ultimo_concurso(df):
+    if df.empty:
         return 0
+    return int(df["concurso"].max())
 
-    with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
-        reader = csv.reader(f, delimiter=';')
-        next(reader, None)
 
-        concursos = []
-        for row in reader:
-            if row and row[0].isdigit():
-                concursos.append(int(row[0]))
+def buscar_resultados():
+    resp = requests.get(API_URL, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
 
-    return max(concursos) if concursos else 0
 
-def obter_ganhadores_15(dados):
-    for faixa in dados.get("listaRateioPremio", []):
-        if "15" in faixa.get("descricaoFaixa", ""):
-            return faixa.get("numeroDeGanhadores", 0)
-    return 0
+def extrair_rateio(lista, faixa):
+    for r in lista:
+        if r["faixa"] == faixa:
+            return r["numeroDeGanhadores"], r["valorPremio"]
+    return 0, 0.0
 
-def salvar_concurso(dados):
-    garantir_diretorio()
-    existe = os.path.exists(CSV_PATH)
 
-    with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter=';')
+def normalizar(dados):
+    g15, v15 = extrair_rateio(dados["listaRateioPremio"], 1)
+    g14, v14 = extrair_rateio(dados["listaRateioPremio"], 2)
+    g13, v13 = extrair_rateio(dados["listaRateioPremio"], 3)
+    g12, v12 = extrair_rateio(dados["listaRateioPremio"], 4)
+    g11, v11 = extrair_rateio(dados["listaRateioPremio"], 5)
 
-        if not existe:
-            writer.writerow([
-                "Concurso",
-                "Data Sorteio",
-                "Numeros",
-                "Arrecadacao Total",
-                "Ganhadores 15"
-            ])
+    registro = {
+        "loteria": "lotofacil",
+        "concurso": int(dados["numero"]),
+        "data": datetime.strptime(
+            dados["dataApuracao"], "%d/%m/%Y"
+        ).strftime("%Y-%m-%d"),
+        "arrecadacao": dados["valorArrecadado"],
+        "acumulado": dados["acumulado"],
+        "estimativa_proximo": dados["valorEstimadoProximoConcurso"],
+        "ganhadores_15": g15,
+        "valor_15": v15,
+        "ganhadores_14": g14,
+        "valor_14": v14,
+        "ganhadores_13": g13,
+        "valor_13": v13,
+        "ganhadores_12": g12,
+        "valor_12": v12,
+        "ganhadores_11": g11,
+        "valor_11": v11,
+    }
 
-        writer.writerow([
-            dados.get("numero"),
-            dados.get("dataApuracao"),
-            ",".join(dados.get("listaDezenas", [])),
-            dados.get("valorArrecadado", 0),
-            obter_ganhadores_15(dados)
-        ])
+    dezenas = [int(d) for d in dados["listaDezenas"]]
+    for i, d in enumerate(dezenas, start=1):
+        registro[f"bola{i}"] = d
+
+    return registro
+
 
 def main():
-    dados = buscar_dados()
+    df = carregar_csv()
+    ultimo = ultimo_concurso(df)
 
-    ultimo_csv = ler_ultimo_concurso()
-    concurso_api = int(dados.get("numero", 0))
+    print(f"📌 Último concurso salvo: {ultimo}")
 
-    if concurso_api > ultimo_csv:
-        salvar_concurso(dados)
-        print(f"✅ Concurso {concurso_api} adicionado ao CSV")
-    else:
-        print(f"ℹ️ CSV já atualizado (último concurso: {ultimo_csv})")
+    dados_api = buscar_resultados()
+
+    novos = [
+        normalizar(d)
+        for d in dados_api
+        if int(d["numero"]) > ultimo
+    ]
+
+    if not novos:
+        print("✅ Nenhum concurso novo.")
+        return
+
+    df_novos = pd.DataFrame(novos)
+    df_final = pd.concat([df, df_novos], ignore_index=True)
+    df_final.sort_values("concurso", inplace=True)
+
+    df_final.to_csv(CSV_PATH, index=False)
+    print(f"✅ {len(novos)} concurso(s) adicionados.")
+
 
 if __name__ == "__main__":
     main()
+
