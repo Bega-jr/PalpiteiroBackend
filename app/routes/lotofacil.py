@@ -1,23 +1,24 @@
-from flask import Blueprint, jsonify
+from fastapi import APIRouter
+
 from app.services.lotofacil_service import (
     ultimos_concursos,
     concurso_por_numero,
 )
 from app.statistics import gerar_estatisticas
 
-lotofacil_bp = Blueprint("lotofacil", __name__)
+router = APIRouter(prefix="/lotofacil", tags=["Lotofácil"])
 
 
-@lotofacil_bp.route("/ultimos/<int:quantidade>")
-def ultimos(quantidade):
-    return jsonify(ultimos_concursos(quantidade))
+@router.get("/ultimos/{quantidade}")
+def ultimos(quantidade: int):
+    return ultimos_concursos(quantidade)
 
 
-@lotofacil_bp.route("/concurso/<int:numero>")
-def concurso(numero):
-    return jsonify(concurso_por_numero(numero))
+@router.get("/concurso/{numero}")
+def concurso(numero: int):
+    return concurso_por_numero(numero)
 
 
-@lotofacil_bp.route("/estatisticas")
+@router.get("/estatisticas")
 def estatisticas():
-    return jsonify(gerar_estatisticas())
+    return gerar_estatisticas()
