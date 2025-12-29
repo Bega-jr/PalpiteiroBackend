@@ -1,18 +1,49 @@
 import pandas as pd
+import os
+import ast
 from app.services.historico_service import _carregar_historico
 
+# =====================================================
+# AUXILIAR: CARREGAMENTO DE DADOS
+# =====================================================
+
+def carregar_dados_para_estatistica():
+    """
+    Tenta carregar os dados do CSV (resultados reais).
+    Se não encontrar, tenta o Supabase (histórico).
+    """
+    caminho_csv = os.path.join(os.getcwd(), "Lotofacil.csv")
+    
+    if os.path.exists(caminho_csv):
+        try:
+            df = pd.read_csv(caminho_csv)
+            # Converte a coluna 'numeros' de string para lista se necessário
+            if df.empty:
+                return []
+            
+            # Se os números estiverem salvos como string "[1, 2...]" no CSV
+            if isinstance(df["numeros"].iloc[0], str):
+                df["numeros"] = df["numeros"].apply(ast.literal_eval)
+                
+            return df.to_dict('records')
+        except Exception as e:
+            print(f"Erro ao ler CSV: {e}")
+    
+    # Se o CSV falhar ou não existir, busca no banco (sem user_id para pegar tudo)
+    return _carregar_historico()
 
 # =====================================================
 # ESTATÍSTICAS BASE (FREQUÊNCIA + ATRASO)
 # =====================================================
 
 def obter_estatisticas_base():
-    historico = _carregar_historico()
+    historico = carregar_dados_para_estatistica()
+    
     if not historico:
-        raise RuntimeError("Histórico vazio")
+        # Se chegar aqui, realmente não há dados para trabalhar
+        raise RuntimeError("Histórico vazio: Adicione o arquivo Lotofacil.csv na raiz do projeto.")
 
     df = pd.DataFrame(historico)
-
     df = df.explode("numeros")
     df["numeros"] = df["numeros"].astype(int)
 
@@ -27,9 +58,15 @@ def obter_estatisticas_base():
     })
 
     # -----------------------------
-    # ATRASO (baseado em ordem temporal)
+    # ATRASO
     # -----------------------------
-    df["concurso"] = pd.to_datetime(df["data"]).rank(method="dense").astype(int)
+    # Se houver coluna de data, usamos para ordenar os concursos
+    if "data" in df.columns:
+        df["concurso"] = pd.to_datetime(df["data"]).rank(method="dense").astype(int)
+    else:
+        # Caso contrário, assume-se que as linhas já estão em ordem cronológica
+        df["concurso"] = df.index
+        
     ultimo_concurso = df["concurso"].max()
 
     atraso = {}
@@ -52,6 +89,7 @@ def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
     fmin, fmax = df["frequencia"].min(), df["frequencia"].max()
     amin, amax = df["atraso"].min(), df["atraso"].max()
 
+    # Normalização segura para evitar divisão por zero
     df["freq_norm"] = (
         (df["frequencia"] - fmin) / (fmax - fmin)
         if fmax != fmin else 0
@@ -75,11 +113,18 @@ def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
 # =====================================================
 
 def obter_estatisticas_adaptativas():
-    historico = _carregar_historico()
+    # Aqui ainda tentamos pegar o histórico para "aprender" com os acertos passados
+    historico = carregar_dados_para_estatistica()
+    
     if not historico:
         return obter_estatisticas_com_score()
 
     df_hist = pd.DataFrame(historico)
+    
+    # Verifica se existem colunas de aprendizado
+    if "acertos" not in df_hist.columns and "score_final" not in df_hist.columns:
+        return obter_estatisticas_com_score()
+
     df_hist = df_hist.explode("numeros")
     df_hist["numeros"] = df_hist["numeros"].astype(int)
 
@@ -96,7 +141,6 @@ def obter_estatisticas_adaptativas():
     )
 
     base = obter_estatisticas_com_score()
-
     base = base.merge(aprendizado, on="numero", how="left")
     base["peso"] = base["peso"].fillna(0)
 
