@@ -13,7 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-CSV_PATH = DATA_DIR / "historico_lotofacil.csv"
+CSV_PATH = DATA_DIR / "lotofacil.csv"
 
 COLUNAS = (
     ["concurso"] +
