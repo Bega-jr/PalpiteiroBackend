@@ -3,16 +3,27 @@ from app.services.lotofacil_service import load_lotofacil_data
 
 
 # =====================================================
-# ESTATÍSTICAS BASE
+# ESTATÍSTICAS BASE (FREQUÊNCIA + ATRASO)
 # =====================================================
 
 def obter_estatisticas_base():
+    """
+    Retorna DataFrame com:
+    - numero
+    - frequencia
+    - atraso
+    """
+
     df = load_lotofacil_data()
 
     dezenas = [f"bola{i}" for i in range(1, 16)]
 
+    # -----------------------------
+    # FREQUÊNCIA
+    # -----------------------------
     frequencia = (
         df[dezenas]
+        .astype(int)
         .stack()
         .value_counts()
         .sort_index()
@@ -23,11 +34,18 @@ def obter_estatisticas_base():
         "frequencia": frequencia.values
     })
 
+    # -----------------------------
+    # ATRASO
+    # -----------------------------
     ultimo_concurso = df["concurso"].max()
     atraso = {}
 
     for n in range(1, 26):
-        ult = df[df[dezenas].isin([n]).any(axis=1)]["concurso"].max()
+        ult = (
+            df[df[dezenas].isin([n]).any(axis=1)]
+            ["concurso"]
+            .max()
+        )
         atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else int(ultimo_concurso)
 
     freq_df["atraso"] = freq_df["numero"].map(atraso)
@@ -36,12 +54,20 @@ def obter_estatisticas_base():
 
 
 # =====================================================
-# SCORE COMBINADO (FREQ + ATRASO)
+# SCORE COMBINADO (FREQ + ATRASO NORMALIZADOS)
 # =====================================================
 
-def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
+def obter_estatisticas_com_score(
+    peso_frequencia: float = 0.6,
+    peso_atraso: float = 0.4
+):
+    """
+    Retorna DataFrame ordenado por score decrescente
+    """
+
     df = obter_estatisticas_base().copy()
 
+    # Normalização segura
     fmin, fmax = df["frequencia"].min(), df["frequencia"].max()
     amin, amax = df["atraso"].min(), df["atraso"].max()
 
@@ -64,14 +90,14 @@ def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
 
 
 # =====================================================
-# MÉTRICAS DE UM JOGO
+# MÉTRICAS DE UM JOGO (USADO NO VALIDATOR)
 # =====================================================
 
 def calcular_metricas_jogo(jogo):
     jogo = sorted(set(jogo))
 
     soma = sum(jogo)
-    pares = len([n for n in jogo if n % 2 == 0])
+    pares = sum(1 for n in jogo if n % 2 == 0)
 
     maior_seq = seq = 1
     for i in range(1, len(jogo)):
@@ -87,3 +113,4 @@ def calcular_metricas_jogo(jogo):
         "impares": len(jogo) - pares,
         "maior_sequencia": maior_seq
     }
+
