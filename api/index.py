@@ -5,6 +5,8 @@ from app.routes.ultimos import router as ultimos_router
 from app.routes.concurso import router as concurso_router
 from app.routes.debug import router as debug_router
 from app.routes.palpites import router as palpites_router  # 🔥 AQUI
+from app.routes.lotofacil import router as lotofacil_router
+
  
 app = FastAPI(
     title="Palpiteiro Backend",
@@ -21,3 +23,5 @@ app.include_router(ultimos_router)
 app.include_router(concurso_router)
 app.include_router(debug_router)
 app.include_router(palpites_router)  # 🔥 ESSENCIAL
+app.include_router(lotofacil_router)
+
