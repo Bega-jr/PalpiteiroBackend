@@ -1,18 +1,15 @@
 import pandas as pd
 import os
-import ast
 from app.services.historico_service import _carregar_historico
 
 # =====================================================
-# AUXILIAR: CARREGAMENTO DE DADOS
+# AUXILIAR: CARREGAMENTO E CONVERSÃO DO CSV
 # =====================================================
 
 def carregar_dados_para_estatistica():
     """
-    Tenta carregar os dados do CSV dentro da pasta /data.
-    Se não encontrar, tenta o Supabase.
+    Lê o CSV com colunas bola1...bola15 e transforma no formato lista
     """
-    # Ajuste para buscar dentro da subpasta 'data'
     caminho_csv = os.path.join(os.getcwd(), "data", "Lotofacil.csv")
     
     if os.path.exists(caminho_csv):
@@ -21,19 +18,18 @@ def carregar_dados_para_estatistica():
             if df.empty:
                 return []
             
-            # Se os números estiverem como string "[1, 2...]" no CSV, converte para lista
-            primeiro_valor = df["numeros"].iloc[0]
-            if isinstance(primeiro_valor, str) and "[" in primeiro_valor:
-                df["numeros"] = df["numeros"].apply(ast.literal_eval)
-            # Se for string separada por vírgula sem colchetes:
-            elif isinstance(primeiro_valor, str):
-                df["numeros"] = df["numeros"].apply(lambda x: [int(n) for n in x.split(',')])
-                
-            return df.to_dict('records')
+            # Identifica as colunas de bola1 até bola15
+            colunas_bolas = [f'bola{i}' for i in range(1, 16)]
+            
+            # Cria a coluna 'numeros' como uma lista das bolas
+            df['numeros'] = df[colunas_bolas].values.tolist()
+            
+            # Mantém apenas o que o serviço precisa
+            return df[['concurso', 'data', 'numeros']].to_dict('records')
         except Exception as e:
-            print(f"Erro ao ler CSV em {caminho_csv}: {e}")
+            print(f"Erro ao processar CSV: {e}")
     
-    # Se o CSV não existir na pasta data, busca no banco globalmente
+    # Se o CSV falhar, tenta o banco (Supabase)
     return _carregar_historico()
 
 # =====================================================
@@ -44,9 +40,11 @@ def obter_estatisticas_base():
     historico = carregar_dados_para_estatistica()
     
     if not historico:
-        raise RuntimeError("Histórico vazio: Certifique-se que data/Lotofacil.csv existe e está no Git.")
+        raise RuntimeError("Histórico vazio: Verifique se /data/Lotofacil.csv está no repositório.")
 
     df = pd.DataFrame(historico)
+    
+    # Explode a lista de números para que cada bola vire uma linha
     df = df.explode("numeros")
     df["numeros"] = df["numeros"].astype(int)
 
@@ -63,17 +61,18 @@ def obter_estatisticas_base():
     # -----------------------------
     # ATRASO
     # -----------------------------
-    if "data" in df.columns:
-        df["concurso"] = pd.to_datetime(df["data"]).rank(method="dense").astype(int)
-    else:
-        df["concurso"] = df.index
-        
+    # No seu CSV existe a coluna 'concurso', vamos usá-la
     ultimo_concurso = df["concurso"].max()
 
     atraso = {}
     for n in range(1, 26):
-        ult = df[df["numeros"] == n]["concurso"].max()
-        atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else int(ultimo_concurso)
+        # Filtra as linhas onde o número saiu e pega o maior concurso
+        jogos_com_n = df[df["numeros"] == n]
+        if not jogos_com_n.empty:
+            ult = jogos_com_n["concurso"].max()
+            atraso[n] = int(ultimo_concurso - ult)
+        else:
+            atraso[n] = int(ultimo_concurso)
 
     freq_df["atraso"] = freq_df["numero"].map(atraso)
 
@@ -120,16 +119,14 @@ def obter_estatisticas_adaptativas():
 
     df_hist = pd.DataFrame(historico)
     
-    if "acertos" not in df_hist.columns and "score_final" not in df_hist.columns:
+    # Verifica se há dados de performance (acertos) no histórico
+    if "acertos" not in df_hist.columns:
         return obter_estatisticas_com_score()
 
     df_hist = df_hist.explode("numeros")
     df_hist["numeros"] = df_hist["numeros"].astype(int)
 
-    df_hist["peso"] = (
-        df_hist.get("acertos", 0).fillna(0) * 0.6 +
-        df_hist.get("score_final", 0).fillna(0) * 0.4
-    )
+    df_hist["peso"] = df_hist.get("acertos", 0).fillna(0) * 1.0
 
     aprendizado = (
         df_hist.groupby("numeros")["peso"]
