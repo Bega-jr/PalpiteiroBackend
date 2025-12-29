@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
-API_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
+BASE_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -12,7 +12,7 @@ DATA_DIR.mkdir(exist_ok=True)
 CSV_PATH = DATA_DIR / "lotofacil_resultados.csv"
 
 
-CAMPOS_FIXOS = [
+CAMPOS = [
     "loteria", "concurso", "data",
     *[f"bola{i}" for i in range(1, 16)],
     "arrecadacao", "acumulado", "estimativa_proximo",
@@ -27,7 +27,7 @@ CAMPOS_FIXOS = [
 def carregar_csv():
     if CSV_PATH.exists():
         return pd.read_csv(CSV_PATH)
-    return pd.DataFrame(columns=CAMPOS_FIXOS)
+    return pd.DataFrame(columns=CAMPOS)
 
 
 def ultimo_concurso(df):
@@ -36,8 +36,9 @@ def ultimo_concurso(df):
     return int(df["concurso"].max())
 
 
-def buscar_resultados():
-    resp = requests.get(API_URL, timeout=30)
+def buscar_concurso(numero=None):
+    url = BASE_URL if numero is None else f"{BASE_URL}/{numero}"
+    resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
@@ -77,7 +78,7 @@ def normalizar(dados):
         "valor_11": v11,
     }
 
-    dezenas = [int(d) for d in dados["listaDezenas"]]
+    dezenas = sorted(int(d) for d in dados["listaDezenas"])
     for i, d in enumerate(dezenas, start=1):
         registro[f"bola{i}"] = d
 
@@ -86,17 +87,19 @@ def normalizar(dados):
 
 def main():
     df = carregar_csv()
-    ultimo = ultimo_concurso(df)
+    ultimo_salvo = ultimo_concurso(df)
 
-    print(f"📌 Último concurso salvo: {ultimo}")
+    print(f"📌 Último concurso salvo: {ultimo_salvo}")
 
-    dados_api = buscar_resultados()
+    ultimo_api = int(buscar_concurso()["numero"])
+    print(f"🌐 Último concurso na API: {ultimo_api}")
 
-    novos = [
-        normalizar(d)
-        for d in dados_api
-        if int(d["numero"]) > ultimo
-    ]
+    novos = []
+
+    for concurso in range(ultimo_salvo + 1, ultimo_api + 1):
+        print(f"⬇️ Buscando concurso {concurso}")
+        dados = buscar_concurso(concurso)
+        novos.append(normalizar(dados))
 
     if not novos:
         print("✅ Nenhum concurso novo.")
@@ -107,7 +110,7 @@ def main():
     df_final.sort_values("concurso", inplace=True)
 
     df_final.to_csv(CSV_PATH, index=False)
-    print(f"✅ {len(novos)} concurso(s) adicionados.")
+    print(f"✅ {len(novos)} concursos adicionados com sucesso.")
 
 
 if __name__ == "__main__":
