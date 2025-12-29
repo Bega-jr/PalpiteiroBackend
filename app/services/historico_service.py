@@ -1,59 +1,43 @@
-import uuid
-from datetime import datetime
-from typing import List
-
 from app.core.supabase import supabase
-from app.models.historico_model import JogoHistorico
+from typing import List
+from uuid import UUID
 
 
 def salvar_jogo(
+    user_id: UUID,
     tipo: str,
-    numeros: list,
-    score_medio=None,
-    score_final=None,
-    penalidade_sequencia=None,
-    concurso_referente=None,
-    acertos=None,
-    valor_aposta=3.0,
-    premio=0.0
+    numeros: List[int],
+    score: float | None = None,
+    valor_aposta: float = 3.0
 ):
-    jogo = JogoHistorico(
-        id=str(uuid.uuid4()),
-        data=datetime.utcnow(),
-        tipo=tipo,
-        numeros=numeros,
-        score_medio=score_medio,
-        score_final=score_final,
-        penalidade_sequencia=penalidade_sequencia,
-        concurso_referente=concurso_referente,
-        acertos=acertos,
-        valor_aposta=valor_aposta,
-        premio=premio
-    )
-
-    supabase.table("historico_jogos").insert({
-        "id": jogo.id,
-        "tipo": jogo.tipo,
-        "numeros": jogo.numeros,
-        "score_medio": jogo.score_medio,
-        "score_final": jogo.score_final,
-        "penalidade_sequencia": jogo.penalidade_sequencia,
-        "concurso_referente": jogo.concurso_referente,
-        "acertos": jogo.acertos,
-        "valor_aposta": jogo.valor_aposta,
-        "premio": jogo.premio,
+    return supabase.table("historico_jogos").insert({
+        "user_id": str(user_id),
+        "tipo": tipo,
+        "numeros": numeros,
+        "score": score,
+        "valor_aposta": valor_aposta
     }).execute()
 
-    return jogo
 
-
-def listar_historico(limit=50):
-    res = (
+def listar_historico(user_id: UUID):
+    return (
         supabase
         .table("historico_jogos")
         .select("*")
+        .eq("user_id", str(user_id))
         .order("created_at", desc=True)
-        .limit(limit)
         .execute()
+        .data
     )
-    return res.data
+
+
+def resumo_financeiro(user_id: UUID):
+    dados = listar_historico(user_id)
+
+    total_apostado = sum(j["valor_aposta"] for j in dados)
+
+    return {
+        "total_jogos": len(dados),
+        "total_apostado": total_apostado
+    }
+
