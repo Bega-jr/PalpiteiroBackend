@@ -2,7 +2,8 @@ name: Atualizar histórico Lotofácil
 
 on:
   schedule:
-    - cron: "30 0 * * *" # 21:30 Brasil (UTC-3)
+    # 00:15 UTC equivale a 21:15 Horário de Brasília (UTC-3)
+    - cron: "15 0 * * *"
   workflow_dispatch:
 
 jobs:
