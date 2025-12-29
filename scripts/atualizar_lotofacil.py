@@ -19,7 +19,7 @@ def ler_ultimo_concurso():
 
     with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f, delimiter=';')
-        next(reader, None)  # pula cabeçalho
+        next(reader, None)
 
         concursos = []
         for row in reader:
@@ -28,9 +28,14 @@ def ler_ultimo_concurso():
 
     return max(concursos) if concursos else 0
 
+def obter_ganhadores_15(dados):
+    for faixa in dados.get("listaRateioPremio", []):
+        if "15" in faixa.get("descricaoFaixa", ""):
+            return faixa.get("numeroDeGanhadores", 0)
+    return 0
+
 def salvar_concurso(dados):
     garantir_diretorio()
-
     existe = os.path.exists(CSV_PATH)
 
     with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
@@ -46,18 +51,18 @@ def salvar_concurso(dados):
             ])
 
         writer.writerow([
-            dados["numero"],
-            dados["dataApuracao"],
-            ",".join(dados["listaDezenas"]),
-            dados["valorArrecadado"],
-            dados["quantidadeGanhadores"]
+            dados.get("numero"),
+            dados.get("dataApuracao"),
+            ",".join(dados.get("listaDezenas", [])),
+            dados.get("valorArrecadado", 0),
+            obter_ganhadores_15(dados)
         ])
 
 def main():
     dados = buscar_dados()
 
     ultimo_csv = ler_ultimo_concurso()
-    concurso_api = int(dados["numero"])
+    concurso_api = int(dados.get("numero", 0))
 
     if concurso_api > ultimo_csv:
         salvar_concurso(dados)
