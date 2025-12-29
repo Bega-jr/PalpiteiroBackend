@@ -1,37 +1,30 @@
-from fastapi import APIRouter, HTTPException
-from app.models.historico_model import JogoHistorico
+from fastapi import APIRouter, Depends
+from app.core.auth import get_user
 from app.services.historico_service import (
     salvar_jogo,
     listar_historico,
     resumo_financeiro
 )
 
-router = APIRouter(
-    prefix="/historico",
-    tags=["Histórico & ROI"]
-)
+router = APIRouter(prefix="/historico", tags=["Histórico"])
 
 
-@router.post("/registrar")
-def registrar_jogo(jogo: JogoHistorico):
-    try:
-        salvar_jogo(jogo)
-        return {"status": "ok", "mensagem": "Jogo registrado com sucesso"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@router.post("/")
+def registrar(jogo: dict, user=Depends(get_user)):
+    salvar_jogo(
+        user_id=user.id,
+        tipo=jogo["tipo"],
+        numeros=jogo["numeros"],
+        score=jogo.get("score")
+    )
+    return {"status": "ok"}
 
 
 @router.get("/")
-def listar():
-    return {
-        "status": "ok",
-        "historico": listar_historico()
-    }
+def listar(user=Depends(get_user)):
+    return listar_historico(user.id)
 
 
 @router.get("/resumo")
-def resumo():
-    return {
-        "status": "ok",
-        "financeiro": resumo_financeiro()
-    }
+def resumo(user=Depends(get_user)):
+    return resumo_financeiro(user.id)
