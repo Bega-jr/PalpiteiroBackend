@@ -1,5 +1,5 @@
 import pandas as pd
-from app.services.lotofacil_service import load_lotofacil_data
+from app.services.historico_service import _carregar_historico
 
 
 # =====================================================
@@ -7,46 +7,35 @@ from app.services.lotofacil_service import load_lotofacil_data
 # =====================================================
 
 def obter_estatisticas_base():
-    """
-    Retorna DataFrame com:
-    - numero
-    - frequencia
-    - atraso
-    """
+    historico = _carregar_historico()
+    if not historico:
+        raise RuntimeError("Histórico vazio")
 
-    df = load_lotofacil_data()
+    df = pd.DataFrame(historico)
 
-    dezenas = [f"bola{i}" for i in range(1, 16)]
+    df = df.explode("numeros")
+    df["numeros"] = df["numeros"].astype(int)
 
     # -----------------------------
     # FREQUÊNCIA
     # -----------------------------
-    frequencia = (
-        df[dezenas]
-        .astype(int)
-        .stack()
-        .value_counts()
-        .sort_index()
-    )
+    freq = df["numeros"].value_counts().sort_index()
 
     freq_df = pd.DataFrame({
-        "numero": frequencia.index.astype(int),
-        "frequencia": frequencia.values
+        "numero": freq.index,
+        "frequencia": freq.values
     })
 
     # -----------------------------
     # ATRASO
     # -----------------------------
+    df["concurso"] = pd.to_datetime(df["data"]).rank(method="dense").astype(int)
     ultimo_concurso = df["concurso"].max()
-    atraso = {}
 
+    atraso = {}
     for n in range(1, 26):
-        ult = (
-            df[df[dezenas].isin([n]).any(axis=1)]
-            ["concurso"]
-            .max()
-        )
-        atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else int(ultimo_concurso)
+        ult = df[df["numeros"] == n]["concurso"].max()
+        atraso[n] = int(ultimo_concurso - ult) if pd.notna(ult) else ultimo_concurso
 
     freq_df["atraso"] = freq_df["numero"].map(atraso)
 
@@ -54,32 +43,17 @@ def obter_estatisticas_base():
 
 
 # =====================================================
-# SCORE COMBINADO (FREQ + ATRASO NORMALIZADOS)
+# SCORE COMBINADO
 # =====================================================
 
-def obter_estatisticas_com_score(
-    peso_frequencia: float = 0.6,
-    peso_atraso: float = 0.4
-):
-    """
-    Retorna DataFrame ordenado por score decrescente
-    """
-
+def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
     df = obter_estatisticas_base().copy()
 
-    # Normalização segura
     fmin, fmax = df["frequencia"].min(), df["frequencia"].max()
     amin, amax = df["atraso"].min(), df["atraso"].max()
 
-    df["freq_norm"] = (
-        (df["frequencia"] - fmin) / (fmax - fmin)
-        if fmax != fmin else 0
-    )
-
-    df["atraso_norm"] = (
-        (df["atraso"] - amin) / (amax - amin)
-        if amax != amin else 0
-    )
+    df["freq_norm"] = (df["frequencia"] - fmin) / (fmax - fmin) if fmax != fmin else 0
+    df["atraso_norm"] = (df["atraso"] - amin) / (amax - amin) if amax != amin else 0
 
     df["score"] = (
         df["freq_norm"] * peso_frequencia +
@@ -90,7 +64,7 @@ def obter_estatisticas_com_score(
 
 
 # =====================================================
-# MÉTRICAS DE UM JOGO (USADO NO VALIDATOR)
+# MÉTRICAS DE UM JOGO
 # =====================================================
 
 def calcular_metricas_jogo(jogo):
