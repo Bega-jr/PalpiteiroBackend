@@ -23,7 +23,7 @@ def load_lotofacil_data() -> pd.DataFrame:
         # Lê o CSV forçando as colunas principais como string para evitar erros de tipo
         df = pd.read_csv(
             CSV_URL,
-            sep=";",
+            sep=",",
             encoding="utf-8",
             dtype=str, 
             on_bad_lines="skip"
