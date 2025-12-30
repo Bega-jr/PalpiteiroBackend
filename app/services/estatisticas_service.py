@@ -2,80 +2,68 @@ import pandas as pd
 import os
 from app.services.historico_service import _carregar_historico
 
-# =====================================================
-# AUXILIAR: CARREGAMENTO E CONVERSÃO DO CSV
-# =====================================
+# Constantes Estratégicas para 2025
+PRIMOS = [2, 3, 5, 7, 11, 13, 17, 19, 23]
+MOLDURA = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25]
+CENTRO = [7, 8, 9, 12, 13, 14, 17, 18, 19]
 
 def carregar_dados_para_estatistica():
-    """
-    Lê o CSV com colunas bola1...bola15 e transforma no formato lista
-    """
     caminho_csv = os.path.join(os.getcwd(), "data", "Lotofacil.csv")
-    
     if os.path.exists(caminho_csv):
         try:
             df = pd.read_csv(caminho_csv)
-            if df.empty:
-                return []
-            
-            # Identifica as colunas de bola1 até bola15
+            if df.empty: return []
             colunas_bolas = [f'bola{i}' for i in range(1, 16)]
-            
-            # Cria a coluna 'numeros' como uma lista das bolas
             df['numeros'] = df[colunas_bolas].values.tolist()
-            
-            # Mantém apenas o que o serviço precisa
             return df[['concurso', 'data', 'numeros']].to_dict('records')
         except Exception as e:
             print(f"Erro ao processar CSV: {e}")
-    
-    # Se o CSV falhar, tenta o banco (Supabase)
     return _carregar_historico()
 
 def obter_proximo_concurso():
-    """
-    Identifica o número do próximo concurso baseado no último registro do CSV.
-    """
     caminho_csv = os.path.join(os.getcwd(), "data", "Lotofacil.csv")
     if os.path.exists(caminho_csv):
         try:
             df = pd.read_csv(caminho_csv)
-            if not df.empty:
-                return int(df["concurso"].max() + 1)
-        except:
-            pass
+            if not df.empty: return int(df["concurso"].max() + 1)
+        except: pass
     return 1
 
-# =====================================================
-# ESTATÍSTICAS BASE (FREQUÊNCIA + ATRASO)
-# =====================================================
+def obter_ultimo_resultado():
+    """Retorna a lista de números do último sorteio realizado."""
+    historico = carregar_dados_para_estatistica()
+    if not historico: return []
+    # O último item da lista é o sorteio mais recente
+    return historico[-1]['numeros']
+
+def analisar_ciclo():
+    """Identifica quais números ainda não saíram no ciclo atual."""
+    historico = carregar_dados_para_estatistica()
+    if not historico: return []
+    
+    numeros_sorteados_no_ciclo = set()
+    # Percorre de trás para frente para identificar o início do ciclo
+    for sorteio in reversed(historico):
+        numeros_sorteados_no_ciclo.update(sorteio['numeros'])
+        if len(numeros_sorteados_no_ciclo) == 25:
+            # Ciclo fechou no sorteio anterior, reiniciar busca do atual
+            numeros_sorteados_no_ciclo = set(sorteio['numeros'])
+            break
+            
+    faltantes = set(range(1, 26)) - numeros_sorteados_no_ciclo
+    return list(faltantes)
 
 def obter_estatisticas_base():
     historico = carregar_dados_para_estatistica()
-    
-    if not historico:
-        raise RuntimeError("Histórico vazio: Verifique se /data/Lotofacil.csv está no repositório.")
-
-    df = pd.DataFrame(historico)
-    df = df.explode("numeros")
+    if not historico: raise RuntimeError("Histórico vazio.")
+    df = pd.DataFrame(historico).explode("numeros")
     df["numeros"] = df["numeros"].astype(int)
 
     freq = df["numeros"].value_counts().sort_index()
-    freq_df = pd.DataFrame({
-        "numero": freq.index,
-        "frequencia": freq.values
-    })
+    freq_df = pd.DataFrame({"numero": freq.index, "frequencia": freq.values})
 
     ultimo_concurso = df["concurso"].max()
-    atraso = {}
-    for n in range(1, 26):
-        jogos_com_n = df[df["numeros"] == n]
-        if not jogos_com_n.empty:
-            ult = jogos_com_n["concurso"].max()
-            atraso[n] = int(ultimo_concurso - ult)
-        else:
-            atraso[n] = int(ultimo_concurso)
-
+    atraso = {n: int(ultimo_concurso - (df[df["numeros"] == n]["concurso"].max() or 0)) for n in range(1, 26)}
     freq_df["atraso"] = freq_df["numero"].map(atraso)
     return freq_df.reset_index(drop=True)
 
@@ -83,44 +71,31 @@ def obter_estatisticas_com_score(peso_frequencia=0.6, peso_atraso=0.4):
     df = obter_estatisticas_base().copy()
     fmin, fmax = df["frequencia"].min(), df["frequencia"].max()
     amin, amax = df["atraso"].min(), df["atraso"].max()
-
     df["freq_norm"] = (df["frequencia"] - fmin) / (fmax - fmin) if fmax != fmin else 0
     df["atraso_norm"] = (df["atraso"] - amin) / (amax - amin) if amax != amin else 0
     df["score"] = df["freq_norm"] * peso_frequencia + df["atraso_norm"] * peso_atraso
-
     return df.sort_values("score", ascending=False).reset_index(drop=True)
-
-def obter_estatisticas_adaptativas():
-    historico = carregar_dados_para_estatistica()
-    if not historico:
-        return obter_estatisticas_com_score()
-
-    df_hist = pd.DataFrame(historico)
-    if "acertos" not in df_hist.columns:
-        return obter_estatisticas_com_score()
-
-    df_hist = df_hist.explode("numeros")
-    df_hist["numeros"] = df_hist["numeros"].astype(int)
-    df_hist["peso"] = df_hist.get("acertos", 0).fillna(0) * 1.0
-
-    aprendizado = df_hist.groupby("numeros")["peso"].mean().reset_index().rename(columns={"numeros": "numero"})
-    base = obter_estatisticas_com_score()
-    base = base.merge(aprendizado, on="numero", how="left")
-    base["peso"] = base["peso"].fillna(0)
-    base["score_adaptativo"] = base["score"] * 0.7 + base["peso"] * 0.3
-
-    return base.sort_values("score_adaptativo", ascending=False).reset_index(drop=True)
 
 def calcular_metricas_jogo(jogo):
     jogo = sorted(set(jogo))
-    soma = sum(jogo)
     pares = sum(1 for n in jogo if n % 2 == 0)
+    primos = sum(1 for n in jogo if n in PRIMOS)
+    moldura = sum(1 for n in jogo if n in MOLDURA)
+    
     maior_seq = seq = 1
     for i in range(1, len(jogo)):
         if jogo[i] == jogo[i - 1] + 1:
             seq += 1
             maior_seq = max(maior_seq, seq)
-        else:
-            seq = 1
-    return {"soma": soma, "pares": pares, "impares": len(jogo) - pares, "maior_sequencia": maior_seq}
+        else: seq = 1
+            
+    return {
+        "soma": sum(jogo),
+        "pares": pares,
+        "impares": 15 - pares,
+        "primos": primos,
+        "moldura": moldura,
+        "centro": 15 - moldura,
+        "maior_sequencia": maior_seq
+    }
 
