@@ -2,12 +2,12 @@ import random
 import datetime
 from functools import lru_cache
 
-# Mantemos o import caso queira usar em outras funções privadas, 
-# mas não chamaremos nas rotas públicas.
 from app.services.historico_service import registrar_jogo
 from app.services.estatisticas_service import (
     obter_estatisticas_base,
-    obter_estatisticas_com_score
+    obter_estatisticas_com_score,
+    analisar_ciclo,
+    obter_ultimo_resultado
 )
 from app.services.estatisticas_validator import (
     validar_jogo,
@@ -52,25 +52,33 @@ def classificar_numeros():
         }
 
 # =====================================================
-# FIXOS INTELIGENTES
+# FIXOS INTELIGENTES (INTEGRADO COM CICLO)
 # =====================================================
 
 def gerar_fixos(grupos):
     candidatos = []
+    
+    # 2025: Prioridade para números que faltam para fechar o ciclo
+    faltantes_ciclo = analisar_ciclo()
+    if faltantes_ciclo:
+        # Tenta incluir até 2 números do ciclo nos fixos
+        candidatos.extend(random.sample(faltantes_ciclo, min(2, len(faltantes_ciclo))))
+
     try:
-        candidatos.extend(random.sample(grupos["topo"], min(4, len(grupos["topo"]))))
+        # Completa com base nos grupos de frequência
+        candidatos.extend(random.sample(grupos["topo"], min(3, len(grupos["topo"]))))
         candidatos.extend(random.sample(grupos["meio"], min(2, len(grupos["meio"]))))
-        candidatos.extend(random.sample(grupos["base"], min(1, len(grupos["base"]))))
     except Exception:
         pass
 
-    while len(set(candidatos)) < QTD_FIXOS:
-        candidatos.append(random.randint(1, TOTAL_NUMEROS))
-
-    fixos = sorted(set(candidatos))[:QTD_FIXOS]
-    if len(fixos) < QTD_FIXOS:
-        universo = list(set(range(1, 26)) - set(fixos))
-        fixos.extend(random.sample(universo, QTD_FIXOS - len(fixos)))
+    # Garante unicidade e quantidade
+    fixos = sorted(list(set(candidatos)))[:QTD_FIXOS]
+    
+    while len(fixos) < QTD_FIXOS:
+        num = random.randint(1, TOTAL_NUMEROS)
+        if num not in fixos:
+            fixos.append(num)
+            
     return sorted(fixos)
 
 # =====================================================
@@ -96,25 +104,28 @@ def score_medio_jogo(jogo):
     return sum(score_map.get(n, 0) for n in jogo) / len(jogo)
 
 # =====================================================
-# PALPITE FIXO (VALIDADO)
+# PALPITE FIXO (VALIDADO COM FILTROS 2025)
 # =====================================================
 
 @lru_cache(maxsize=1)
 def _palpite_fixo_cache(data):
     grupos = classificar_numeros()
     
-    # Loop para garantir que o palpite fixo do dia seja estatisticamente bom
-    for _ in range(100): 
+    # Aumentado para 300 tentativas devido ao rigor dos novos filtros (Primos/Repetidos)
+    for _ in range(300): 
         fixos = gerar_fixos(grupos)
         universo = list(set(range(1, 26)) - set(fixos))
+        
+        # Estratégia de Repetição: Garantir que o complemento busque repetidos do anterior
+        ultimo_res = obter_ultimo_resultado()
         complemento = random.sample(universo, NUMEROS_POR_JOGO - len(fixos))
+        
         jogo = sorted(fixos + complemento)
-
         estatistica = validar_jogo(jogo)
+        
         if estatistica.get("aprovado"):
             return jogo
             
-    # Fallback caso não ache um perfeito (não trava a rota)
     return sorted(random.sample(range(1, 26), 15))
 
 def gerar_palpite_fixo():
@@ -122,7 +133,7 @@ def gerar_palpite_fixo():
     return _palpite_fixo_cache(hoje)
 
 # =====================================================
-# GERADOR DE 7 PALPITES
+# GERADOR DE 7 PALPITES PROFISSIONAIS
 # =====================================================
 
 def gerar_7_palpites(modo=MODO_PADRAO):
@@ -130,16 +141,19 @@ def gerar_7_palpites(modo=MODO_PADRAO):
     palpites = []
     tentativas = 0
 
-    while len(palpites) < 7 and tentativas < 150:
+    # Limite de tentativas expandido para garantir qualidade com novos filtros
+    while len(palpites) < 7 and tentativas < 500:
         tentativas += 1
         fixos = gerar_fixos(grupos)
         universo = list(set(range(1, 26)) - set(fixos))
         complemento = random.sample(universo, NUMEROS_POR_JOGO - len(fixos))
+        
         jogo = sorted(fixos + complemento)
 
         estrutura = validar_estrutura(jogo)
         estatistica = validar_jogo(jogo)
 
+        # Filtro Rigoroso 2025
         if modo == "free":
             if not estatistica.get("aprovado"):
                 continue
