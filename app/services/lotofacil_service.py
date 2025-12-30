@@ -28,18 +28,38 @@ def load_lotofacil_data() -> pd.DataFrame:
             on_bad_lines="skip"
         )
 
-        # Agora a função existe e pode ser chamada aqui
+        # Normaliza as colunas
         df.columns = [_normalizar_coluna(c) for c in df.columns]
+        
+        # DEBUG: Caso falhe, veremos no log da Vercel quais colunas chegaram
+        print(f"DEBUG - Colunas disponíveis: {list(df.columns)}")
+
+        # Tenta mapear nomes comuns caso 'concurso' não exista exatamente
+        mapeamento = {
+            'n_concurso': 'concurso',
+            'numero': 'concurso',
+            'no_concurso': 'concurso',
+            'concurso_': 'concurso'
+        }
+        df = df.rename(columns=mapeamento)
+
+        # Se mesmo assim não achar, tenta buscar qualquer coluna que CONTENHA 'concurso'
+        if "concurso" not in df.columns:
+            colunas_com_concurso = [c for c in df.columns if 'concurso' in c]
+            if colunas_com_concurso:
+                df = df.rename(columns={colunas_com_concurso[0]: 'concurso'})
 
         if "concurso" not in df.columns or df.empty:
-            print("⚠️ Coluna 'concurso' não encontrada após normalização.")
+            print("❌ ERRO FATAL: Coluna 'concurso' não identificada.")
             return pd.DataFrame()
 
-        # Garante que 'concurso' seja numérico removendo possíveis erros
+        # Limpeza robusta da coluna concurso (remove pontos, espaços e converte)
+        df["concurso"] = df["concurso"].astype(str).str.replace(r'\D', '', regex=True)
         df["concurso"] = pd.to_numeric(df["concurso"], errors="coerce").fillna(0).astype(int)
         
         return df
 
     except Exception as e:
-        print("⚠️ Erro ao carregar CSV Lotofácil:", e)
+        print("⚠️ Erro crítico ao carregar CSV:", e)
         return pd.DataFrame()
+
