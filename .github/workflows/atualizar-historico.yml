@@ -23,7 +23,7 @@ jobs:
 
       - name: 📦 Instalar dependências
         run: |
-          pip install requests pandas supabase
+          pip install requests pandas supabase fastapi uvicorn python-dotenv
 
       - name: 🔄 Atualizar histórico (CSV)
         run: python scripts/atualizar_lotofacil.py
@@ -40,4 +40,6 @@ jobs:
           git config user.name "github-actions"
 
           git add data/Lotofacil.csv
+          # Tenta commitar e dar push apenas se o CSV mudou
           git diff --cached --quiet || (git commit -m "Atualiza histórico e confere jogos" && git push origin main)
+
