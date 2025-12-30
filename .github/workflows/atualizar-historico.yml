@@ -23,10 +23,16 @@ jobs:
 
       - name: 📦 Instalar dependências
         run: |
-          pip install requests pandas
+          pip install requests pandas supabase
 
-      - name: 🔄 Atualizar histórico
+      - name: 🔄 Atualizar histórico (CSV)
         run: python scripts/atualizar_lotofacil.py
+
+      - name: 🏆 Conferir Jogos (ROI)
+        run: python scripts/conferir_resultados.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
 
       - name: 📤 Commit automático se houver mudanças
         run: |
@@ -34,7 +40,4 @@ jobs:
           git config user.name "github-actions"
 
           git add data/Lotofacil.csv
-          git diff --cached --quiet || git commit -m "Atualiza histórico Lotofácil"
-
-      - name: 🚀 Push para o repositório
-        run: git push origin main
+          git diff --cached --quiet || (git commit -m "Atualiza histórico e confere jogos" && git push origin main)
