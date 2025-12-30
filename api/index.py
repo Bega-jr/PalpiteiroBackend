@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware # Importação necessária
 
 from app.routes.health import router as health_router
 from app.routes.debug import router as debug_router
@@ -11,6 +12,21 @@ from app.routes.historico import router as historico_router
 app = FastAPI(
     title="Palpiteiro Backend",
     version="1.0.0"
+)
+
+# Configuração do CORS
+# Lista de origens permitidas (seu frontend no Netlify)
+origins = [
+    "https://palpiteiro-ia.netlify.app",
+    "http://localhost:5173", # Recomendado para você conseguir testar localmente
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # Permite as URLs da lista acima
+    allow_credentials=True,
+    allow_methods=["*"], # Permite todos os métodos (GET, POST, etc)
+    allow_headers=["*"], # Permite todos os headers
 )
 
 @app.get("/")
