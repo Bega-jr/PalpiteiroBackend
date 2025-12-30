@@ -1,14 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Importação dos routers
-from app.routes.health import router as health_router
-from app.routes.debug import router as debug_router
-from app.routes.ultimos import router as ultimos_router
-from app.routes.concurso import router as concurso_router
-from app.routes.estatisticas import router as estatisticas_router
-from app.routes.palpites import router as palpites_router
-from app.routes.historico import router as historico_router
+# Inclusão dos routers (SEM prefixo para bater com o esperado)
+app.include_router(health_router, tags=["Health"])
+app.include_router(debug_router, tags=["Debug"])
+app.include_router(ultimos_router, tags=["Últimos Resultados"])
+app.include_router(concurso_router, tags=["Concurso"])
+app.include_router(estatisticas_router, tags=["Estatísticas"])
+app.include_router(palpites_router, tags=["Palpites"])
+app.include_router(historico_router, tags=["Histórico"])
 
 app = FastAPI(
     title="Palpiteiro Backend",
