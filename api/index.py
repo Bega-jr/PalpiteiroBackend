@@ -53,15 +53,15 @@ def root():
     }
 
 # ========================
-# Inclusão dos routers
+# Inclusão dos routers (SEM nenhum prefix para bater perfeitamente com o frontend)
 # ========================
-app.include_router(health_router, prefix="/health", tags=["Health"])
-app.include_router(debug_router, prefix="/debug", tags=["Debug"])
-app.include_router(ultimos_router, prefix="/ultimos", tags=["Últimos Resultados"])
-app.include_router(concurso_router, prefix="/concurso", tags=["Concurso"])
-app.include_router(estatisticas_router, prefix="/estatisticas", tags=["Estatísticas"])
-app.include_router(palpites_router, prefix="/palpites", tags=["Palpites"])
-app.include_router(historico_router, prefix="/historico", tags=["Histórico"])
+app.include_router(health_router, tags=["Health"])
+app.include_router(debug_router, tags=["Debug"])
+app.include_router(ultimos_router, tags=["Últimos Resultados"])
+app.include_router(concurso_router, tags=["Concurso"])
+app.include_router(estatisticas_router, tags=["Estatísticas"])
+app.include_router(palpites_router, tags=["Palpites"])
+app.include_router(historico_router, tags=["Histórico"])
 
 # Opcional: mensagem de startup
 @app.on_event("startup")
