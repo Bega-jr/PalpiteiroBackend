@@ -4,12 +4,19 @@ from uuid import UUID
 
 def registrar_jogo(tipo: str, numeros: List[int], user_id: Optional[UUID] = None, **kwargs):
     """
-    Salva um jogo no histórico do cliente no Supabase.
+    Salva um jogo no histórico do cliente no Supabase, vinculando ao próximo concurso.
     """
+    # Importação local para evitar importação circular
+    from app.services.estatisticas_service import obter_proximo_concurso
+    
+    # Define o concurso alvo: usa o enviado ou descobre o próximo pelo CSV
+    concurso_alvo = kwargs.get("concurso_alvo") or obter_proximo_concurso()
+
     dados = {
         "tipo": tipo,
         "numeros": numeros,
         "user_id": str(user_id) if user_id else None,
+        "concurso_alvo": concurso_alvo,
         "valor_aposta": kwargs.get("valor_aposta", 3.0)
     }
     
@@ -37,8 +44,7 @@ def listar_historico(user_id: UUID):
 
 def _carregar_historico(user_id: Optional[UUID] = None):
     """
-    Alias usado por outros serviços. 
-    Se o user_id for None, retorna lista vazia para evitar erro de UUID no banco.
+    Alias usado por outros serviços.
     """
     if not user_id:
         return []
