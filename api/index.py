@@ -1,6 +1,7 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware # Importação necessária
+from fastapi.middleware.cors import CORSMiddleware
 
+# Importação dos routers
 from app.routes.health import router as health_router
 from app.routes.debug import router as debug_router
 from app.routes.ultimos import router as ultimos_router
@@ -11,32 +12,59 @@ from app.routes.historico import router as historico_router
 
 app = FastAPI(
     title="Palpiteiro Backend",
-    version="1.0.0"
+    description="API para o aplicativo Palpiteiro - palpites inteligentes na loteria",
+    version="1.0.0",
+    docs_url="/docs",      # Swagger UI
+    redoc_url="/redoc"     # ReDoc (já estava funcionando)
 )
 
-# Configuração do CORS
-# Lista de origens permitidas (seu frontend no Netlify)
+# ========================
+# Configuração de CORS
+# ========================
+# Lista de origens permitidas
 origins = [
-    "https://palpiteiro-ia.netlify.app",
-    "http://localhost:5173", # Recomendado para você conseguir testar localmente
+    "https://palpiteiro-ia.netlify.app",     # Seu frontend em produção
+    "http://localhost:5173",                 # Desenvolvimento local (Vite)
+    "http://localhost:3000",                 # Caso use outro porto no futuro
+    "https://palpiteiro-frontend.vercel.app",  # Caso deploy no Vercel também
 ]
+
+# Em ambiente de desenvolvimento local, às vezes é útil permitir tudo temporariamente
+# (comente essa linha em produção se quiser mais segurança)
+# origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, # Permite as URLs da lista acima
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"], # Permite todos os métodos (GET, POST, etc)
-    allow_headers=["*"], # Permite todos os headers
+    allow_methods=["*"],      # Permite GET, POST, PUT, DELETE, OPTIONS etc.
+    allow_headers=["*"],
 )
 
-@app.get("/")
+# ========================
+# Rota raiz
+# ========================
+@app.get("/", tags=["Root"])
 def root():
-    return {"status": "ok", "service": "Palpiteiro Backend"}
+    return {
+        "status": "ok",
+        "service": "Palpiteiro Backend",
+        "message": "API rodando com sucesso! Acesse /docs ou /redoc para a documentação."
+    }
 
-app.include_router(health_router)
-app.include_router(debug_router)
-app.include_router(ultimos_router)
-app.include_router(concurso_router)
-app.include_router(estatisticas_router)
-app.include_router(palpites_router)
-app.include_router(historico_router)
+# ========================
+# Inclusão dos routers
+# ========================
+app.include_router(health_router, prefix="/health", tags=["Health"])
+app.include_router(debug_router, prefix="/debug", tags=["Debug"])
+app.include_router(ultimos_router, prefix="/ultimos", tags=["Últimos Resultados"])
+app.include_router(concurso_router, prefix="/concurso", tags=["Concurso"])
+app.include_router(estatisticas_router, prefix="/estatisticas", tags=["Estatísticas"])
+app.include_router(palpites_router, prefix="/palpites", tags=["Palpites"])
+app.include_router(historico_router, prefix="/historico", tags=["Histórico"])
+
+# Opcional: mensagem de startup
+@app.on_event("startup")
+def startup_event():
+    print("Palpiteiro Backend iniciado com sucesso!")
+    print(f"Documentação disponível em: {app.docs_url} e {app.redoc_url}")
