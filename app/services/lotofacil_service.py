@@ -20,46 +20,32 @@ def _normalizar_coluna(col):
 @lru_cache(maxsize=1)
 def load_lotofacil_data() -> pd.DataFrame:
     try:
+        # Lê o CSV forçando as colunas principais como string para evitar erros de tipo
         df = pd.read_csv(
             CSV_URL,
             sep=";",
             encoding="utf-8",
-            engine="python",
+            dtype=str, 
             on_bad_lines="skip"
         )
 
-        # Normaliza as colunas
-        df.columns = [_normalizar_coluna(c) for c in df.columns]
-        
-        # DEBUG: Caso falhe, veremos no log da Vercel quais colunas chegaram
-        print(f"DEBUG - Colunas disponíveis: {list(df.columns)}")
+        # Normalização agressiva: remove espaços, acentos e pontos
+        def limpar(c):
+            return "".join(c for c in unicodedata.normalize('NFKD', c) 
+                          if unicodedata.category(c) != 'Mn').lower().replace(" ", "").replace(".", "").replace("no", "")
 
-        # Tenta mapear nomes comuns caso 'concurso' não exista exatamente
-        mapeamento = {
-            'n_concurso': 'concurso',
-            'numero': 'concurso',
-            'no_concurso': 'concurso',
-            'concurso_': 'concurso'
-        }
-        df = df.rename(columns=mapeamento)
+        df.columns = [limpar(c) for c in df.columns]
 
-        # Se mesmo assim não achar, tenta buscar qualquer coluna que CONTENHA 'concurso'
+        # Se não achar 'concurso', tenta a primeira coluna (que geralmente é ela)
         if "concurso" not in df.columns:
-            colunas_com_concurso = [c for c in df.columns if 'concurso' in c]
-            if colunas_com_concurso:
-                df = df.rename(columns={colunas_com_concurso[0]: 'concurso'})
+            df.rename(columns={df.columns[0]: "concurso"}, inplace=True)
 
-        if "concurso" not in df.columns or df.empty:
-            print("❌ ERRO FATAL: Coluna 'concurso' não identificada.")
-            return pd.DataFrame()
-
-        # Limpeza robusta da coluna concurso (remove pontos, espaços e converte)
-        df["concurso"] = df["concurso"].astype(str).str.replace(r'\D', '', regex=True)
-        df["concurso"] = pd.to_numeric(df["concurso"], errors="coerce").fillna(0).astype(int)
+        # Converte para numérico e remove linhas vazias
+        df["concurso"] = pd.to_numeric(df["concurso"], errors="coerce")
+        df = df.dropna(subset=["concurso"])
         
         return df
-
     except Exception as e:
-        print("⚠️ Erro crítico ao carregar CSV:", e)
-        return pd.DataFrame()
-
+        print(f"Erro: {e}")
+        # Retorna um DataFrame com as colunas esperadas mas vazio
+        return pd.DataFrame(columns=["concurso"]) 
