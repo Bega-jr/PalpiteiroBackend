@@ -10,5 +10,15 @@
       "src": "/(.*)",
       "dest": "api/index.py"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/jobs/atualizar-estatisticas",
+      "schedule": "59 2 * * *" // Roda todo dia às 02:59 UTC (23:59 BRT)
+    },
+    {
+      "path": "/api/jobs/gerar-palpites",
+      "schedule": "59 2 * * *" // Roda todo dia às 02:59 UTC (23:59 BRT)
+    }
   ]
 }
