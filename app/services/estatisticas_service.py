@@ -1,8 +1,9 @@
 import pandas as pd
 import os
+from typing import Dict, Any
 from app.services.historico_service import _carregar_historico
 
-# Constantes Estratégicas para 2025
+# Constantes Estratégicas para 2025/2026
 PRIMOS = [2, 3, 5, 7, 11, 13, 17, 19, 23]
 MOLDURA = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25]
 CENTRO = [7, 8, 9, 12, 13, 14, 17, 18, 19]
@@ -30,23 +31,18 @@ def obter_proximo_concurso():
     return 1
 
 def obter_ultimo_resultado():
-    """Retorna a lista de números do último sorteio realizado."""
     historico = carregar_dados_para_estatistica()
     if not historico: return []
-    # O último item da lista é o sorteio mais recente
     return historico[-1]['numeros']
 
 def analisar_ciclo():
-    """Identifica quais números ainda não saíram no ciclo atual."""
     historico = carregar_dados_para_estatistica()
     if not historico: return []
     
     numeros_sorteados_no_ciclo = set()
-    # Percorre de trás para frente para identificar o início do ciclo
     for sorteio in reversed(historico):
         numeros_sorteados_no_ciclo.update(sorteio['numeros'])
         if len(numeros_sorteados_no_ciclo) == 25:
-            # Ciclo fechou no sorteio anterior, reiniciar busca do atual
             numeros_sorteados_no_ciclo = set(sorteio['numeros'])
             break
             
@@ -99,3 +95,55 @@ def calcular_metricas_jogo(jogo):
         "maior_sequencia": maior_seq
     }
 
+# --- NOVA FUNÇÃO DE INTEGRAÇÃO COM O FRONTEND ---
+
+def montar_dashboard_estatisticas() -> Dict[str, Any]:
+    """
+    Consolida todos os cálculos acima no formato JSON esperado pelo Layout React.
+    """
+    try:
+        # 1. Obtém estatísticas individuais de cada número
+        df_stats = obter_estatisticas_com_score()
+        # Converte para lista de dicionários e ordena pelo número (01 a 25) para o gráfico
+        lista_stats = df_stats.to_dict('records')
+        lista_stats_ordenada = sorted(lista_stats, key=lambda x: x['numero'])
+
+        # 2. Calcula médias dos últimos 10 concursos para o resumo
+        historico = carregar_dados_para_estatistica()
+        ultimos_sorteios = historico[-10:] if historico else []
+        
+        metricas_acumuladas = {"soma": [], "pares": [], "impares": [], "primos": []}
+        for s in ultimos_sorteios:
+            m = calcular_metricas_jogo(s['numeros'])
+            metricas_acumuladas["soma"].append(m["soma"])
+            metricas_acumuladas["pares"].append(m["pares"])
+            metricas_acumuladas["impares"].append(m["impares"])
+            metricas_acumuladas["primos"].append(m["primos"])
+
+        qtd = len(ultimos_sorteios) if ultimos_sorteios else 1
+        
+        # 3. Obtém números que faltam para fechar o ciclo
+        faltantes_ciclo = analisar_ciclo()
+
+        # 4. Retorno formatado para o componente React
+        return {
+            "estatisticas": lista_stats_ordenada,
+            "analise": {
+                "soma_media": sum(metricas_acumuladas["soma"]) / qtd,
+                "pares_media": sum(metricas_acumuladas["pares"]) / qtd,
+                "impares_media": sum(metricas_acumuladas["impares"]) / qtd,
+                "primos_media": sum(metricas_acumuladas["primos"]) / qtd,
+                "data_referencia": historico[-1]['data'] if historico else None
+            },
+            "ciclo": {
+                "faltam": sorted(faltantes_ciclo),
+                "total_faltam": len(faltantes_ciclo)
+            }
+        }
+    except Exception as e:
+        print(f"Erro ao montar dashboard: {e}")
+        return {
+            "estatisticas": [],
+            "analise": None,
+            "ciclo": {"faltam": [], "total_faltam": 0}
+        }
