@@ -1,40 +1,53 @@
 from fastapi import APIRouter, HTTPException
-from app.repositories.estatisticas_repo import (
-    carregar_estatisticas_base,
-    carregar_estatisticas_score
+from typing import List, Optional
+# Importamos o serviço que consolidamos com todas as suas lógicas de CSV e Score
+from app.services.estatisticas_service import (
+    montar_dashboard_estatisticas,
+    obter_estatisticas_com_score,
+    analisar_ciclo
 )
+# Importamos os schemas para garantir que o FastAPI valide a saída para o React
+from app.schemas.historico_schema import DashboardEstatisticas, EstatisticaNumero
 
-router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
+router = APIRouter()
 
-@router.get("/base")
-def estatisticas_base():
+# --- NOVA ROTA PRINCIPAL (Resolve o problema da página vazia) ---
+@router.get("/", response_model=DashboardEstatisticas)
+def get_estatisticas_dashboard():
+    """
+    Esta rota retorna o objeto completo (estatisticas, analise e ciclo)
+    exatamente como o seu componente React espera.
+    """
     try:
-        # Se o repo.py estiver ajustado, ele retornará uma lista vazia ou dados antigos
-        # e nunca lançará uma exceção aqui.
-        dados = carregar_estatisticas_base()
-        return {
-            "status": "ok",
-            "dados": dados
-        }
+        dados = montar_dashboard_estatisticas()
+        return dados
     except Exception as e:
-        # Caso o Supabase esteja TOTALMENTE inacessível ou outro erro grave ocorra,
-        # o erro 500 será retornado com uma mensagem mais genérica e segura.
-        print(f"ERRO CRÍTICO no endpoint /base: {e}")
-        raise HTTPException(status_code=500, detail="Erro interno no servidor ao carregar estatísticas.")
+        print(f"Erro ao carregar dashboard de estatísticas: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Erro ao processar dados estatísticos para o dashboard."
+        )
 
-
-@router.get("/score")
-def estatisticas_score():
+# --- ROTA DE SCORE (Mantém compatibilidade se você usar em outros lugares) ---
+@router.get("/score", response_model=List[EstatisticaNumero])
+def get_estatisticas_score_apenas():
+    """
+    Retorna apenas a lista de números ordenada por score.
+    """
     try:
-        # Se o repo.py estiver ajustado, ele retornará uma lista vazia ou dados antigos
-        # e nunca lançará uma exceção aqui.
-        dados = carregar_estatisticas_score()
-        return {
-            "status": "ok",
-            "dados": dados
-        }
+        df_score = obter_estatisticas_com_score()
+        return df_score.to_dict('records')
     except Exception as e:
-        # Caso o Supabase esteja TOTALMENTE inacessível ou outro erro grave ocorra,
-        # o erro 500 será retornado com uma mensagem mais genérica e segura.
-        print(f"ERRO CRÍTICO no endpoint /score: {e}")
-        raise HTTPException(status_code=500, detail="Erro interno no servidor ao carregar scores.")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- ROTA DE CICLO (Mantém compatibilidade caso tenha badges de ciclo em outras telas) ---
+@router.get("/ciclo")
+def get_numeros_ciclo():
+    """
+    Retorna apenas a lista de números que faltam para fechar o ciclo.
+    """
+    try:
+        faltantes = analisar_ciclo()
+        return {"faltam": sorted(faltantes), "total": len(faltantes)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
