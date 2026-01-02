@@ -1,61 +1,78 @@
 from datetime import date
 from app.core.supabase import supabase
-from supabase.lib.client_options import ClientOptions
-from postgrest.base_resource import BaseResource # Importar o necessário para tratamento de exceção, se a lib do Supabase levantar uma.
+from postgrest.exceptions import APIError
+
 
 def carregar_estatisticas_base():
     hoje = date.today()
-    
-    response = (
-        supabase
-        .table("estatisticas_numeros")
-        .select("numero, frequencia, atraso")
-        .eq("data_referencia", hoje)
-        .order("numero")
-        .execute()
-    )
-    
-    # Se a resposta não tiver dados (lista vazia ou erro 404), tentamos buscar a última data disponível
-    if not response.data:
-        print(f"INFO: Nenhum dado encontrado para hoje ({hoje}). Buscando o último registro disponível.")
-        
-        # Fallback: buscar o último registro
-        last_data_response = (
+
+    try:
+        response = (
+            supabase
+            .table("estatisticas_numeros")
+            .select("numero, frequencia, atraso")
+            .eq("data_referencia", hoje)
+            .order("numero")
+            .execute()
+        )
+
+        if response.data:
+            return response.data
+
+        # Fallback: último registro disponível
+        print(f"INFO: Nenhum dado encontrado para {hoje}. Buscando último registro.")
+
+        fallback = (
             supabase
             .table("estatisticas_numeros")
             .select("numero, frequencia, atraso")
             .order("data_referencia", desc=True)
-            .limit(10) # Limite ajustado para pegar os 10 últimos, por exemplo. Ajuste conforme sua necessidade
+            .limit(25)  # 25 números da Lotofácil
             .execute()
         )
-        return last_data_response.data or [] # Retorna a última data ou uma lista vazia final
 
-    return response.data
+        return fallback.data or []
+
+    except APIError as e:
+        print("ERRO Supabase (base):", e)
+        return []
+    except Exception as e:
+        print("ERRO inesperado (base):", e)
+        return []
 
 
 def carregar_estatisticas_score():
     hoje = date.today()
 
-    response = (
-        supabase
-        .table("estatisticas_numeros")
-        .select("numero, frequencia, atraso, score")
-        .eq("data_referencia", hoje)
-        .order("score", desc=True)
-        .execute()
-    )
+    try:
+        response = (
+            supabase
+            .table("estatisticas_numeros")
+            .select("numero, frequencia, atraso, score")
+            .eq("data_referencia", hoje)
+            .order("score", desc=True)
+            .execute()
+        )
 
-    if not response.data:
-        print(f"INFO: Nenhum dado de score encontrado para hoje ({hoje}). Buscando o último registro disponível.")
+        if response.data:
+            return response.data
 
-        last_data_response = (
+        print(f"INFO: Nenhum score encontrado para {hoje}. Buscando último registro.")
+
+        fallback = (
             supabase
             .table("estatisticas_numeros")
             .select("numero, frequencia, atraso, score")
             .order("data_referencia", desc=True)
-            .limit(10)
+            .limit(25)
             .execute()
         )
-        return last_data_response.data or []
-        
-    return response.data
+
+        return fallback.data or []
+
+    except APIError as e:
+        print("ERRO Supabase (score):", e)
+        return []
+    except Exception as e:
+        print("ERRO inesperado (score):", e)
+        return []
