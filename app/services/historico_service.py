@@ -1,62 +1,61 @@
 from app.core.supabase import supabase
-from typing import List, Optional
 from uuid import UUID
+from typing import List
+from app.schemas.historico_schema import HistoricoCreate, HistoricoRead
 
-def registrar_jogo(tipo: str, numeros: List[int], user_id: Optional[UUID] = None, **kwargs):
+# ==========================================
+# REGISTRAR JOGO
+# ==========================================
+def registrar_jogo(user_id: UUID, jogo: HistoricoCreate) -> HistoricoRead:
     """
-    Salva um jogo no histórico do cliente no Supabase, vinculando ao próximo concurso.
+    Salva um jogo no histórico vinculado ao usuário.
     """
-    # Importação local para evitar importação circular
-    from app.services.estatisticas_service import obter_proximo_concurso
-    
-    # Define o concurso alvo: usa o enviado ou descobre o próximo pelo CSV
-    concurso_alvo = kwargs.get("concurso_alvo") or obter_proximo_concurso()
-
     dados = {
-        "tipo": tipo,
-        "numeros": numeros,
-        "user_id": str(user_id) if user_id else None,
-        "concurso_alvo": concurso_alvo,
-        "valor_aposta": kwargs.get("valor_aposta", 3.0)
+        "user_id": str(user_id),
+        "numeros": jogo.numeros,
+        "tipo": jogo.tipo.value,
+        "score_medio": jogo.score_medio,
+        "score_final": jogo.score_final,
+        "penalidade_sequencia": jogo.penalidade_sequencia,
+        "concurso_referente": jogo.concurso_alvo,
+        "valor_aposta": jogo.valor_aposta,
+        "premio": 0.0
     }
-    
-    # Mapeia scores se existirem
-    if "score_medio" in kwargs:
-        dados["score"] = kwargs["score_medio"]
-    elif "score" in kwargs:
-        dados["score"] = kwargs["score"]
 
-    return supabase.table("historico_jogos").insert(dados).execute()
+    try:
+        res = supabase.table("historico_jogos").insert(dados).execute()
+        if not res.data:
+            raise Exception("Erro ao salvar jogo")
+        return HistoricoRead(**res.data[0])
+    except Exception as e:
+        raise Exception(f"Falha ao registrar jogo: {e}")
 
-def listar_historico(user_id: UUID):
-    """
-    Retorna apenas os jogos do cliente logado.
-    """
-    return (
-        supabase
-        .table("historico_jogos")
-        .select("*")
-        .eq("user_id", str(user_id))
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
-
-def _carregar_historico(user_id: Optional[UUID] = None):
-    """
-    Alias usado por outros serviços.
-    """
-    if not user_id:
+# ==========================================
+# LISTAR HISTÓRICO
+# ==========================================
+def listar_historico(user_id: UUID) -> List[HistoricoRead]:
+    try:
+        res = (
+            supabase.table("historico_jogos")
+            .select("*")
+            .eq("user_id", str(user_id))
+            .order("created_at", desc=True)
+            .execute()
+        )
+        if not res.data:
+            return []
+        return [HistoricoRead(**j) for j in res.data]
+    except Exception as e:
         return []
-    return listar_historico(user_id)
 
+# ==========================================
+# RESUMO FINANCEIRO
+# ==========================================
 def resumo_financeiro(user_id: UUID):
-    dados = listar_historico(user_id)
-    total_apostado = sum(j.get("valor_aposta", 0) for j in dados)
+    jogos = listar_historico(user_id)
+    total_apostado = sum(j.valor_aposta for j in jogos)
+    total_jogos = len(jogos)
     return {
-        "total_jogos": len(dados),
-        "total_apostado": total_apostado
+        "total_jogos": total_jogos,
+        "total_apostado": total_apostado,
     }
-
-def salvar_jogo(*args, **kwargs):
-    return registrar_jogo(*args, **kwargs)
