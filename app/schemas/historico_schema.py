@@ -9,7 +9,8 @@ class TipoJogo(str, Enum):
     estatistico = "estatistico"
 
 class HistoricoCreate(BaseModel):
-    numeros: conlist(int, min_items=15, max_items=18)  # Garante 15 a 18 números
+    # No Pydantic V2, min_items virou min_length e max_items virou max_length
+    numeros: conlist(int, min_length=15, max_length=18)  
     tipo: TipoJogo = TipoJogo.estatistico
     score_medio: Optional[float] = None
     score_final: Optional[float] = None
