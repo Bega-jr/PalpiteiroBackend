@@ -1,49 +1,42 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.supabase import obter_usuario_logado # Usando a função de validação que criamos
-from app.services.historico_service import (
-    salvar_jogo,
-    listar_historico,
-    resumo_financeiro
-)
+from uuid import UUID
+from typing import List
+from app.schemas.historico_schema import HistoricoCreate, HistoricoRead
+from app.services.historico_service import registrar_jogo, listar_historico, resumo_financeiro
+from app.dependencies.auth import get_user  # Função que retorna o usuário logado
 
 router = APIRouter(prefix="/historico", tags=["Histórico"])
 
 # ==========================================
-# REGISTRAR JOGO (ROTA PROTEGIDA)
+# ADICIONAR JOGO
 # ==========================================
-@router.post("/")
-def registrar(jogo: dict, user_id: str = Depends(obter_usuario_logado)):
+@router.post("/", response_model=HistoricoRead)
+def criar_jogo(jogo: HistoricoCreate, user=Depends(get_user)):
     """
-    Salva um palpite para o usuário logado.
+    Registra um novo jogo para o usuário autenticado.
     """
     try:
-        # Chamamos o serviço passando o user_id extraído do Token JWT
-        salvar_jogo(
-            user_id=user_id,
-            tipo=jogo.get("tipo", "estatistico"),
-            numeros=jogo.get("numeros"),
-            score=jogo.get("score")
-        )
-        return {"status": "ok", "message": "Jogo salvo com sucesso!"}
+        return registrar_jogo(user.id, jogo)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 # ==========================================
-# LISTAR HISTÓRICO (ROTA PROTEGIDA)
+# LISTAR HISTÓRICO
 # ==========================================
-@router.get("/")
-def listar(user_id: str = Depends(obter_usuario_logado)):
+@router.get("/", response_model=List[HistoricoRead])
+def obter_historico(user=Depends(get_user)):
     """
-    Retorna a lista de jogos salvos apenas do usuário logado.
+    Retorna todos os jogos do usuário logado.
     """
-    return listar_historico(user_id)
+    return listar_historico(user.id)
 
 # ==========================================
-# RESUMO DE ROI/FINANCEIRO (ROTA PROTEGIDA)
+# RESUMO FINANCEIRO
 # ==========================================
 @router.get("/resumo")
-def resumo(user_id: str = Depends(obter_usuario_logado)):
+def obter_resumo(user=Depends(get_user)):
     """
-    Calcula o ROI e estatísticas financeiras do usuário logado.
+    Calcula estatísticas financeiras do usuário logado.
     """
-    return resumo_financeiro(user_id)
+    return resumo_financeiro(user.id)
+
