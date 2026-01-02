@@ -1,15 +1,16 @@
-from pydantic import BaseModel, conlist
+from pydantic import BaseModel, conlist, Field
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 from enum import Enum
+
+# --- ENUMS E SCHEMAS DE HISTÓRICO (Originais) ---
 
 class TipoJogo(str, Enum):
     fixo = "fixo"
     estatistico = "estatistico"
 
 class HistoricoCreate(BaseModel):
-    # No Pydantic V2, min_items virou min_length e max_items virou max_length
     numeros: conlist(int, min_length=15, max_length=18)  
     tipo: TipoJogo = TipoJogo.estatistico
     score_medio: Optional[float] = None
@@ -31,3 +32,28 @@ class HistoricoRead(BaseModel):
     acertos: Optional[int] = None
     valor_aposta: float
     premio: float
+
+# --- NOVOS SCHEMAS PARA ESTATÍSTICAS (Adicionados para o Frontend) ---
+
+class EstatisticaNumero(BaseModel):
+    numero: int
+    frequencia: int = 0
+    atraso: int = 0
+    score: float = 0.0
+
+class AnaliseDiaria(BaseModel):
+    soma_media: float = 0.0
+    pares_media: float = 0.0
+    impares_media: float = 0.0
+    primos_media: float = 0.0
+    data_referencia: Optional[date] = None
+
+class CicloInfo(BaseModel):
+    faltam: List[int] = Field(default_factory=list)
+    total_faltam: int = 0
+
+class DashboardEstatisticas(BaseModel):
+    """Este é o modelo que o frontend React espera receber"""
+    estatisticas: List[EstatisticaNumero] = Field(default_factory=list)
+    analise: Optional[AnaliseDiaria] = None
+    ciclo: Optional[CicloInfo] = None
