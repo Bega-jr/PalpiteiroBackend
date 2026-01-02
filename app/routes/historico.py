@@ -1,49 +1,54 @@
-from fastapi import APIRouter, Depends, HTTPException
-from app.core.supabase import obter_usuario_logado # Usando a função de validação que criamos
-from app.services.historico_service import (
-    salvar_jogo,
-    listar_historico,
-    resumo_financeiro
-)
+from fastapi import APIRouter, HTTPException, Header
+from uuid import UUID
+from typing import List, Optional
+from app.schemas.historico_schema import HistoricoCreate, HistoricoRead
+from app.services.historico_service import registrar_jogo, listar_historico, resumo_financeiro
 
 router = APIRouter(prefix="/historico", tags=["Histórico"])
 
 # ==========================================
-# REGISTRAR JOGO (ROTA PROTEGIDA)
+# ADICIONAR JOGO
 # ==========================================
-@router.post("/")
-def registrar(jogo: dict, user_id: str = Depends(obter_usuario_logado)):
+@router.post("/", response_model=HistoricoRead)
+def criar_jogo(
+    jogo: HistoricoCreate, 
+    x_user_id: str = Header(..., alias="X-User-Id")
+):
     """
-    Salva um palpite para o usuário logado.
+    Registra um novo jogo. O user_id é lido do Header 'X-User-Id'.
     """
     try:
-        # Chamamos o serviço passando o user_id extraído do Token JWT
-        salvar_jogo(
-            user_id=user_id,
-            tipo=jogo.get("tipo", "estatistico"),
-            numeros=jogo.get("numeros"),
-            score=jogo.get("score")
-        )
-        return {"status": "ok", "message": "Jogo salvo com sucesso!"}
+        user_uuid = UUID(x_user_id)
+        return registrar_jogo(user_uuid, jogo)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ID de usuário inválido")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 # ==========================================
-# LISTAR HISTÓRICO (ROTA PROTEGIDA)
+# LISTAR HISTÓRICO
 # ==========================================
-@router.get("/")
-def listar(user_id: str = Depends(obter_usuario_logado)):
+@router.get("/", response_model=List[HistoricoRead])
+def obter_historico(x_user_id: str = Header(..., alias="X-User-Id")):
     """
-    Retorna a lista de jogos salvos apenas do usuário logado.
+    Retorna todos os jogos do usuário.
     """
-    return listar_historico(user_id)
+    try:
+        user_uuid = UUID(x_user_id)
+        return listar_historico(user_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ID de usuário inválido")
 
 # ==========================================
-# RESUMO DE ROI/FINANCEIRO (ROTA PROTEGIDA)
+# RESUMO FINANCEIRO
 # ==========================================
 @router.get("/resumo")
-def resumo(user_id: str = Depends(obter_usuario_logado)):
+def obter_resumo(x_user_id: str = Header(..., alias="X-User-Id")):
     """
-    Calcula o ROI e estatísticas financeiras do usuário logado.
+    Calcula estatísticas financeiras do usuário.
     """
-    return resumo_financeiro(user_id)
+    try:
+        user_uuid = UUID(x_user_id)
+        return resumo_financeiro(user_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ID de usuário inválido")

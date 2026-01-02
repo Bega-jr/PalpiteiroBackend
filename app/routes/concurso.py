@@ -2,52 +2,15 @@ from fastapi import APIRouter, HTTPException
 from app.services.lotofacil_service import load_lotofacil_data
 import pandas as pd
 
-router = APIRouter()
+router = APIRouter(prefix="/concurso", tags=["Concurso"])
 
-
-# ✅ ROTA FIXA PRIMEIRO
-@router.get("/concurso/ultimo")
-def obter_ultimo_concurso():
-    try:
-        df = load_lotofacil_data()
-
-        if "concurso" not in df.columns:
-            raise HTTPException(
-                status_code=500,
-                detail="Coluna 'concurso' não encontrada"
-            )
-
-        df["concurso"] = pd.to_numeric(df["concurso"], errors="coerce")
-
-        ultimo = df.sort_values("concurso").iloc[-1]
-        ultimo = ultimo.where(pd.notnull(ultimo), None)
-
-        return {
-            "status": "ok",
-            "concurso": ultimo.to_dict()
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao buscar último concurso: {str(e)}"
-        )
-
-
-# ✅ ROTA DINÂMICA DEPOIS
-@router.get("/concurso/{numero}")
+@router.get("/{numero}")
 def obter_concurso(numero: int):
     try:
         df = load_lotofacil_data()
-
-        if "concurso" not in df.columns:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Coluna 'concurso' não encontrada. Colunas: {list(df.columns)}"
-            )
-
+        
+        # Converte coluna para numérico para garantir a comparação
         df["concurso"] = pd.to_numeric(df["concurso"], errors="coerce")
-
         resultado = df[df["concurso"] == numero]
 
         if resultado.empty:
@@ -56,18 +19,32 @@ def obter_concurso(numero: int):
                 detail=f"Concurso {numero} não encontrado"
             )
 
-        registro = resultado.iloc[0].where(pd.notnull(resultado.iloc[0]), None)
-
+        row = resultado.iloc[0]
+        
+        # Monta o objeto exatamente como o componente ConcursoCard do front-end usa
         return {
-            "status": "ok",
-            "concurso": registro.to_dict()
+            "concurso": int(row["concurso"]),
+            "data": str(row["data"]),
+            "dezenas": [int(row[f'bola{i}']) for i in range(1, 16) if f'bola{i}' in row]
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro interno concurso: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/ultimo")
+def obter_ultimo_concurso():
+    """Rota auxiliar para pegar o concurso mais recente"""
+    try:
+        df = load_lotofacil_data()
+        ultimo_row = df.iloc[-1]
+        
+        return {
+            "concurso": int(ultimo_row["concurso"]),
+            "data": str(ultimo_row["data"]),
+            "dezenas": [int(ultimo_row[f'bola{i}']) for i in range(1, 16)]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 

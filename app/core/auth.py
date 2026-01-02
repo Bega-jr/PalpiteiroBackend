@@ -1,5 +1,5 @@
 from fastapi import Depends, HTTPException, Header
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Dict
 from threading import Lock, Thread
 import time
@@ -84,3 +84,12 @@ def get_user(authorization: str = Header(...)):
 
     token = authorization.split(" ")[1]
     return validate_token(token)
+
+def logout_user(token: str):
+    """
+    Remove manualmente um token do cache, invalidando a sessão localmente.
+    """
+    with cache_lock:
+        if token in token_cache:
+            del token_cache[token]
+            logger.info(f"Token invalidado manualmente: {token}")
