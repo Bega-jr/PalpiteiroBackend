@@ -7,52 +7,71 @@ router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
 
 @router.get("/")
 def get_estatisticas_dashboard():
-    hoje = date.today()
+    # Converte para string 'YYYY-MM-DD' para evitar problemas de tipos no Supabase
+    hoje = date.today().isoformat()
 
     try:
-        # Lê estatísticas por número do Supabase
+        # 1. Busca estatísticas por número
         response_numeros = supabase.table("estatisticas_numeros") \
             .select("numero, frequencia, atraso, score") \
             .eq("data_referencia", hoje) \
             .execute()
 
-        estatisticas = response_numeros.data
+        estatisticas = response_numeros.data or []
 
-        if not estatisticas:
-            raise ValueError("Nenhum dado encontrado para hoje")
-
-        # Lê resumo diário
+        # 2. Busca resumo diário
+        # Usamos .limit(1) em vez de .single() para evitar que o código quebre 
+        # caso os dados de hoje ainda não tenham sido gerados.
         response_diarias = supabase.table("estatisticas_diarias_v2") \
             .select("*") \
             .eq("data_referencia", hoje) \
-            .single() \
+            .limit(1) \
             .execute()
 
-        diarias = response_diarias.data if response_diarias.data else {}
+        # Se houver dados, pega o primeiro item; caso contrário, usa um dict vazio
+        diarias = response_diarias.data[0] if response_diarias.data else {}
+
+        # 3. Tratamento de lógica para evitar erros de None/Missing
+        media_pares = diarias.get("media_pares", 7.2)
+        
+        # Tenta pegar atrasados, senão frios, senão lista vazia
+        faltam = diarias.get("numeros_atrasados") or diarias.get("numeros_frios") or []
+
+        # Se não houver nenhum dado no banco para hoje
+        if not estatisticas and not diarias:
+            return {
+                "status": "warning",
+                "mensagem": f"Nenhum dado encontrado para a data {hoje}",
+                "data_referencia": hoje
+            }
 
         return {
             "estatisticas": estatisticas,
             "analise": {
                 "soma_media": diarias.get("media_soma", 0.0),
-                "pares_media": diarias.get("media_pares", 7.2),
-                "impares_media": 15 - diarias.get("media_pares", 7.2),
-                "primos_media": 0.0,
-                "data_referencia": hoje.isoformat(),
+                "pares_media": media_pares,
+                "impares_media": 15 - media_pares,
+                "primos_media": diarias.get("media_primos", 0.0),
+                "data_referencia": hoje,
             },
             "ciclo": {
-                "faltam": diarias.get("numeros_atrasados", []) or diarias.get("numeros_frios", []),
-                "total_faltam": len(diarias.get("numeros_atrasados", []) or diarias.get("numeros_frios", [])),
+                "faltam": sorted(faltam),
+                "total_faltam": len(faltam),
             }
         }
 
     except Exception as e:
-        print("Erro no endpoint /estatisticas:", e)
-        raise HTTPException(status_code=500, detail="Erro ao carregar estatísticas do banco.")
+        # Log detalhado no terminal para diagnóstico
+        print(f"Erro no endpoint /estatisticas: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Erro ao carregar estatísticas: {str(e)}"
+        )
 
-# Compatibilidade com chamadas antigas
+# Endpoint de Score (Mantido por compatibilidade)
 @router.get("/score")
 def get_score():
-    hoje = date.today()
+    hoje = date.today().isoformat()
     try:
         response = supabase.table("estatisticas_numeros") \
             .select("numero, frequencia, atraso, score") \
@@ -62,17 +81,24 @@ def get_score():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Endpoint de Ciclo (Mantido por compatibilidade)
 @router.get("/ciclo")
 def get_ciclo():
-    hoje = date.today()
+    hoje = date.today().isoformat()
     try:
         response = supabase.table("estatisticas_diarias_v2") \
             .select("numeros_atrasados, numeros_frios") \
             .eq("data_referencia", hoje) \
-            .single() \
+            .limit(1) \
             .execute()
-        diarias = response.data if response.data else {}
+        
+        diarias = response.data[0] if response.data else {}
         faltam = diarias.get("numeros_atrasados") or diarias.get("numeros_frios") or []
-        return {"faltam": sorted(faltam), "total_faltam": len(faltam)}
+        
+        return {
+            "faltam": sorted(faltam), 
+            "total_faltam": len(faltam),
+            "data_referencia": hoje
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
