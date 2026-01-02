@@ -1,0 +1,93 @@
+name: Atualizar Estatísticas Diárias da Lotofácil
+
+on:
+  schedule:
+    # Todo dia às 21:30 horário de Brasília (UTC-3)
+    - cron: "30 21 * * *"
+  workflow_dispatch:  # Permite executar manualmente no GitHub
+
+jobs:
+  atualizar-estatisticas:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas python-dotenv supabase-py postgrest
+
+      - name: Atualizar CSV com último concurso da Caixa
+        run: |
+          python - <<EOF
+          import requests
+          import pandas as pd
+          from datetime import datetime
+
+          url = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
+          response = requests.get(url)
+          data = response.json()
+
+          # Converte dezenas para strings com zero à esquerda
+          dezenas = [f"{int(d):02d}" for d in data["listaDezenas"]]
+
+          # Monta nova linha do CSV
+          nova_linha = {
+              "loteria": "lotofacil",
+              "concurso": data["numero"],
+              "data": data["dataApuracao"].split("/")[2] + "-" + data["dataApuracao"].split("/")[1] + "-" + data["dataApuracao"].split("/")[0],
+          }
+          for i in range(1, 16):
+              nova_linha[f"bola{i}"] = dezenas[i-1]
+
+          # Adiciona campos extras se quiser (arrecadacao, ganhadores, etc.)
+          nova_linha["arrecadacao"] = data.get("valorArrecadado", 0)
+          nova_linha["acumulado"] = data["acumulado"]
+          nova_linha["estimativa_proximo"] = data["valorEstimadoProximoConcurso"]
+
+          # Carrega CSV atual
+          csv_path = "data/Lotofacil.csv"
+          df = pd.read_csv(csv_path)
+
+          # Remove se já existir esse concurso (evita duplicata)
+          df = df[df["concurso"] != data["numero"]]
+
+          # Adiciona nova linha
+          df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+
+          # Ordena por concurso e salva
+          df = df.sort_values("concurso")
+          df.to_csv(csv_path, index=False)
+
+          print(f"Concurso {data['numero']} adicionado ao CSV com sucesso!")
+          EOF
+
+      - name: Executar pré-cálculo de estatísticas por número
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -m scripts.precalcular_estatisticas
+
+      - name: Executar estatísticas diárias consolidadas
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -m scripts.precalcular_estatisticas_diarias
+
+      - name: Commit e push das alterações (CSV atualizado)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/Lotofacil.csv
+          git commit -m "feat: atualiza CSV com concurso $(date +'%Y-%m-%d') [automático]" || echo "Nada para commitar"
+          git push
