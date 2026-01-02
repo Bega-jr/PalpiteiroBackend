@@ -10,24 +10,18 @@ def get_estatisticas_dashboard():
     hoje = date.today()
 
     try:
-        # Estatísticas por número (do Supabase)
+        # Lê estatísticas por número do Supabase
         response_numeros = supabase.table("estatisticas_numeros") \
             .select("numero, frequencia, atraso, score") \
             .eq("data_referencia", hoje) \
             .execute()
 
-        estatisticas = response_numeros.data or []
+        estatisticas = response_numeros.data
 
         if not estatisticas:
-            # Fallback para último registro (evita vazio)
-            fallback = supabase.table("estatisticas_numeros") \
-                .select("numero, frequencia, atraso, score") \
-                .order("data_referencia", desc=True) \
-                .limit(25) \
-                .execute()
-            estatisticas = fallback.data or []
+            raise ValueError("Nenhum dado encontrado para hoje")
 
-        # Resumo diário
+        # Lê resumo diário
         response_diarias = supabase.table("estatisticas_diarias_v2") \
             .select("*") \
             .eq("data_referencia", hoje) \
@@ -36,14 +30,13 @@ def get_estatisticas_dashboard():
 
         diarias = response_diarias.data if response_diarias.data else {}
 
-        # Monta resposta completa
         return {
             "estatisticas": estatisticas,
             "analise": {
-                "soma_media": round(diarias.get("media_soma", 0), 2),
-                "pares_media": round(diarias.get("media_pares", 7.2), 1),
-                "impares_media": round(15 - diarias.get("media_pares", 7.2), 1),
-                "primos_media": 0,  # adicione no script se quiser
+                "soma_media": diarias.get("media_soma", 0.0),
+                "pares_media": diarias.get("media_pares", 7.2),
+                "impares_media": 15 - diarias.get("media_pares", 7.2),
+                "primos_media": 0.0,
                 "data_referencia": hoje.isoformat(),
             },
             "ciclo": {
@@ -52,9 +45,34 @@ def get_estatisticas_dashboard():
             }
         }
 
-    except APIError as e:
-        print("Erro Supabase:", e)
-        raise HTTPException(status_code=500, detail="Erro ao acessar o banco.")
     except Exception as e:
-        print("Erro inesperado:", e)
-        raise HTTPException(status_code=500, detail="Erro interno.")
+        print("Erro no endpoint /estatisticas:", e)
+        raise HTTPException(status_code=500, detail="Erro ao carregar estatísticas do banco.")
+
+# Compatibilidade com chamadas antigas
+@router.get("/score")
+def get_score():
+    hoje = date.today()
+    try:
+        response = supabase.table("estatisticas_numeros") \
+            .select("numero, frequencia, atraso, score") \
+            .eq("data_referencia", hoje) \
+            .execute()
+        return response.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/ciclo")
+def get_ciclo():
+    hoje = date.today()
+    try:
+        response = supabase.table("estatisticas_diarias_v2") \
+            .select("numeros_atrasados, numeros_frios") \
+            .eq("data_referencia", hoje) \
+            .single() \
+            .execute()
+        diarias = response.data if response.data else {}
+        faltam = diarias.get("numeros_atrasados") or diarias.get("numeros_frios") or []
+        return {"faltam": sorted(faltam), "total_faltam": len(faltam)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
