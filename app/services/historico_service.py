@@ -26,6 +26,7 @@ def registrar_jogo(user_id: UUID, jogo: HistoricoCreate) -> HistoricoRead:
         res = supabase.table("historico_jogos").insert(dados).execute()
         if not res.data:
             raise Exception("Erro ao salvar jogo")
+        # Retorna o primeiro item da lista gerada pelo insert
         return HistoricoRead(**res.data[0])
     except Exception as e:
         raise Exception(f"Falha ao registrar jogo: {e}")
@@ -59,3 +60,35 @@ def resumo_financeiro(user_id: UUID):
         "total_jogos": total_jogos,
         "total_apostado": total_apostado,
     }
+
+# ==========================================
+# FUNÇÃO PARA ESTATÍSTICAS (ESSENCIAL PARA O DEPLOY)
+# ==========================================
+def _carregar_historico():
+    """
+    Carrega o histórico global de resultados para cálculos de estatísticas.
+    Esta função resolve o erro ImportError no estatisticas_service.py.
+    """
+    try:
+        # Busca resultados oficiais do banco
+        res = (
+            supabase.table("historico_resultados")
+            .select("concurso, data_sorteio, numeros")
+            .order("concurso", desc=False)
+            .execute()
+        )
+        
+        if not res.data:
+            return []
+            
+        return [
+            {
+                "concurso": r["concurso"],
+                "data": r["data_sorteio"],
+                "numeros": r["numeros"]
+            }
+            for r in res.data
+        ]
+    except Exception as e:
+        print(f"Erro ao carregar histórico base: {e}")
+        return []
