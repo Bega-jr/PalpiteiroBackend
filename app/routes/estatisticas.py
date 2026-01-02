@@ -1,53 +1,120 @@
 from fastapi import APIRouter, HTTPException
-from typing import List, Optional
-# Importamos o serviço que consolidamos com todas as suas lógicas de CSV e Score
-from app.services.estatisticas_service import (
-    montar_dashboard_estatisticas,
-    obter_estatisticas_com_score,
-    analisar_ciclo
-)
-# Importamos os schemas para garantir que o FastAPI valide a saída para o React
-from app.schemas.historico_schema import DashboardEstatisticas, EstatisticaNumero
+from datetime import date
+from typing import List
+from app.core.supabase import supabase
+from postgrest.exceptions import APIError
 
-router = APIRouter()
+# Se você tiver schemas, mantenha-os. Caso contrário, pode remover ou ajustar
+# from app.schemas.historico_schema import DashboardEstatisticas, EstatisticaNumero
 
-# --- NOVA ROTA PRINCIPAL (Resolve o problema da página vazia) ---
-@router.get("/", response_model=DashboardEstatisticas)
+router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
+
+@router.get("/")
 def get_estatisticas_dashboard():
     """
-    Esta rota retorna o objeto completo (estatisticas, analise e ciclo)
-    exatamente como o seu componente React espera.
+    Rota principal do dashboard de estatísticas.
+    Lê dados pré-calculados do Supabase e retorna no formato esperado pelo frontend React.
     """
+    hoje = date.today()
+
     try:
-        dados = montar_dashboard_estatisticas()
-        return dados
-    except Exception as e:
-        print(f"Erro ao carregar dashboard de estatísticas: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail="Erro ao processar dados estatísticos para o dashboard."
+        # 1. Estatísticas por número (com score)
+        response_numeros = (
+            supabase.table("estatisticas_numeros")
+            .select("numero, frequencia, atraso, score")
+            .eq("data_referencia", hoje)
+            .execute()
         )
 
-# --- ROTA DE SCORE (Mantém compatibilidade se você usar em outros lugares) ---
-@router.get("/score", response_model=List[EstatisticaNumero])
+        estatisticas = response_numeros.data or []
+
+        if not estatisticas:
+            # Fallback para o último registro disponível
+            fallback_numeros = (
+                supabase.table("estatisticas_numeros")
+                .select("numero, frequencia, atraso, score")
+                .order("data_referencia", desc=True)
+                .limit(25)
+                .execute()
+            )
+            estatisticas = fallback_numeros.data or []
+
+        # 2. Resumo diário consolidado
+        response_diarias = (
+            supabase.table("estatisticas_diarias_v2")
+            .select("*")
+            .eq("data_referencia", hoje)
+            .single()
+            .execute()
+        )
+
+        diarias = response_diarias.data if response_diarias.data else {}
+
+        # Monta o objeto final compatível com o frontend
+        dashboard = {
+            "estatisticas": estatisticas,
+            "analise": {
+                "soma_media": diarias.get("media_soma", 0.0),
+                "pares_media": diarias.get("media_pares", 7.2),
+                "impares_media": round(15 - diarias.get("media_pares", 7.2), 1),
+                "primos_media": diarias.get("media_primos", 0.0),  # se adicionar no script
+                "data_referencia": hoje.isoformat(),
+            },
+            "ciclo": {
+                "faltam": diarias.get("numeros_atrasados", []) or diarias.get("numeros_frios", []),
+                "total_faltam": len(diarias.get("numeros_atrasados", []) or diarias.get("numeros_frios", [])),
+            }
+        }
+
+        return dashboard
+
+    except APIError as e:
+        print("Erro Supabase no dashboard:", e)
+        raise HTTPException(status_code=500, detail="Erro ao acessar o banco de dados.")
+    except Exception as e:
+        print("Erro inesperado no dashboard:", e)
+        raise HTTPException(status_code=500, detail="Erro interno ao gerar estatísticas.")
+
+
+# Mantém compatibilidade com chamadas antigas
+@router.get("/score")
 def get_estatisticas_score_apenas():
-    """
-    Retorna apenas a lista de números ordenada por score.
-    """
+    hoje = date.today()
     try:
-        df_score = obter_estatisticas_com_score()
-        return df_score.to_dict('records')
+        response = (
+            supabase.table("estatisticas_numeros")
+            .select("numero, frequencia, atraso, score")
+            .eq("data_referencia", hoje)
+            .execute()
+        )
+        dados = response.data or []
+        if not dados:
+            fallback = (
+                supabase.table("estatisticas_numeros")
+                .select("numero, frequencia, atraso, score")
+                .order("data_referencia", desc=True)
+                .limit(25)
+                .execute()
+            )
+            dados = fallback.data or []
+        return dados
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- ROTA DE CICLO (Mantém compatibilidade caso tenha badges de ciclo em outras telas) ---
+
 @router.get("/ciclo")
 def get_numeros_ciclo():
-    """
-    Retorna apenas a lista de números que faltam para fechar o ciclo.
-    """
+    hoje = date.today()
     try:
-        faltantes = analisar_ciclo()
-        return {"faltam": sorted(faltantes), "total": len(faltantes)}
+        response = (
+            supabase.table("estatisticas_diarias_v2")
+            .select("numeros_atrasados, numeros_frios")
+            .eq("data_referencia", hoje)
+            .single()
+            .execute()
+        )
+        diarias = response.data if response.data else {}
+        faltam = diarias.get("numeros_atrasados") or diarias.get("numeros_frios") or []
+        return {"faltam": sorted(faltam), "total_faltam": len(faltam)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
