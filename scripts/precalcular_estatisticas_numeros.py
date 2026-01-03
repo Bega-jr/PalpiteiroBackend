@@ -1,29 +1,51 @@
 from datetime import date
-from app.core.supabase import supabase
 from app.services.estatisticas_service import obter_estatisticas_com_score
+from app.core.supabase import supabase
+from postgrest.exceptions import APIError
+
 
 def main():
-    hoje = date.today().isoformat()
-    df = obter_estatisticas_com_score()
+    hoje = date.today()
+    print(f"📅 Pré-cálculo estatístico para {hoje}")
 
-    supabase.table("estatisticas_numeros") \
-        .delete() \
-        .eq("data_referencia", hoje) \
-        .execute()
+    try:
+        # 1️⃣ Limpa estatísticas do dia (idempotente)
+        supabase.table("estatisticas_numeros") \
+            .delete() \
+            .eq("data_referencia", hoje.isoformat()) \
+            .execute()
 
-    registros = [
-        {
-            "data_referencia": hoje,
-            "numero": int(r.numero),
-            "frequencia": int(r.frequencia),
-            "atraso": int(r.atraso),
-            "score": float(r.score),
-        }
-        for r in df.itertuples()
-    ]
+        # 2️⃣ Calcula estatísticas
+        df = obter_estatisticas_com_score()
 
-    supabase.table("estatisticas_numeros").insert(registros).execute()
-    print("✅ Score diário salvo")
+        if df is None or df.empty:
+            print("⚠️ Nenhum dado estatístico gerado. Abortando insert.")
+            return
+
+        # 3️⃣ Monta payload
+        registros = [
+            {
+                "data_referencia": hoje.isoformat(),
+                "numero": int(row["numero"]),
+                "frequencia": int(row["frequencia"]),
+                "atraso": int(row["atraso"]),
+                "score": float(row["score"]),
+            }
+            for _, row in df.iterrows()
+        ]
+
+        # 4️⃣ Insere no Supabase
+        supabase.table("estatisticas_numeros") \
+            .insert(registros) \
+            .execute()
+
+        print(f"✅ {len(registros)} registros inseridos com sucesso")
+
+    except APIError as e:
+        print("❌ Erro Supabase:", e)
+    except Exception as e:
+        print("❌ Erro inesperado:", e)
+
 
 if __name__ == "__main__":
     main()
