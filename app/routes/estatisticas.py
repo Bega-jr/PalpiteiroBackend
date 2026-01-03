@@ -1,23 +1,45 @@
 from fastapi import APIRouter
-from datetime import date
 from app.core.supabase import supabase
 
 router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
 
+
 @router.get("/")
 def get_estatisticas():
-    hoje = date.today().isoformat()
+    # 🔹 1. Descobrir a data mais recente disponível
+    data_resp = (
+        supabase.table("estatisticas_numeros")
+        .select("data_referencia")
+        .order("data_referencia", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
 
-    numeros = supabase.table("estatisticas_numeros") \
-        .select("numero, frequencia, atraso, score") \
-        .eq("data_referencia", hoje) \
-        .execute().data
+    if not data_resp:
+        return {"erro": "Nenhuma estatística encontrada"}
 
-    diario = supabase.table("estatisticas_diarias_v2") \
-        .select("*") \
-        .eq("data_referencia", hoje) \
-        .single() \
-        .execute().data
+    data_ref = data_resp[0]["data_referencia"]
+
+    # 🔹 2. Estatísticas por número
+    numeros = (
+        supabase.table("estatisticas_numeros")
+        .select("numero, frequencia, atraso, score")
+        .eq("data_referencia", data_ref)
+        .order("score", desc=True)
+        .execute()
+        .data
+    )
+
+    # 🔹 3. Estatísticas diárias
+    diario = (
+        supabase.table("estatisticas_diarias_v2")
+        .select("*")
+        .eq("data_referencia", data_ref)
+        .single()
+        .execute()
+        .data
+    )
 
     return {
         "estatisticas": numeros,
@@ -26,7 +48,7 @@ def get_estatisticas():
             "pares_media": diario["media_pares"],
             "impares_media": diario["media_impares"],
             "primos_media": diario["media_primos"],
-            "data_referencia": hoje
+            "data_referencia": data_ref
         },
         "ciclo": {
             "faltam": diario["numeros_atrasados"],
