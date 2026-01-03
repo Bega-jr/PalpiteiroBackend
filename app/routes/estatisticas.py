@@ -51,11 +51,11 @@ def get_estatisticas():
         return {
             "estatisticas": numeros,
             "analise": {
-                "soma_media": diario.get("media_soma"),
-                "pares_media": diario.get("media_pares"),
+                "soma_media": diario["media_soma"],
+                "pares_media": diario["media_pares"],
                 "impares_media": diario.get("media_impares"),
                 "primos_media": diario.get("media_primos"),
-                "data_referencia": data_ref
+                "data_referencia": hoje
             },
             "ciclo": {
                 "faltam": diario.get("numeros_atrasados", []),
