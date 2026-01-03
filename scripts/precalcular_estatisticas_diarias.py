@@ -1,45 +1,53 @@
 from datetime import date
-from app.services.estatisticas_service import obter_estatisticas_com_score
 from app.core.supabase import get_supabase
 
 def main():
-    supabase = get_supabase()  # ✅ padrão correto
+    supabase = get_supabase()
+    hoje = date.today().isoformat()
 
-    hoje = date.today()
-    print(f"📊 Gerando estatísticas consolidadas para {hoje}")
+    print(f"📊 Consolidando estatísticas diárias para {hoje}")
 
-    # 1️⃣ Limpa estatísticas do dia (idempotente)
+    # 1️⃣ Busca estatísticas por número já calculadas
+    res = supabase.table("estatisticas_numeros") \
+        .select("numero, score, atraso") \
+        .eq("data_referencia", hoje) \
+        .execute()
+
+    if not res.data:
+        raise Exception("Nenhuma estatística por número encontrada para hoje")
+
+    stats = res.data
+
+    # 2️⃣ Consolida dados
+    ordenado_score = sorted(stats, key=lambda x: x["score"], reverse=True)
+    ordenado_atraso = sorted(stats, key=lambda x: x["atraso"], reverse=True)
+
+    numeros_quentes = [x["numero"] for x in ordenado_score[:5]]
+    numeros_frios = [x["numero"] for x in ordenado_score[-5:]]
+    numeros_atrasados = [x["numero"] for x in ordenado_atraso[:5]]
+
+    payload = {
+        "data_referencia": hoje,
+        "numeros_quentes": numeros_quentes,
+        "numeros_frios": numeros_frios,
+        "numeros_atrasados": numeros_atrasados,
+        "media_soma": None,
+        "media_pares": None,
+        "sequencias_comuns": None,
+        "faixa_pares": None,
+    }
+
+    # 3️⃣ Idempotência
     supabase.table("estatisticas_diarias_v2") \
         .delete() \
         .eq("data_referencia", hoje) \
         .execute()
 
-    # 2️⃣ Estatísticas base
-    df = obter_estatisticas_com_score()
+    supabase.table("estatisticas_diarias_v2") \
+        .insert(payload) \
+        .execute()
 
-    quentes = df.sort_values("score", ascending=False).head(5)["numero"].tolist()
-    frios = df.sort_values("score").head(5)["numero"].tolist()
-    atrasados = df.sort_values("atraso", ascending=False).head(5)["numero"].tolist()
-
-    payload = {
-    "data_referencia": hoje.isoformat(),  # ✅ JSON safe
-    "numeros_quentes": quentes,
-    "numeros_frios": frios,
-    "numeros_atrasados": atrasados,
-    "media_soma": round(df["frequencia"].mean(), 2),
-    "media_pares": 7.2,
-    "sequencias_comuns": [3, 4],
-    "faixa_pares": {
-        "min": 6,
-        "max": 9,
-        "mais_comum": "7-8"
-    }
-}
-
-
-    supabase.table("estatisticas_diarias_v2").insert(payload).execute()
-
-    print("✅ Estatísticas diárias consolidadas salvas")
+    print("✅ Estatísticas diárias consolidadas com sucesso")
 
 if __name__ == "__main__":
     main()
