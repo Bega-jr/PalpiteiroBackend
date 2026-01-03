@@ -20,6 +20,22 @@ def carregar_dados_para_estatistica():
     return _carregar_historico()
 
 # ---------------------------------------------------------------------
+# ÚLTIMO RESULTADO  ✅ (FUNÇÃO QUE ESTAVA FALTANDO)
+# ---------------------------------------------------------------------
+
+def obter_ultimo_resultado() -> Dict[str, Any] | None:
+    """
+    Retorna o último concurso do histórico.
+    Usado pelo serviço de palpites.
+    """
+    historico = carregar_dados_para_estatistica()
+
+    if not historico:
+        return None
+
+    return historico[-1]
+
+# ---------------------------------------------------------------------
 # MÉTRICAS DE UM JOGO
 # ---------------------------------------------------------------------
 
