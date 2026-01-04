@@ -12,30 +12,30 @@ jobs:
       contents: write
 
     steps:
-      - name: 📥 Checkout do repositório
+      - name: Checkout do repositorio
         uses: actions/checkout@v4
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: 'pip'
 
-      - name: 📦 Instalar dependências
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install requests pandas supabase python-dotenv uvicorn fastapi
 
-      - name: 🔄 Passo 1: Atualizar histórico (CSV)
+      - name: Passo 1 - Atualizar historico
         run: python scripts/atualizar_lotofacil.py
 
-      - name: 🏆 Passo 2: Conferir Jogos (ROI)
+      - name: Passo 2 - Conferir Jogos
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/conferir_resultados.py
 
-      - name: 📊 Passo 3: Executar Estatísticas
+      - name: Passo 3 - Executar Estatisticas
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -43,7 +43,7 @@ jobs:
           python scripts/precalcular_estatisticas.py
           python scripts/precalcular_estatisticas_diarias.py
 
-      - name: 📤 Passo 4: Commit automático
+      - name: Passo 4 - Commit automatico
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
