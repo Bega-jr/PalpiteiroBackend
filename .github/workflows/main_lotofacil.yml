@@ -1,8 +1,7 @@
-name: Pipeline Completa Lotofácil (Dados e Estatísticas)
+name: Pipeline Completa Lotofacil
 
 on:
   schedule:
-    # 00:15 UTC = 21:15 Horário de Brasília (UTC-3)
     - cron: "15 0 * * *"
   workflow_dispatch:
 
@@ -20,16 +19,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: 'pip' # Cache automático baseado no requirements.txt
+          cache: 'pip'
 
       - name: 📦 Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          # Garante a instalação das bibliotecas necessárias de 2026
           pip install requests pandas supabase python-dotenv uvicorn fastapi
 
       - name: 🔄 Passo 1: Atualizar histórico (CSV)
-        # Tenta rodar o script dedicado, se falhar, o pipeline para
         run: python scripts/atualizar_lotofacil.py
 
       - name: 🏆 Passo 2: Conferir Jogos (ROI)
@@ -38,25 +35,17 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/conferir_resultados.py
 
-      - name: 📊 Passo 3: Executar Estatísticas e Supabase
+      - name: 📊 Passo 3: Executar Estatísticas
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          # Processa estatísticas globais e diárias
           python scripts/precalcular_estatisticas.py
           python scripts/precalcular_estatisticas_diarias.py
 
-      - name: 📤 Passo 4: Commit automático no Repositório
+      - name: 📤 Passo 4: Commit automático
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
           git add data/Lotofacil.csv
-          # Só commita se o arquivo CSV realmente tiver mudado
-          if ! git diff --cached --quiet; then
-            git commit -m "auto: atualiza histórico e estatísticas $(date +'%d/%m/%Y')"
-            git push origin main
-          else
-            echo "Sem mudanças no CSV para commitar."
-          fi
+          git diff --cached --quiet || (git commit -m "auto: atualiza dados $(date +'%d/%m/%Y')" && git push)
