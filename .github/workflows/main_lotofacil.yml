@@ -1,0 +1,73 @@
+name: Atualizar histórico e estatísticas Lotofácil
+
+on:
+  schedule:
+    # 00:15 UTC equivale a 21:15 Horário de Brasília (UTC-3)
+    # Execução diária para cobrir os sorteios de segunda a sábado
+    - cron: "15 0 * * *"
+  workflow_dispatch: # Permite rodar manualmente pelo painel do GitHub
+
+jobs:
+  atualizar:
+    name: ETL Lotofácil (CSV + Supabase)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Passo 1 - Atualizar historico (CSV)
+        run: |
+          echo "Baixando resultados mais recentes..."
+          python scripts/atualizar_lotofacil.py
+
+      - name: Passo 2 - Conferir Jogos (ROI no Supabase)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          echo "Calculando ROI e atualizando banco de dados..."
+          python scripts/conferir_resultados.py
+
+      - name: Passo 3 - Processar Estatisticas (Supabase)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PYTHONPATH: .
+        run: |
+          echo "Iniciando processamento de estatísticas..."
+          python scripts/precalcular_estatisticas_numeros.py
+          python scripts/precalcular_estatisticas_diarias.py
+          python scripts/gerar_estatisticas_diarias.py
+
+      - name: Passo 4 - Commit automatico do CSV
+        run: |
+          git config user.email "github-actions@github.com"
+          git config user.name "github-actions"
+          
+          # Adiciona apenas o arquivo CSV se houver mudanças
+          git add data/Lotofacil.csv
+          
+          # Verifica se há algo para commitar (evita erro se não houver novo sorteio)
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração no arquivo CSV encontrada."
+          else
+            echo "Novos dados detectados. Realizando commit..."
+            git commit -m "auto: atualiza dados Lotofácil $(date +'%d/%m/%Y')"
+            git push origin main
+          fi
+
