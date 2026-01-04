@@ -9,7 +9,6 @@ on:
 jobs:
   atualizar:
     runs-on: ubuntu-latest
-    # Define que os comandos rodem dentro da pasta correta do seu projeto
     defaults:
       run:
         working-directory: ./PalpiteiroBackend
@@ -26,7 +25,6 @@ jobs:
         with:
           python-version: "3.11"
           cache: 'pip'
-          # Garante que o cache funcione olhando o requirements na subpasta
           cache-dependency-path: PalpiteiroBackend/requirements.txt
 
       - name: 📦 Instalar dependências
@@ -43,21 +41,20 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/conferir_resultados.py
 
-      - name: 📊 Passo 3: Processar Estatísticas (Novas Funções)
+      - name: 📊 Passo 3: Processar Estatísticas
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          PYTHONPATH: .  # Permite que os scripts encontrem a pasta 'app'
+          PYTHONPATH: .
         run: |
-          # Ordem lógica de execução para 2026:
           python scripts/precalcular_estatisticas_numeros.py
           python scripts/precalcular_estatisticas_diarias.py
           python scripts/gerar_estatisticas_diarias.py
 
-      - name: 📤 Passo 4: Commit automático se houver mudanças
+      - name: 📤 Passo 4: Commit automático
         run: |
           git config user.email "github-actions@github.com"
           git config user.name "github-actions"
           git add data/Lotofacil.csv
-          # Commita apenas se o CSV foi alterado pelos scripts
-          git diff --cached --quiet || (git commit -m "auto: atualiza histórico e estatísticas $(date +'%d/%m/%Y')" && git push origin main)
+          git diff --cached --quiet || (git commit -m "auto: atualiza historico e estatisticas $(date +'%d/%m/%Y')" && git push origin main)
+
