@@ -9,10 +9,6 @@ on:
 jobs:
   atualizar:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./PalpiteiroBackend
-
     permissions:
       contents: write
 
@@ -25,17 +21,18 @@ jobs:
         with:
           python-version: "3.11"
           cache: 'pip'
-          cache-dependency-path: '**/requirements.txt' 
+          # Como o arquivo está na raiz do repositório, usamos apenas o nome dele
+          cache-dependency-path: 'requirements.txt'
 
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install requests pandas supabase fastapi uvicorn python-dotenv
+          pip install -r requirements.txt
 
-      - name: Passo 1 - Atualizar historico
+      - name: Passo 1 - Atualizar historico (CSV)
         run: python scripts/atualizar_lotofacil.py
 
-      - name: Passo 2 - Conferir Jogos
+      - name: Passo 2 - Conferir Jogos (ROI)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
