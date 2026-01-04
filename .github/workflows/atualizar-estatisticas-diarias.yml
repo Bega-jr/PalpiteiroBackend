@@ -2,8 +2,8 @@ name: Atualizar Estatísticas Diárias da Lotofácil
 
 on:
   schedule:
-    # Todo dia às 21:30 horário de Brasília (UTC-3)
-    - cron: "30 0 * * *" # Ajustado para 00:30 UTC se o objetivo for 21:30 Brasília (UTC-3)
+    # 00:30 UTC = 21:30 Horário de Brasília (UTC-3)
+    - cron: "30 0 * * *"
   workflow_dispatch:
 
 jobs:
@@ -19,12 +19,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: 'pip' # Ativa o cache automático
+          cache: 'pip' # Ativa o cache automático das bibliotecas
 
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          # IMPORTANTE: Removido supabase-py e postgrest (já incluso no supabase)
+          # Usando o pacote correto 'supabase' e outras dependências de 2026
           pip install pandas python-dotenv supabase requests
 
       - name: Atualizar CSV com último concurso da Caixa
@@ -33,49 +33,64 @@ jobs:
           import requests
           import pandas as pd
           import os
+          from datetime import datetime
 
-          url = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
-          response = requests.get(url, timeout=30)
-          data = response.json()
+          try:
+              url = "servicebus2.caixa.gov.br"
+              response = requests.get(url, timeout=30)
+              data = response.json()
 
-          dezenas = [f"{int(d):02d}" for d in data["listaDezenas"]]
+              dezenas = [f"{int(d):02d}" for d in data["listaDezenas"]]
 
-          nova_linha = {
-              "loteria": "lotofacil",
-              "concurso": data["numero"],
-              "data": data["dataApuracao"].split("/")[2] + "-" + data["dataApuracao"].split("/")[1] + "-" + data["dataApuracao"].split("/")[0],
-          }
-          for i in range(1, 16):
-              nova_linha[f"bola{i}"] = dezenas[i-1]
+              # Formata a data de DD/MM/AAAA para AAAA-MM-DD
+              data_original = data["dataApuracao"].split("/")
+              data_iso = f"{data_original[2]}-{data_original[1]}-{data_original[0]}"
 
-          nova_linha["arrecadacao"] = data.get("valorArrecadado", 0)
-          nova_linha["acumulado"] = data["acumulado"]
-          nova_linha["estimativa_proximo"] = data["valorEstimadoProximoConcurso"]
+              nova_linha = {
+                  "loteria": "lotofacil",
+                  "concurso": data["numero"],
+                  "data": data_iso,
+              }
+              for i in range(1, 16):
+                  nova_linha[f"bola{i}"] = dezenas[i-1]
 
-          csv_path = "data/Lotofacil.csv"
-          if os.path.exists(csv_path):
-              df = pd.read_csv(csv_path)
-              df = df[df["concurso"] != data["numero"]]
-              df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-          else:
-              df = pd.DataFrame([nova_linha])
+              nova_linha["arrecadacao"] = data.get("valorArrecadado", 0)
+              nova_linha["acumulado"] = data.get("acumulado", False)
+              nova_linha["estimativa_proximo"] = data.get("valorEstimadoProximoConcurso", 0)
 
-          df = df.sort_values("concurso")
-          df.to_csv(csv_path, index=False)
-          print(f"Concurso {data['numero']} processado!")
+              csv_path = "data/Lotofacil.csv"
+              os.makedirs("data", exist_ok=True)
+              
+              if os.path.exists(csv_path):
+                  df = pd.read_csv(csv_path)
+                  # Remove duplicata se o concurso já estiver lá
+                  df = df[df["concurso"] != data["numero"]]
+                  df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+              else:
+                  df = pd.DataFrame([nova_linha])
+
+              df = df.sort_values("concurso")
+              df.to_csv(csv_path, index=False)
+              print(f"Sucesso: Concurso {data['numero']} processado.")
+          except Exception as e:
+              print(f"Erro ao processar dados da Caixa: {e}")
+              exit(1)
           EOF
 
-      - name: Executar pré-cálculo de estatísticas
+      - name: Executar processamentos (Scripts)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          python -m scripts.precalcular_estatisticas
-          python -m scripts.precalcular_estatisticas_diarias
+          # Chamada direta do arquivo para evitar erro de módulo
+          python scripts/precalcular_estatisticas.py
+          python scripts/precalcular_estatisticas_diarias.py
 
       - name: Commit e push das alterações
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/Lotofacil.csv
-          git diff --cached --quiet || (git commit -m "feat: atualiza CSV concurso $(date +'%Y-%m-%d')" && git push)
+          # Só faz o commit se houver mudança real no CSV
+          git diff --cached --quiet || (git commit -m "feat: atualiza CSV concurso $(date +'%Y-%m-%d') [automático]" && git push)
+
