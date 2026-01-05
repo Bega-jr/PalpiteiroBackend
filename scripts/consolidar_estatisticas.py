@@ -81,7 +81,7 @@ def main():
             .eq("data_referencia", hoje) \
             .execute()
 
-        supabase.table("estatisticas_numbers") \
+        supabase.table("estatisticas_numeros") \
             .insert(registros_individuais) \
             .execute()
 
