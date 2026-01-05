@@ -2,9 +2,8 @@ from datetime import date
 from api.core.supabase import supabase
 
 def gerar_palpite_fixo():
-    # 🔁 pode reaproveitar 100% da lógica atual
     return {
-        "numeros": sorted([1, 2, 3, 5, 7, 9, 10, 11, 13, 14, 15, 18, 20, 24, 25]),
+        "numeros": [1, 2, 3, 5, 7, 9, 10, 11, 13, 14, 15, 18, 20, 24, 25],
         "soma_total": 195,
         "pares": 7,
         "impares": 8,
@@ -18,9 +17,9 @@ def gerar_palpite_fixo():
     }
 
 def main():
-    hoje = date.today()
+    hoje = date.today().isoformat()
 
-    # Garante 1 fixo por dia
+    # Remove palpite fixo do dia
     supabase.table("palpites_validos") \
         .delete() \
         .eq("data_referencia", hoje) \
@@ -40,3 +39,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
