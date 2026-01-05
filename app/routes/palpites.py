@@ -1,22 +1,33 @@
-from fastapi import APIRouter, HTTPException, Depends
-from app.services.palpites_service import gerar_palpite_fixo, gerar_7_palpites
+from fastapi import APIRouter, HTTPException
+from app.services.palpites_service import (
+    obter_palpite_fixo_publico,
+    obter_palpites_estatisticos_publico
+)
 
 router = APIRouter(prefix="/palpites", tags=["Palpites"])
 
+
 @router.get("/fixo")
 def palpite_fixo():
-    # Rota pública: qualquer um vê, mas ninguém salva no banco aqui
     try:
-        numeros = gerar_palpite_fixo()
-        return {"status": "ok", "tipo": "fixo", "numeros": numeros}
+        return {
+            "status": "ok",
+            "tipo": "fixo",
+            **obter_palpite_fixo_publico()
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print("❌ Erro palpite fixo:", e)
+        raise HTTPException(status_code=500, detail="Erro ao carregar palpite fixo")
+
 
 @router.get("/estatisticos")
 def palpites_estatisticos():
-    # Rota pública: gera os 7 palpites para o cliente escolher
     try:
-        palpites = gerar_7_palpites()
-        return {"status": "ok", "tipo": "estatistico", "palpites": palpites}
+        return {
+            "status": "ok",
+            "tipo": "estatisticos",
+            "palpites": obter_palpites_estatisticos_publico()
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print("❌ Erro palpites estatísticos:", e)
+        raise HTTPException(status_code=500, detail="Erro ao carregar palpites")
