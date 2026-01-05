@@ -1,8 +1,30 @@
+import os
+import sys
+from pathlib import Path
 from datetime import date
-from api.core.supabase import supabase
+from dotenv import load_dotenv
+
+# 1. Configura o caminho para encontrar o arquivo .env na raiz do projeto
+BASE_DIR = Path(__file__).resolve().parent.parent
+env_path = BASE_DIR / '.env'
+load_dotenv(dotenv_path=env_path)
+
+# 2. Garante que a raiz do projeto esteja no PYTHONPATH para importar a 'api'
+sys.path.append(str(BASE_DIR))
+
+# 3. Importação do Supabase (agora com as variáveis de ambiente carregadas)
+try:
+    from api.core.supabase import supabase
+except ImportError as e:
+    print(f"❌ Erro ao importar o módulo 'api'. Certifique-se de estar na raiz do projeto: {e}")
+    sys.exit(1)
+except RuntimeError as e:
+    print(f"❌ Erro de configuração: {e}")
+    print("Verifique se SUPABASE_URL e SUPABASE_SERVICE_KEY estão no seu arquivo .env")
+    sys.exit(1)
 
 def gerar_estatisticas():
-    # 🔴 AQUI entra sua lógica pesada atual
+    # Lógica de processamento de estatísticas
     return {
         "numeros_mais_sorteados": [10, 11, 20, 25],
         "numeros_menos_sorteados": [2, 3, 7],
@@ -35,21 +57,30 @@ def gerar_palpites():
     return palpites
 
 def main():
-    hoje = date.today()
+    hoje = date.today().isoformat()
+    print(f"🚀 Iniciando pré-cálculo para a data: {hoje}...")
 
-    # Limpa dados do dia
-    supabase.table("palpites_validos").delete().eq("data_referencia", hoje).execute()
-    supabase.table("estatisticas_diarias").delete().eq("data_referencia", hoje).execute()
+    try:
+        # Limpa dados existentes do dia para evitar duplicatas
+        supabase.table("palpites_validos").delete().eq("data_referencia", hoje).execute()
+        supabase.table("estatisticas_diarias").delete().eq("data_referencia", hoje).execute()
 
-    estatisticas = gerar_estatisticas()
-    estatisticas["data_referencia"] = hoje
-    supabase.table("estatisticas_diarias").insert(estatisticas).execute()
+        # Processa e insere estatísticas
+        estatisticas = gerar_estatisticas()
+        estatisticas["data_referencia"] = hoje
+        supabase.table("estatisticas_diarias").insert(estatisticas).execute()
+        print("📊 Estatísticas diárias salvas.")
 
-    for palpite in gerar_palpites():
-        palpite["data_referencia"] = hoje
-        supabase.table("palpites_validos").insert(palpite).execute()
+        # Processa e insere palpites
+        lista_palpites = gerar_palpites()
+        for palpite in lista_palpites:
+            palpite["data_referencia"] = hoje
+            supabase.table("palpites_validos").insert(palpite).execute()
+        
+        print(f"✅ {len(lista_palpites)} Palpites pré-calculados com sucesso no Supabase!")
 
-    print("✅ Palpites pré-calculados com sucesso")
+    except Exception as e:
+        print(f"❌ Ocorreu um erro durante a execução: {e}")
 
 if __name__ == "__main__":
     main()
