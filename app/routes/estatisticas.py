@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from datetime import date
-from app.core.supabase import supabase
+from app.services.supabase_service import get_supabase
+
 import json
 
 router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
