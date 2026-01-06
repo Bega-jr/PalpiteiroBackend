@@ -1,12 +1,16 @@
 from fastapi import APIRouter
-from app.services.lotofacil_service import carregar_historico_csv
+from app.services.lotofacil_service import buscar_na_caixa, carregar_historico_csv
 
-router = APIRouter(prefix="/ultimos", tags=["Histórico"])
+router = APIRouter(prefix="/ultimos", tags=["Loterias"])
 
 @router.get("/{quantidade}")
 def listar_ultimos(quantidade: int):
-    # Se o seu front usa queryKey: ["ultimoConcurso"] e espera um ÚNICO objeto:
-    res = carregar_historico_csv(quantidade)
-    if quantidade == 1 and res:
-        return res[0] # Retorna o objeto direto se for apenas 1
-    return res
+    # Se for a Home pedindo o último (quantidade = 1)
+    if quantidade == 1:
+        dados = buscar_na_caixa("") # Pega direto da API da Caixa mapeado
+        if dados:
+            return dados # Se seu Front usa getUltimoConcurso (objeto unico)
+            # Se o front esperar um array, use: return [dados]
+            
+    # Para histórico, usa o CSV
+    return carregar_historico_csv(quantidade)
