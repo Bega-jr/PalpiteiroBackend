@@ -5,5 +5,4 @@ router = APIRouter(prefix="/ultimos", tags=["Histórico"])
 
 @router.get("/{quantidade}")
 def listar_ultimos(quantidade: int):
-    """Retorna o histórico do CSV de forma rápida"""
     return carregar_historico_csv(quantidade)
