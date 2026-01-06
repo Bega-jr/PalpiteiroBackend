@@ -8,11 +8,5 @@ def obter_ultimo():
     dados = buscar_na_caixa("")
     if not dados:
         raise HTTPException(status_code=502, detail="Erro ao buscar dados na Caixa")
-    return dados
-
-@router.get("/{numero}")
-def obter_especifico(numero: str):
-    dados = buscar_na_caixa(numero)
-    if not dados:
-        raise HTTPException(status_code=404, detail="Concurso não encontrado")
+    # Retorna o dicionário mapeado, agora o React achará 'dezenas' e 'listaMunicipioUFGanhadores'
     return dados
