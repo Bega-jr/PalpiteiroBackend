@@ -3,7 +3,6 @@ from app.services.supabase_service import get_supabase
 import json
 
 router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
-supabase = get_supabase()
 
 
 def safe_float(valor, default=0.0):
@@ -24,9 +23,11 @@ def safe_json(valor):
         return []
 
 
-@router.get("")
+@router.get("/")
 def get_estatisticas():
     try:
+        supabase = get_supabase()
+
         resp = (
             supabase
             .table("vw_estatisticas_numeros_atuais")
@@ -42,10 +43,15 @@ def get_estatisticas():
                 "estatisticas": [],
                 "analise": {},
                 "ciclo": {"faltam": [], "total_faltam": 0},
-                "meta": {"fonte": "vw_estatisticas_numeros_atuais"}
+                "meta": {
+                    "fonte": "vw_estatisticas_numeros_atuais",
+                    "total_numeros": 0
+                }
             }
 
-        ref = dados[0].get("data_referencia")
+        # Linha de referência (campos globais replicados na view)
+        ref_row = dados[0]
+        data_ref = ref_row.get("data_referencia")
 
         estatisticas = [
             {
@@ -58,17 +64,17 @@ def get_estatisticas():
         ]
 
         analise = {
-            "soma_media": round(safe_float(dados[0].get("media_soma")), 2),
-            "pares_media": round(safe_float(dados[0].get("media_pares")), 2),
-            "impares_media": round(safe_float(dados[0].get("media_impares")), 2),
-            "primos_media": round(safe_float(dados[0].get("media_primos")), 2),
-            "data_referencia": ref,
+            "soma_media": round(safe_float(ref_row.get("media_soma")), 2),
+            "pares_media": round(safe_float(ref_row.get("media_pares")), 2),
+            "impares_media": round(safe_float(ref_row.get("media_impares")), 2),
+            "primos_media": round(safe_float(ref_row.get("media_primos")), 2),
+            "data_referencia": data_ref,
         }
 
-        faltam = safe_json(dados[0].get("numeros_atrasados"))
-        frios = safe_json(dados[0].get("numeros_frios"))
+        atrasados = safe_json(ref_row.get("numeros_atrasados"))
+        frios = safe_json(ref_row.get("numeros_frios"))
 
-        ciclo_final = faltam if faltam else frios
+        ciclo_final = atrasados if atrasados else frios
 
         return {
             "estatisticas": estatisticas,
@@ -78,14 +84,14 @@ def get_estatisticas():
                 "total_faltam": len(ciclo_final),
             },
             "meta": {
-                "data_referencia": ref,
+                "data_referencia": data_ref,
                 "total_numeros": len(estatisticas),
                 "fonte": "vw_estatisticas_numeros_atuais",
             },
         }
 
     except Exception as e:
-        print("❌ ERRO /estatisticas:", e)
+        print("❌ ERRO /estatisticas:", repr(e))
         raise HTTPException(
             status_code=500,
             detail="Erro ao carregar estatísticas"
