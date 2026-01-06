@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 from datetime import date
 
-from app.services.supabase_service import supabase
+from app.services.supabase_service import get_supabase
 
 router = APIRouter(prefix="/debug", tags=["Debug"])
 
