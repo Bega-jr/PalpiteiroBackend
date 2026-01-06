@@ -5,29 +5,19 @@ router = APIRouter(prefix="/concurso", tags=["Concurso"])
 
 
 @router.get("/ultimo")
-def obter_ultimo_da_caixa():
-    """
-    Retorna o último concurso da Lotofácil
-    com dados 100% compatíveis com o Front.
-    """
-    dados = buscar_na_caixa()
+def ultimo_concurso():
+    dados = buscar_na_caixa("")
     if not dados:
         raise HTTPException(
             status_code=502,
-            detail="Não foi possível obter os dados da Caixa no momento."
+            detail="Não foi possível obter dados da Caixa"
         )
     return dados
 
 
 @router.get("/{numero}")
-def obter_concurso_especifico(numero: str):
-    """
-    Retorna um concurso específico da Lotofácil.
-    """
+def concurso_por_numero(numero: str):
     dados = buscar_na_caixa(numero)
     if not dados:
-        raise HTTPException(
-            status_code=404,
-            detail="Concurso não encontrado."
-        )
+        raise HTTPException(status_code=404, detail="Concurso não encontrado")
     return dados
