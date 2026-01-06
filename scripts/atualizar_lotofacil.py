@@ -3,6 +3,12 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from pandas.errors import EmptyDataError
+from supabase import create_client
+import os
+
+# ===============================
+# CONFIG
+# ===============================
 
 BASE_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 
@@ -11,6 +17,15 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 CSV_PATH = DATA_DIR / "Lotofacil.csv"
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ===============================
+# CAMPOS
+# ===============================
 
 CAMPOS = [
     "loteria", "concurso", "data",
@@ -23,12 +38,11 @@ CAMPOS = [
     "ganhadores_11", "valor_11",
 ]
 
+# ===============================
+# CSV
+# ===============================
 
 def carregar_csv():
-    """
-    Lê o CSV com segurança.
-    Se estiver vazio ou não existir, cria DataFrame com cabeçalho.
-    """
     if not CSV_PATH.exists():
         return pd.DataFrame(columns=CAMPOS)
 
@@ -37,16 +51,46 @@ def carregar_csv():
         if df.empty or "concurso" not in df.columns:
             return pd.DataFrame(columns=CAMPOS)
         return df
-
     except EmptyDataError:
         return pd.DataFrame(columns=CAMPOS)
 
 
-def ultimo_concurso(df):
+def ultimo_concurso_csv(df):
     if df.empty:
         return 0
     return int(df["concurso"].max())
 
+
+# ===============================
+# SUPABASE
+# ===============================
+
+def ultimo_concurso_supabase():
+    resp = (
+        supabase
+        .table("lotofacil_concursos")
+        .select("concurso")
+        .order("concurso", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if not resp.data:
+        return 0
+    return resp.data[0]["concurso"]
+
+
+def salvar_supabase(registros):
+    if registros:
+        supabase.table("lotofacil_concursos").upsert(
+            registros,
+            on_conflict="concurso"
+        ).execute()
+
+
+# ===============================
+# API CAIXA
+# ===============================
 
 def buscar_concurso(numero=None):
     url = BASE_URL if numero is None else f"{BASE_URL}/{numero}"
@@ -72,9 +116,7 @@ def normalizar(dados):
     registro = {
         "loteria": "lotofacil",
         "concurso": int(dados["numero"]),
-        "data": datetime.strptime(
-            dados["dataApuracao"], "%d/%m/%Y"
-        ).strftime("%Y-%m-%d"),
+        "data": datetime.strptime(dados["dataApuracao"], "%d/%m/%Y").strftime("%Y-%m-%d"),
         "arrecadacao": dados["valorArrecadado"],
         "acumulado": dados["acumulado"],
         "estimativa_proximo": dados["valorEstimadoProximoConcurso"],
@@ -97,16 +139,21 @@ def normalizar(dados):
     return registro
 
 
+# ===============================
+# MAIN
+# ===============================
+
 def main():
     df = carregar_csv()
-    ultimo_salvo = ultimo_concurso(df)
+    ultimo_csv = ultimo_concurso_csv(df)
+    ultimo_db = ultimo_concurso_supabase()
 
-    print(f"📌 Último concurso salvo no CSV: {ultimo_salvo}")
+    ultimo_salvo = max(ultimo_csv, ultimo_db)
+
+    print(f"📌 Último concurso salvo: {ultimo_salvo}")
 
     dados_api = buscar_concurso()
     ultimo_api = int(dados_api["numero"])
-
-    print(f"🌐 Último concurso disponível na API: {ultimo_api}")
 
     novos = []
 
@@ -116,17 +163,20 @@ def main():
         novos.append(normalizar(dados))
 
     if not novos:
-        print("✅ Nenhum concurso novo para adicionar.")
+        print("✅ Nenhum concurso novo.")
         return
 
+    # CSV
     df_novos = pd.DataFrame(novos, columns=CAMPOS)
     df_final = pd.concat([df, df_novos], ignore_index=True)
     df_final.sort_values("concurso", inplace=True)
-
     df_final.to_csv(CSV_PATH, index=False)
+
+    # Supabase
+    salvar_supabase(novos)
+
     print(f"✅ {len(novos)} concursos adicionados com sucesso.")
 
 
 if __name__ == "__main__":
     main()
-
