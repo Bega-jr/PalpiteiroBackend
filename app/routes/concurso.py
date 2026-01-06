@@ -5,18 +5,16 @@ router = APIRouter(prefix="/concurso", tags=["Concurso"])
 
 @router.get("/ultimo")
 def obter_ultimo():
-    """Rota consumida pela Home para pegar o resultado mais recente com detalhes"""
-    dados = buscar_na_caixa("") # Busca o último da API
+    """Rota para a Home - busca dados detalhados na API"""
+    dados = buscar_na_caixa("")
     if not dados:
-        # Se a API da Caixa falhar, você pode opcionalmente buscar o último do CSV aqui
-        raise HTTPException(status_code=502, detail="Serviço da Caixa indisponível")
+        raise HTTPException(status_code=502, detail="Erro ao buscar dados na Caixa")
     return dados
 
 @router.get("/{numero}")
 def obter_especifico(numero: str):
-    """Busca um concurso específico por número"""
+    """Busca concurso específico na API"""
     dados = buscar_na_caixa(numero)
     if not dados:
         raise HTTPException(status_code=404, detail="Concurso não encontrado")
     return dados
-
