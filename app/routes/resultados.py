@@ -3,26 +3,7 @@ from app.services.supabase_service import get_supabase
 
 router = APIRouter(prefix="/resultados", tags=["Resultados"])
 
-
-@router.get("/total")
-def total_concursos():
-    """
-    Retorna o total de concursos cadastrados
-    """
-    try:
-        supabase = get_supabase()
-
-        resp = supabase.table("lotofacil_concursos") \
-            .select("concurso", count="exact") \
-            .execute()
-
-        return {
-            "status": "ok",
-            "total": resp.count
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+supabase = get_supabase()
 
 
 @router.get("")
@@ -31,49 +12,75 @@ def listar_resultados(
     limit: int = Query(10, ge=1, le=50)
 ):
     """
-    Lista concursos paginados (do mais recente para o mais antigo)
+    Lista concursos da Lotofácil com paginação
+    Ordenado do mais recente para o mais antigo
     """
     try:
-        supabase = get_supabase()
+        offset = (page - 1) * limit
 
-        start = (page - 1) * limit
-        end = start + limit - 1
-
-        resp = supabase.table("lotofacil_concursos") \
-            .select("*") \
-            .order("concurso", desc=True) \
-            .range(start, end) \
+        resp = (
+            supabase
+            .table("lotofacil_concursos")
+            .select(
+                "concurso, data, dezenas, soma, pares, impares"
+            )
+            .order("concurso", desc=True)
+            .range(offset, offset + limit - 1)
             .execute()
+        )
 
         return {
             "status": "ok",
             "page": page,
             "limit": limit,
-            "resultados": resp.data
+            "resultados": resp.data or []
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{concurso}")
-def obter_concurso(concurso: int):
+@router.get("/total")
+def total_resultados():
+    """
+    Retorna total de concursos cadastrados
+    """
+    try:
+        resp = (
+            supabase
+            .table("lotofacil_concursos")
+            .select("concurso", count="exact")
+            .execute()
+        )
+
+        return {
+            "status": "ok",
+            "total": resp.count or 0
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{numero}")
+def obter_concurso(numero: int):
     """
     Retorna um concurso específico
     """
     try:
-        supabase = get_supabase()
-
-        resp = supabase.table("lotofacil_concursos") \
-            .select("*") \
-            .eq("concurso", concurso) \
-            .single() \
+        resp = (
+            supabase
+            .table("lotofacil_concursos")
+            .select("*")
+            .eq("concurso", numero)
+            .single()
             .execute()
+        )
 
         if not resp.data:
             raise HTTPException(
                 status_code=404,
-                detail=f"Concurso {concurso} não encontrado"
+                detail=f"Concurso {numero} não encontrado"
             )
 
         return {
