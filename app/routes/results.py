@@ -1,14 +1,64 @@
 from fastapi import APIRouter, HTTPException, Query
-from app.core.supabase import supabase
+from app.services.supabase_client import supabase
 
-router = APIRouter(
-    prefix="/resultados",
-    tags=["Resultados"]
-)
+router = APIRouter(prefix="/resultados", tags=["Resultados"])
 
-# ======================================================
-# 🔹 Concurso individual
-# ======================================================
+
+# ================================
+# TOTAL DE CONCURSOS
+# ================================
+@router.get("/total")
+def total_concursos():
+    try:
+        resp = (
+            supabase
+            .table("lotofacil_concursos")
+            .select("concurso", count="exact")
+            .execute()
+        )
+
+        return {"total": resp.count or 0}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ================================
+# LISTA PAGINADA (mais recentes)
+# ================================
+@router.get("")
+def listar_resultados(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=50),
+):
+    try:
+        offset = (page - 1) * limit
+        to = offset + limit - 1
+
+        resp = (
+            supabase
+            .table("lotofacil_concursos")
+            .select(
+                "concurso, data, dezenas, acumulado",
+            )
+            .order("concurso", desc=True)
+            .range(offset, to)
+            .execute()
+        )
+
+        return {
+            "page": page,
+            "limit": limit,
+            "resultados": resp.data or [],
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ================================
+# CONCURSO ESPECÍFICO
+# ================================
 @router.get("/concurso/{numero}")
 def obter_concurso(numero: int):
     try:
@@ -27,91 +77,9 @@ def obter_concurso(numero: int):
                 detail=f"Concurso {numero} não encontrado"
             )
 
-        return {
-            "status": "ok",
-            "concurso": resp.data
-        }
+        return {"concurso": resp.data}
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-# ======================================================
-# 🔹 Lista paginada (do último para o primeiro)
-# ======================================================
-@router.get("")
-def listar_resultados(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=50)
-):
-    """
-    Lista concursos da Lotofácil
-    Ordenados do mais recente para o mais antigo
-    """
-
-    try:
-        inicio = (page - 1) * limit
-        fim = inicio + limit - 1
-
-        resp = (
-            supabase
-            .table("lotofacil_concursos")
-            .select(
-                """
-                concurso,
-                data,
-                dezenas,
-                soma,
-                pares,
-                impares,
-                acumulado
-                """
-            )
-            .order("concurso", desc=True)
-            .range(inicio, fim)
-            .execute()
-        )
-
-        return {
-            "status": "ok",
-            "page": page,
-            "limit": limit,
-            "quantidade": len(resp.data),
-            "resultados": resp.data
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-# ======================================================
-# 🔹 Total de concursos (para paginação no frontend)
-# ======================================================
-@router.get("/total")
-def total_concursos():
-    try:
-        resp = (
-            supabase
-            .table("lotofacil_concursos")
-            .select("concurso", count="exact")
-            .execute()
-        )
-
-        return {
-            "status": "ok",
-            "total": resp.count
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
