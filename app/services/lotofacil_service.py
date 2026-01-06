@@ -7,52 +7,59 @@ API_URL = "servicebus2.caixa.gov.br"
 CSV_PATH = "app/data/Lotofacil.csv"
 
 def buscar_na_caixa(concurso: str = "") -> Optional[Dict]:
-    """Busca dados completos na API da Caixa (inclui cidades e prêmios)"""
+    """
+    Busca dados detalhados da API da Caixa.
+    Essencial para a HOME (estimativas, cidades, prêmios).
+    """
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(f"{API_URL}/{concurso}", headers=headers, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        }
+        # O parâmetro "" busca o último, ou um número específico
+        resp = requests.get(f"{API_URL}/{concurso}", headers=headers, timeout=15)
         if resp.status_code == 200:
             d = resp.json()
-            # Formata exatamente como o seu Front-end espera
+            # Mapeamento exato para o que seu componente Home.tsx e ConcursoCard.tsx esperam
             return {
-                "concurso": int(d["numero"]),
+                "concurso": d["numero"],
+                "numero": d["numero"], 
                 "data": d["dataApuracao"],
+                "data_concurso": d["dataApuracao"],
                 "dezenas": [int(x) for x in d["listaDezenas"]],
                 "acumulado": d["acumulado"],
                 "estimativa_proximo": d.get("valorEstimadoProximoConcurso", 0),
                 "listaMunicipioUFGanhadores": d.get("listaMunicipioUFGanhadores", []),
-                "ganhadores_15": d["listaRateioPremio"][0]["quantidadeGanhadores"] if d.get("listaRateioPremio") else 0,
-                "proximo_concurso": d.get("numeroFinalConcursoProximoFinalZero", ""),
-                "valor_acumulado": d.get("valorAcumuladoProximoConcurso", 0)
+                "listaRateioPremio": d.get("listaRateioPremio", []),
+                "valor_acumulado": d.get("valorAcumuladoProximoConcurso", 0),
+                "ganhadores_15": d["listaRateioPremio"][0]["quantidadeGanhadores"] if d.get("listaRateioPremio") else 0
             }
-    except: return None
+    except Exception as e:
+        print(f"Erro ao acessar API Caixa: {e}")
+        return None
 
-def load_lotofacil_data() -> List[Dict]:
-    """Lê o histórico do CSV"""
-    if not os.path.exists(CSV_PATH): return []
+def carregar_historico_csv(quantidade: int) -> List[Dict]:
+    """
+    Lê o arquivo CSV. Ideal para páginas de listagem e estatísticas.
+    """
+    if not os.path.exists(CSV_PATH):
+        return []
     try:
         with open(CSV_PATH, newline="", encoding="utf-8") as f:
-            return list(csv.DictReader(f))
-    except: return []
+            reader = list(csv.DictReader(f))
+            # Pega os últimos registros do arquivo e inverte a ordem
+            ultimos_raw = reader[-quantidade:][::-1]
+            
+            processados = []
+            for row in ultimos_raw:
+                # Extrai dezenas de bola1...bola15
+                dezenas = [int(row[f'bola{i}']) for i in range(1, 16) if f'bola{i}' in row]
+                processados.append({
+                    "concurso": int(row.get("concurso", 0)),
+                    "data": row.get("data") or row.get("data_sorteio"),
+                    "dezenas": dezenas
+                })
+            return processados
+    except Exception as e:
+        print(f"Erro ao ler CSV: {e}")
+        return []
 
-def get_concursos(quantidade: Optional[int] = None, numero: Optional[int] = None):
-    """Função que alimenta as rotas /ultimos e /concurso"""
-    if numero:
-        # Se pedir um específico, tentamos a API para vir com detalhes de cidades
-        res = buscar_na_caixa(str(numero))
-        if res: return res
-        # Se a API falhar, busca no CSV (dados básicos)
-        base = load_lotofacil_data()
-        return next((c for c in base if int(c["concurso"]) == numero), None)
-
-    if quantidade == 1:
-        # Se o Front pedir o último (Home), priorizamos a API para ter os detalhes da premiação
-        ultimo_api = buscar_na_caixa("")
-        if ultimo_api: return ultimo_api
-
-    # Para listagens longas, usamos o CSV (mais rápido)
-    base = load_lotofacil_data()
-    if not base and not numero:
-        return [buscar_na_caixa("")]
-    
-    return base[-quantidade:][::-1] if quantidade else base
