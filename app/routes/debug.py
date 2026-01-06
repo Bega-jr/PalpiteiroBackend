@@ -2,9 +2,11 @@ from fastapi import APIRouter
 from pathlib import Path
 import os
 from datetime import date
-from app.core.supabase import supabase
+
+from app.services.supabase_service import supabase
 
 router = APIRouter(prefix="/debug", tags=["Debug"])
+
 
 # ============================================================
 # 1️⃣ DEBUG DE AMBIENTE (ENV / SUPABASE)
@@ -14,7 +16,6 @@ router = APIRouter(prefix="/debug", tags=["Debug"])
 def debug_env():
     return {
         "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
-        "SUPABASE_KEY": bool(os.getenv("SUPABASE_KEY")),
         "SUPABASE_ANON_KEY": bool(os.getenv("SUPABASE_ANON_KEY")),
         "SUPABASE_SERVICE_ROLE_KEY": bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY")),
         "ENVIRONMENT": os.getenv("ENVIRONMENT", "não definido"),
@@ -29,6 +30,7 @@ def debug_env():
 def debug_data():
     base_dir = Path(__file__).resolve().parent.parent
     data_dir = base_dir / "data"
+
     csv = data_dir / "lotofacil.csv"
     xlsx = data_dir / "lotofacil.xlsx"
 
@@ -51,14 +53,17 @@ def debug_data():
 @router.get("/supabase")
 def debug_supabase():
     try:
-        resp = supabase.table("estatisticas_numeros") \
-            .select("numero") \
-            .limit(1) \
+        resp = (
+            supabase
+            .table("estatisticas_numeros")
+            .select("numero")
+            .limit(1)
             .execute()
+        )
 
         return {
             "status": "ok",
-            "rows_returned": len(resp.data),
+            "rows_returned": len(resp.data) if resp.data else 0,
             "erro": None
         }
 
@@ -79,22 +84,31 @@ def debug_estatisticas():
     hoje = date.today().isoformat()
 
     try:
-        numeros = supabase.table("estatisticas_numeros") \
-            .select("numero, frequencia, atraso, score, data_referencia") \
-            .order("data_referencia", desc=True) \
-            .limit(5) \
-            .execute().data
+        numeros = (
+            supabase
+            .table("estatisticas_numeros")
+            .select("numero, frequencia, atraso, score, data_referencia")
+            .order("data_referencia", desc=True)
+            .limit(5)
+            .execute()
+            .data
+        )
 
-        diaria = supabase.table("estatisticas_diarias_v2") \
-            .select("*") \
-            .order("data_referencia", desc=True) \
-            .limit(1) \
-            .execute().data
+        diaria = (
+            supabase
+            .table("estatisticas_diarias_v2")
+            .select("*")
+            .order("data_referencia", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
 
         return {
             "status": "ok",
-            "estatisticas_numeros_exemplo": numeros,
-            "estatisticas_diarias_exemplo": diaria
+            "data_referencia": hoje,
+            "estatisticas_numeros_exemplo": numeros or [],
+            "estatisticas_diarias_exemplo": diaria or []
         }
 
     except Exception as e:
