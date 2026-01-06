@@ -1,105 +1,92 @@
 from fastapi import APIRouter, HTTPException
 from app.services.supabase_service import get_supabase
+import json
 
 router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
-
 supabase = get_supabase()
 
 
-@router.get("")
-def obter_estatisticas():
-    """
-    Endpoint único de estatísticas da Lotofácil
-    Fonte da verdade: vw_estatisticas_numeros_atuais
-    """
+def safe_float(valor, default=0.0):
     try:
-        # =====================================================
-        # 1️⃣ ESTATÍSTICAS POR NÚMERO (VIEW ATUAL)
-        # =====================================================
-        resp_numeros = (
+        return float(valor) if valor is not None else default
+    except Exception:
+        return default
+
+
+def safe_json(valor):
+    if not valor:
+        return []
+    if isinstance(valor, list):
+        return valor
+    try:
+        return json.loads(valor)
+    except Exception:
+        return []
+
+
+@router.get("")
+def get_estatisticas():
+    try:
+        resp = (
             supabase
             .table("vw_estatisticas_numeros_atuais")
-            .select("numero, frequencia, atraso, score")
-            .order("numero")
+            .select("*")
+            .order("score", desc=True)
             .execute()
         )
 
-        if not resp_numeros.data:
-            raise HTTPException(
-                status_code=500,
-                detail="View vw_estatisticas_numeros_atuais não retornou dados"
-            )
+        dados = resp.data or []
+
+        if not dados:
+            return {
+                "estatisticas": [],
+                "analise": {},
+                "ciclo": {"faltam": [], "total_faltam": 0},
+                "meta": {"fonte": "vw_estatisticas_numeros_atuais"}
+            }
+
+        ref = dados[0].get("data_referencia")
 
         estatisticas = [
             {
-                "numero": int(n["numero"]),
-                "frequencia": int(n["frequencia"]),
-                "atraso": int(n["atraso"]),
-                "score": float(n["score"]),
+                "numero": int(d["numero"]),
+                "frequencia": int(d["frequencia"]),
+                "atraso": int(d["atraso"]),
+                "score": round(safe_float(d["score"]), 6),
             }
-            for n in resp_numeros.data
+            for d in dados
         ]
 
-        # =====================================================
-        # 2️⃣ ANÁLISE DIÁRIA (RESUMO)
-        # =====================================================
-        resp_analise = (
-            supabase
-            .table("estatisticas_diarias_v2")
-            .select(
-                "soma_media, pares_media, impares_media, primos_media, data_referencia"
-            )
-            .order("data_referencia", desc=True)
-            .limit(1)
-            .execute()
-        )
-
-        analise = resp_analise.data[0] if resp_analise.data else {
-            "soma_media": 0,
-            "pares_media": 0,
-            "impares_media": 0,
-            "primos_media": 0,
-            "data_referencia": None,
+        analise = {
+            "soma_media": round(safe_float(dados[0].get("media_soma")), 2),
+            "pares_media": round(safe_float(dados[0].get("media_pares")), 2),
+            "impares_media": round(safe_float(dados[0].get("media_impares")), 2),
+            "primos_media": round(safe_float(dados[0].get("media_primos")), 2),
+            "data_referencia": ref,
         }
 
-        # =====================================================
-        # 3️⃣ CICLO (ATRASO > 0)
-        # =====================================================
-        faltam = sorted([
-            n["numero"]
-            for n in estatisticas
-            if n["atraso"] > 0
-        ])
+        faltam = safe_json(dados[0].get("numeros_atrasados"))
+        frios = safe_json(dados[0].get("numeros_frios"))
 
-        ciclo = {
-            "faltam": faltam,
-            "total_faltam": len(faltam),
-        }
+        ciclo_final = faltam if faltam else frios
 
-        # =====================================================
-        # 4️⃣ META / CONTEXTO
-        # =====================================================
-        meta = {
-            "data_referencia": analise["data_referencia"],
-            "total_numeros": len(estatisticas),
-            "fonte": "vw_estatisticas_numeros_atuais",
-        }
-
-        # =====================================================
-        # 5️⃣ RESPOSTA FINAL (CONTRATO DO FRONT)
-        # =====================================================
         return {
             "estatisticas": estatisticas,
             "analise": analise,
-            "ciclo": ciclo,
-            "meta": meta,
+            "ciclo": {
+                "faltam": ciclo_final,
+                "total_faltam": len(ciclo_final),
+            },
+            "meta": {
+                "data_referencia": ref,
+                "total_numeros": len(estatisticas),
+                "fonte": "vw_estatisticas_numeros_atuais",
+            },
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"❌ Erro em /estatisticas: {e}")
+        print("❌ ERRO /estatisticas:", e)
         raise HTTPException(
             status_code=500,
-            detail="Erro interno ao carregar estatísticas"
+            detail="Erro ao carregar estatísticas"
         )
