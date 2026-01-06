@@ -1,6 +1,9 @@
 from datetime import date
-from app.core.supabase import supabase
+# Ajuste na importação para usar o serviço correto
+from app.services.supabase_service import get_supabase
 
+# Inicializa o cliente Supabase
+supabase = get_supabase()
 
 def _hoje_iso():
     return date.today().isoformat()
