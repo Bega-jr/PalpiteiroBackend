@@ -1,7 +1,11 @@
-from app.core.supabase import supabase
 from uuid import UUID
 from typing import List
+# Ajuste na importação para usar o serviço centralizado
+from app.services.supabase_service import get_supabase
 from app.schemas.historico_schema import HistoricoCreate, HistoricoRead
+
+# Inicializa o cliente Supabase corretamente
+supabase = get_supabase()
 
 # ==========================================
 # REGISTRAR JOGO
