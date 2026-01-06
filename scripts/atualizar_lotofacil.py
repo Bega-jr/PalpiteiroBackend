@@ -61,7 +61,9 @@ def normalizar(dados):
 
     return {
         "concurso": int(dados["numero"]),
-        "data": datetime.strptime(dados["dataApuracao"], "%d/%m/%Y").date(),
+        "data": datetime.strptime(
+            dados["dataApuracao"], "%d/%m/%Y"
+        ).strftime("%Y-%m-%d"),
         "dezenas": dezenas,
         "soma": sum(dezenas),
         "pares": len([d for d in dezenas if d % 2 == 0]),
@@ -81,6 +83,7 @@ def normalizar(dados):
         "valor_11": v11,
         "municipios": dados.get("listaMunicipioUFGanhadores", []),
     }
+
 
 # =========================
 # MAIN
