@@ -1,130 +1,105 @@
 from fastapi import APIRouter, HTTPException
-from datetime import date
 from app.services.supabase_service import get_supabase
-
-import json
 
 router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
 
+supabase = get_supabase()
 
-def safe_float(valor, default=0.0):
+
+@router.get("")
+def obter_estatisticas():
+    """
+    Endpoint único de estatísticas da Lotofácil
+    Fonte da verdade: vw_estatisticas_numeros_atuais
+    """
     try:
-        if valor is None:
-            return default
-        return float(valor)
-    except (ValueError, TypeError):
-        return default
-
-
-@router.get("/")
-def get_estatisticas():
-    hoje = date.today().isoformat()
-
-    try:
-        # =========================
-        # 1. Estatísticas por número
-        # =========================
-        response_numeros = (
-            supabase.table("estatisticas_numeros")
-            .select("numero, frequencia, atraso, score, data_referencia")
-            .eq("data_referencia", hoje)
+        # =====================================================
+        # 1️⃣ ESTATÍSTICAS POR NÚMERO (VIEW ATUAL)
+        # =====================================================
+        resp_numeros = (
+            supabase
+            .table("vw_estatisticas_numeros_atuais")
+            .select("numero, frequencia, atraso, score")
+            .order("numero")
             .execute()
         )
 
-        numeros = response_numeros.data or []
-
-        # Fallback automático para última data disponível
-        if not numeros:
-            fallback = (
-                supabase.table("estatisticas_numeros")
-                .select("numero, frequencia, atraso, score, data_referencia")
-                .order("data_referencia", desc=True)
-                .limit(25)
-                .execute()
+        if not resp_numeros.data:
+            raise HTTPException(
+                status_code=500,
+                detail="View vw_estatisticas_numeros_atuais não retornou dados"
             )
-            numeros = fallback.data or []
-            if numeros:
-                hoje = numeros[0]["data_referencia"]
 
-        # Normalização de tipos + ordenação por score
-        numeros = sorted(
-            [
-                {
-                    "numero": int(n["numero"]),
-                    "frequencia": int(n["frequencia"]),
-                    "atraso": int(n["atraso"]),
-                    "score": round(safe_float(n["score"]), 6),
-                }
-                for n in numeros
-            ],
-            key=lambda x: x["score"],
-            reverse=True,
-        )
+        estatisticas = [
+            {
+                "numero": int(n["numero"]),
+                "frequencia": int(n["frequencia"]),
+                "atraso": int(n["atraso"]),
+                "score": float(n["score"]),
+            }
+            for n in resp_numeros.data
+        ]
 
-        # =========================
-        # 2. Estatísticas diárias
-        # =========================
-        response_diario = (
-            supabase.table("estatisticas_diarias_v2")
-            .select("*")
-            .eq("data_referencia", hoje)
+        # =====================================================
+        # 2️⃣ ANÁLISE DIÁRIA (RESUMO)
+        # =====================================================
+        resp_analise = (
+            supabase
+            .table("estatisticas_diarias_v2")
+            .select(
+                "soma_media, pares_media, impares_media, primos_media, data_referencia"
+            )
+            .order("data_referencia", desc=True)
             .limit(1)
             .execute()
         )
 
-        if not response_diario.data:
-            response_diario = (
-                supabase.table("estatisticas_diarias_v2")
-                .select("*")
-                .order("data_referencia", desc=True)
-                .limit(1)
-                .execute()
-            )
-
-        diario = response_diario.data[0] if response_diario.data else {}
-
-        # =========================
-        # 3. Ciclo (números faltantes)
-        # =========================
-        faltam = diario.get("numeros_atrasados", [])
-        if isinstance(faltam, str):
-            try:
-                faltam = json.loads(faltam)
-            except Exception:
-                faltam = []
-
-        numeros_frios = diario.get("numeros_frios", [])
-        if isinstance(numeros_frios, str):
-            try:
-                numeros_frios = json.loads(numeros_frios)
-            except Exception:
-                numeros_frios = []
-
-        ciclo_final = faltam if faltam else numeros_frios
-
-        # =========================
-        # 4. Resposta final
-        # =========================
-        return {
-            "estatisticas": numeros,
-            "analise": {
-                "soma_media": round(safe_float(diario.get("media_soma")), 2),
-                "pares_media": round(safe_float(diario.get("media_pares")), 2),
-                "impares_media": round(safe_float(diario.get("media_impares")), 2),
-                "primos_media": round(safe_float(diario.get("media_primos")), 2),
-                "data_referencia": hoje,
-            },
-            "ciclo": {
-                "faltam": ciclo_final,
-                "total_faltam": len(ciclo_final),
-            },
-            "meta": {
-                "data_referencia": hoje,
-                "total_numeros": len(numeros),
-                "fonte": "estatisticas_diarias_v2",
-            },
+        analise = resp_analise.data[0] if resp_analise.data else {
+            "soma_media": 0,
+            "pares_media": 0,
+            "impares_media": 0,
+            "primos_media": 0,
+            "data_referencia": None,
         }
 
+        # =====================================================
+        # 3️⃣ CICLO (ATRASO > 0)
+        # =====================================================
+        faltam = sorted([
+            n["numero"]
+            for n in estatisticas
+            if n["atraso"] > 0
+        ])
+
+        ciclo = {
+            "faltam": faltam,
+            "total_faltam": len(faltam),
+        }
+
+        # =====================================================
+        # 4️⃣ META / CONTEXTO
+        # =====================================================
+        meta = {
+            "data_referencia": analise["data_referencia"],
+            "total_numeros": len(estatisticas),
+            "fonte": "vw_estatisticas_numeros_atuais",
+        }
+
+        # =====================================================
+        # 5️⃣ RESPOSTA FINAL (CONTRATO DO FRONT)
+        # =====================================================
+        return {
+            "estatisticas": estatisticas,
+            "analise": analise,
+            "ciclo": ciclo,
+            "meta": meta,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"❌ Erro no endpoint /estatisticas: {e}")
-        raise HTTPException(status_code=500, detail="Erro interno ao carregar estatísticas")
+        print(f"❌ Erro em /estatisticas: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro interno ao carregar estatísticas"
+        )
