@@ -1,4 +1,4 @@
-from app.core.supabase import supabase
+from app.services.supabase_service import get_supabase
 from app.services.estatisticas_service import carregar_dados_para_estatistica
 import pandas as pd
 
