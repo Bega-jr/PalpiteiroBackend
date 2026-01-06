@@ -1,53 +1,65 @@
 import requests
-import csv
-import os
-from typing import List, Dict, Optional
+from typing import Dict, Optional, List
 
 API_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
-CSV_PATH = "app/data/Lotofacil.csv"
 
 def buscar_na_caixa(concurso: str = "") -> Optional[Dict]:
     """
-    MAPEAMENTO COMPLETO: Transforma o JSON bruto da Caixa no formato 
-    rico em detalhes que o seu Frontend (Home) necessita.
+    Busca os dados na API da Caixa e realiza o mapeamento completo.
+    Utilizada exclusivamente para alimentar a página Home e consultas individuais.
     """
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        # Se concurso for "", a API da Caixa retorna o resultado mais recente
         resp = requests.get(f"{API_URL}/{concurso}", headers=headers, timeout=15)
         
         if resp.status_code == 200:
             d = resp.json()
             
-            # Extração de ganhadores da faixa 1 (15 acertos)
+            # Extração segura dos ganhadores da faixa de 15 acertos
             rateio = d.get("listaRateioPremio", [])
             ganhadores_15 = 0
             if isinstance(rateio, list) and len(rateio) > 0:
+                # O índice 0 geralmente é a faixa de 15 acertos
                 ganhadores_15 = rateio[0].get("numeroDeGanhadores", 0)
 
-            # Retorno mapeado integralmente
+            # MAPEAMENTO INTEGRAL PARA O FRONTEND
             return {
+                # Identificação e Datas
                 "concurso": d.get("numero"),
+                "numero": d.get("numero"),
                 "data": d.get("dataApuracao"),
+                "data_concurso": d.get("dataApuracao"),
+                "proxima_data": d.get("dataProximoConcurso"),
+
+                # Números Sorteados (Convertidos para Números para o React)
                 "dezenas": [int(x) for x in d.get("listaDezenas", [])],
+                "dezenas_ordem_sorteio": [int(x) for x in d.get("dezenasSorteadasOrdemSorteio", [])],
+
+                # Status de Acumulado e Prêmios
                 "acumulado": d.get("acumulado", False),
+                "ganhadores_15": ganhadores_15,
                 "estimativa_proximo": d.get("valorEstimadoProximoConcurso", 0.0),
                 "valor_acumulado": d.get("valorAcumuladoProximoConcurso", 0.0),
-                "ganhadores_15": ganhadores_15,
-                "listaMunicipioUFGanhadores": d.get("listaMunicipioUFGanhadores") or [],
-                # Campos extras do JSON bruto mapeados para snake_case
                 "arrecadacao_total": d.get("valorArrecadado", 0.0),
-                "proxima_data": d.get("dataProximoConcurso"),
+
+                # Localização (Cidades) - Garante lista vazia se for null
+                "listaMunicipioUFGanhadores": d.get("listaMunicipioUFGanhadores") or [],
+                "municipios": d.get("listaMunicipioUFGanhadores") or [],
+
+                # Local do Sorteio
                 "local_sorteio": d.get("localSorteio"),
+                "municipio_sorteio": d.get("nomeMunicipioUFSorteio")
             }
     except Exception as e:
-        print(f"Erro no mapeamento: {e}")
+        print(f"Erro ao buscar/mapear dados da Caixa: {e}")
         return None
 
 def carregar_historico_csv(quantidade: int) -> List[Dict]:
-    """Mantida apenas para compatibilidade de import com a rota ultimos"""
-    if not os.path.exists(CSV_PATH): return []
-    try:
-        with open(CSV_PATH, newline="", encoding="utf-8") as f:
-            reader = list(csv.DictReader(f))
-            return reader[-quantidade:][::-1]
-    except: return []
+    """
+    Mantida apenas com retorno vazio para não quebrar o import da rota 'ultimos'.
+    Foco total na API da Caixa.
+    """
+    return []
