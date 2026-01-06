@@ -1,6 +1,6 @@
 from datetime import date
 import json
-from app.core.supabase import get_supabase
+from app.services.supabase_service import get_supabase
 from app.services.estatisticas_service import (
     calcular_medias_recentes,
     analisar_ciclo,
