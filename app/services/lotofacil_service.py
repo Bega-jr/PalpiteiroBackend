@@ -3,7 +3,7 @@ import csv
 import os
 from typing import List, Dict, Optional
 
-API_URL = "servicebus2.caixa.gov.br"
+API_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 CSV_PATH = "app/data/Lotofacil.csv"
 
 def buscar_na_caixa(concurso: str = "") -> Optional[Dict]:
