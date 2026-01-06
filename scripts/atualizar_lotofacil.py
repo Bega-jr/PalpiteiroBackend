@@ -1,15 +1,14 @@
+import os
 import requests
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from pandas.errors import EmptyDataError
-from supabase import create_client
-import os
+from supabase import create_client, Client
 
-# ===============================
+# =========================
 # CONFIG
-# ===============================
-
+# =========================
 BASE_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,11 +20,12 @@ CSV_PATH = DATA_DIR / "Lotofacil.csv"
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("❌ SUPABASE_URL ou SUPABASE_KEY não definidos")
 
-# ===============================
-# CAMPOS
-# ===============================
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+TABELA = "lotofacil_concursos"
 
 CAMPOS = [
     "loteria", "concurso", "data",
@@ -38,73 +38,56 @@ CAMPOS = [
     "ganhadores_11", "valor_11",
 ]
 
-# ===============================
+# =========================
 # CSV
-# ===============================
-
+# =========================
 def carregar_csv():
     if not CSV_PATH.exists():
         return pd.DataFrame(columns=CAMPOS)
-
     try:
         df = pd.read_csv(CSV_PATH)
-        if df.empty or "concurso" not in df.columns:
+        if df.empty:
             return pd.DataFrame(columns=CAMPOS)
         return df
     except EmptyDataError:
         return pd.DataFrame(columns=CAMPOS)
 
-
 def ultimo_concurso_csv(df):
-    if df.empty:
-        return 0
-    return int(df["concurso"].max())
+    return int(df["concurso"].max()) if not df.empty else 0
 
-
-# ===============================
+# =========================
 # SUPABASE
-# ===============================
-
+# =========================
 def ultimo_concurso_supabase():
     resp = (
-        supabase
-        .table("lotofacil_concursos")
+        supabase.table(TABELA)
         .select("concurso")
         .order("concurso", desc=True)
         .limit(1)
         .execute()
     )
-
-    if not resp.data:
-        return 0
-    return resp.data[0]["concurso"]
-
+    if resp.data:
+        return int(resp.data[0]["concurso"])
+    return 0
 
 def salvar_supabase(registros):
     if registros:
-        supabase.table("lotofacil_concursos").upsert(
-            registros,
-            on_conflict="concurso"
-        ).execute()
+        supabase.table(TABELA).upsert(registros).execute()
 
-
-# ===============================
+# =========================
 # API CAIXA
-# ===============================
-
+# =========================
 def buscar_concurso(numero=None):
     url = BASE_URL if numero is None else f"{BASE_URL}/{numero}"
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
-
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
 def extrair_rateio(lista, faixa):
     for r in lista:
         if r["faixa"] == faixa:
             return r["numeroDeGanhadores"], r["valorPremio"]
     return 0, 0.0
-
 
 def normalizar(dados):
     g15, v15 = extrair_rateio(dados["listaRateioPremio"], 1)
@@ -113,10 +96,14 @@ def normalizar(dados):
     g12, v12 = extrair_rateio(dados["listaRateioPremio"], 4)
     g11, v11 = extrair_rateio(dados["listaRateioPremio"], 5)
 
+    dezenas = sorted(int(d) for d in dados["listaDezenas"])
+
     registro = {
         "loteria": "lotofacil",
         "concurso": int(dados["numero"]),
-        "data": datetime.strptime(dados["dataApuracao"], "%d/%m/%Y").strftime("%Y-%m-%d"),
+        "data": datetime.strptime(
+            dados["dataApuracao"], "%d/%m/%Y"
+        ).strftime("%Y-%m-%d"),
         "arrecadacao": dados["valorArrecadado"],
         "acumulado": dados["acumulado"],
         "estimativa_proximo": dados["valorEstimadoProximoConcurso"],
@@ -132,19 +119,17 @@ def normalizar(dados):
         "valor_11": v11,
     }
 
-    dezenas = sorted(int(d) for d in dados["listaDezenas"])
     for i, d in enumerate(dezenas, start=1):
         registro[f"bola{i}"] = d
 
     return registro
 
-
-# ===============================
+# =========================
 # MAIN
-# ===============================
-
+# =========================
 def main():
     df = carregar_csv()
+
     ultimo_csv = ultimo_concurso_csv(df)
     ultimo_db = ultimo_concurso_supabase()
 
@@ -163,7 +148,7 @@ def main():
         novos.append(normalizar(dados))
 
     if not novos:
-        print("✅ Nenhum concurso novo.")
+        print("✅ Nenhum concurso novo")
         return
 
     # CSV
@@ -175,8 +160,8 @@ def main():
     # Supabase
     salvar_supabase(novos)
 
-    print(f"✅ {len(novos)} concursos adicionados com sucesso.")
-
+    print(f"✅ {len(novos)} concursos adicionados com sucesso")
 
 if __name__ == "__main__":
     main()
+
