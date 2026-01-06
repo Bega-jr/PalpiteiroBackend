@@ -1,5 +1,5 @@
 from datetime import date
-from api.core.supabase import supabase
+from app.services.supabase_service import get_supabase
 
 def gerar_palpite_fixo():
     return {
