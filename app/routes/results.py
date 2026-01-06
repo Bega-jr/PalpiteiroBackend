@@ -1,85 +1,88 @@
 from fastapi import APIRouter, HTTPException, Query
-from app.services.supabase_client import supabase
+from app.services.lotofacil_service import load_lotofacil_data
 
-router = APIRouter(prefix="/resultados", tags=["Resultados"])
-
-
-# ================================
-# TOTAL DE CONCURSOS
-# ================================
-@router.get("/total")
-def total_concursos():
-    try:
-        resp = (
-            supabase
-            .table("lotofacil_concursos")
-            .select("concurso", count="exact")
-            .execute()
-        )
-
-        return {"total": resp.count or 0}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+router = APIRouter()
 
 
-# ================================
-# LISTA PAGINADA (mais recentes)
-# ================================
 @router.get("")
 def listar_resultados(
     page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=100)
 ):
     try:
-        offset = (page - 1) * limit
-        to = offset + limit - 1
+        df = load_lotofacil_data()
 
-        resp = (
-            supabase
-            .table("lotofacil_concursos")
-            .select(
-                "concurso, data, dezenas, acumulado",
-            )
-            .order("concurso", desc=True)
-            .range(offset, to)
-            .execute()
-        )
+        total = len(df)
+
+        if total == 0:
+            return {
+                "status": "ok",
+                "page": page,
+                "limit": limit,
+                "total": 0,
+                "data": []
+            }
+
+        # 🔁 ORDENAR DO MAIS RECENTE PARA O MAIS ANTIGO
+        df = df.sort_values(by="Concurso", ascending=False)
+
+        start = (page - 1) * limit
+        end = start + limit
+
+        page_df = df.iloc[start:end]
 
         return {
+            "status": "ok",
             "page": page,
             "limit": limit,
-            "resultados": resp.data or [],
+            "total": total,
+            "data": page_df.to_dict(orient="records")
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ================================
-# CONCURSO ESPECÍFICO
-# ================================
-@router.get("/concurso/{numero}")
-def obter_concurso(numero: int):
-    try:
-        resp = (
-            supabase
-            .table("lotofacil_concursos")
-            .select("*")
-            .eq("concurso", numero)
-            .single()
-            .execute()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao listar resultados: {str(e)}"
         )
 
-        if not resp.data:
+
+@router.get("/total")
+def total_resultados():
+    try:
+        df = load_lotofacil_data()
+        return {
+            "status": "ok",
+            "total": len(df)
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter total: {str(e)}"
+        )
+
+
+@router.get("/{numero}")
+def obter_concurso(numero: int):
+    try:
+        df = load_lotofacil_data()
+
+        resultado = df[df["Concurso"] == numero]
+
+        if resultado.empty:
             raise HTTPException(
                 status_code=404,
                 detail=f"Concurso {numero} não encontrado"
             )
 
-        return {"concurso": resp.data}
+        return {
+            "status": "ok",
+            "concurso": resultado.iloc[0].to_dict()
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
