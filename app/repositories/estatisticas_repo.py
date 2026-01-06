@@ -1,5 +1,8 @@
-from app.core.supabase import supabase
+# Ajuste na importação para usar o serviço correto
+from app.services.supabase_service import get_supabase
 
+# Inicializa o cliente Supabase
+supabase = get_supabase()
 
 def carregar_estatisticas_diarias():
     """
@@ -18,4 +21,4 @@ def carregar_estatisticas_diarias():
     if not response.data:
         return None
 
-    return response.data[0]
+    return response.data[0] # Retorna o primeiro item da lista ou None
