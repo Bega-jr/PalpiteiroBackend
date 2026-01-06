@@ -9,7 +9,7 @@ from supabase import create_client, Client
 # =========================
 # CONFIG
 # =========================
-BASE_URL = "servicebus2.caixa.gov.br"
+BASE_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
