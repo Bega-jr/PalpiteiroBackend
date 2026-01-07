@@ -1,32 +1,19 @@
-from fastapi import APIRouter, HTTPException
-from app.services.palpites_service import (
-    obter_palpite_fixo_publico,
-    obter_palpites_estatisticos_publico
-)
+from fastapi import APIRouter
+from app.services.palpites_service import obter_todos_palpites
 
 router = APIRouter(prefix="/palpites", tags=["Palpites"])
 
 
-@router.get("/fixo")
-def palpite_fixo():
-    registro = obter_palpite_fixo_publico()
-
-    if not registro:
-        raise HTTPException(status_code=404, detail="Palpite fixo não encontrado")
-
-    return {
-        "status": "ok",
-        **registro
-    }
-
-
-@router.get("/estatisticos")
-def palpites_estatisticos():
-    dados = obter_palpites_estatisticos_publico()
+@router.get("/debug")
+def debug_palpites():
+    """
+    Endpoint de DEBUG:
+    Retorna os dados crus exatamente como estão no banco.
+    """
+    dados = obter_todos_palpites()
 
     return {
         "status": "ok",
-        "data_referencia": dados[0]["data_referencia"] if dados else None,
         "total": len(dados),
-        "palpites": dados,
+        "dados": dados,
     }
