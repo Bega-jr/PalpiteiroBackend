@@ -1,9 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Importação dos routers
+# Importação correta dos routers
 from app.routes.health import router as health_router
-# O debug_router foi removido daqui
 from app.routes.ultimos import router as ultimos_router
 from app.routes.concurso import router as concurso_router
 from app.routes.estatisticas import router as estatisticas_router
@@ -19,7 +18,7 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configuração de CORS
+# Configuração de CORS (adicionando mais origens comuns para evitar bloqueios)
 origins = [
     "https://palpiteiro-ia.netlify.app",
     "https://lovable.dev",
@@ -27,6 +26,8 @@ origins = [
     "http://localhost:5173",
     "http://localhost:3000",
     "https://palpiteiro-frontend.vercel.app",
+    "https://palpiteiro.vercel.app",  # caso use Vercel também
+    "*"  # temporário para teste (remova em produção)
 ]
 
 app.add_middleware(
@@ -46,8 +47,8 @@ def root():
         "message": "API rodando com sucesso!"
     }
 
+# Inclusão de todos os routers
 app.include_router(health_router, tags=["Health"])
-# O include_router do debug foi removido daqui
 app.include_router(ultimos_router, tags=["Últimos Resultados"])
 app.include_router(concurso_router, tags=["Concurso"])
 app.include_router(estatisticas_router, tags=["Estatísticas"])
@@ -58,4 +59,3 @@ app.include_router(resultados_router, tags=["Resultados"])
 @app.on_event("startup")
 def startup_event():
     print("Palpiteiro Backend iniciado com sucesso!")
-
