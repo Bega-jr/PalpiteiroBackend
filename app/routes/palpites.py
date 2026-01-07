@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.services import palpites_service
+from datetime import date
 
 router = APIRouter(prefix="/palpites", tags=["Palpites"])
 
@@ -9,18 +10,15 @@ def palpite_fixo():
     try:
         dados = palpites_service.obter_palpite_fixo_publico()
         if not dados:
-            # Retorna 404 caso o script diário ainda não tenha rodado
             raise HTTPException(
                 status_code=404,
                 detail="Palpite fixo ainda não gerado para hoje."
             )
-
         return {
             "status": "ok",
             "tipo": "fixo",
             **dados
         }
-
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -36,8 +34,6 @@ def palpites_estatisticos():
     try:
         palpites = palpites_service.obter_palpites_estatisticos_publico()
         
-        # Em vez de erro, retornamos lista vazia se não houver dados, 
-        # indicando que o processamento está pendente.
         return {
             "status": "ok",
             "tipo": "estatisticos",
@@ -45,13 +41,9 @@ def palpites_estatisticos():
             "total": len(palpites),
             "palpites": palpites
         }
-
     except Exception as e:
         print("❌ Erro rota palpites estatísticos:", e)
         raise HTTPException(
             status_code=500,
             detail="Erro interno ao carregar palpites"
-        )
-
-            detail="Erro ao carregar palpites"
         )
