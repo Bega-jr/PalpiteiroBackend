@@ -1,71 +1,114 @@
-from typing import List, Dict, Optional
-from app.services.supabase_service import get_supabase
+import json
+from datetime import date
+from app.db.supabase import supabase
 
 
-def obter_palpite_fixo_publico() -> Optional[Dict]:
+# ==========================================================
+# PALPITE FIXO (PUBLICO)
+# ==========================================================
+def obter_palpite_fixo_publico():
+    hoje = date.today().isoformat()
+
+    resp = (
+        supabase
+        .table("palpites")
+        .select("*")
+        .eq("tipo", "fixo")
+        .eq("data_referencia", hoje)
+        .order("indice_palpite")
+        .execute()
+    )
+
+    dados = resp.data or []
+
+    palpites_formatados = []
+    for p in dados:
+        palpites_formatados.append(_formatar_palpite(p))
+
+    return {
+        "status": "ok",
+        "data_referencia": hoje,
+        "total": len(palpites_formatados),
+        "palpites": palpites_formatados
+    }
+
+
+# ==========================================================
+# PALPITES ESTATISTICOS (PUBLICO)
+# ==========================================================
+def obter_palpites_estatisticos_publico():
+    hoje = date.today().isoformat()
+
+    resp = (
+        supabase
+        .table("palpites")
+        .select("*")
+        .eq("tipo", "estatistico")
+        .eq("data_referencia", hoje)
+        .order("indice_palpite")
+        .execute()
+    )
+
+    dados = resp.data or []
+
+    palpites_formatados = []
+    for p in dados:
+        palpites_formatados.append(_formatar_palpite(p))
+
+    return {
+        "status": "ok",
+        "data_referencia": hoje,
+        "total": len(palpites_formatados),
+        "palpites": palpites_formatados
+    }
+
+
+# ==========================================================
+# FORMATADOR CENTRAL (ESSENCIAL)
+# ==========================================================
+def _formatar_palpite(p):
     """
-    Retorna o palpite fixo (indice_palpite = 0)
-    da data mais recente disponível no banco.
+    Converte campos string JSON em objetos reais
+    e devolve exatamente no formato esperado pelo frontend
     """
-    try:
-        supabase = get_supabase()
 
-        resp = (
-            supabase
-            .table("palpites_validos")
-            .select("*")
-            .eq("indice_palpite", 0)
-            .order("data_referencia", desc=True)
-            .limit(1)
-            .execute()
-        )
+    # numeros
+    numeros = []
+    if p.get("numeros"):
+        try:
+            numeros = json.loads(p["numeros"])
+        except Exception:
+            numeros = []
 
-        if resp.data and len(resp.data) > 0:
-            return resp.data[0]
+    # metricas
+    metricas = {}
+    if p.get("metricas"):
+        try:
+            metricas = json.loads(p["metricas"])
+        except Exception:
+            metricas = {}
 
-        return None
+    # filtros
+    filtros = []
+    if p.get("filtros_aplicados"):
+        try:
+            filtros = json.loads(p["filtros_aplicados"])
+        except Exception:
+            filtros = []
 
-    except Exception as e:
-        print(f"❌ Erro obter_palpite_fixo_publico: {repr(e)}")
-        return None
+    return {
+        "id": p.get("id"),
+        "indice_palpite": p.get("indice_palpite"),
+        "numeros": numeros,
+        "soma_total": p.get("soma_total"),
+        "pares": p.get("pares"),
+        "impares": p.get("impares"),
+        "qtd_sequencias": p.get("qtd_sequencias"),
+        "usa_mais_sorteados": p.get("usa_mais_sorteados"),
+        "usa_menos_sorteados": p.get("usa_menos_sorteados"),
+        "metricas": metricas,
+        "filtros_aplicados": filtros,
+        "origem": p.get("origem"),
+        "created_at": p.get("created_at"),
+    }
 
-
-def obter_palpites_estatisticos_publico() -> List[Dict]:
-    """
-    Retorna todos os palpites estatísticos
-    (indice_palpite > 0) da data mais recente disponível.
-    """
-    try:
-        supabase = get_supabase()
-
-        # 1️⃣ Descobre a data mais recente existente
-        data_resp = (
-            supabase
-            .table("palpites_validos")
-            .select("data_referencia")
-            .order("data_referencia", desc=True)
-            .limit(1)
-            .execute()
-        )
-
-        if not data_resp.data:
-            return []
-
-        ultima_data = data_resp.data[0]["data_referencia"]
-
-        # 2️⃣ Busca todos os palpites dessa data
-        resp = (
-            supabase
-            .table("palpites_validos")
-            .select("*")
-            .eq("data_referencia", ultima_data)
-            .gt("indice_palpite", 0)
-            .order("indice_palpite")
-            .execute()
-        )
-
-        return resp.data or []
-
-    except Exception as e:
-        print(f"❌ Erro obter_palpites_estatisticos_publico: {repr(e)}")
-        return []
