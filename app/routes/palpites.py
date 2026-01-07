@@ -1,15 +1,51 @@
-from fastapi import APIRouter
-from app.services.palpites_service import obter_todos_palpites_debug
+from fastapi import APIRouter, HTTPException
+from app.services.palpites_service import (
+    obter_palpite_fixo_publico,
+    obter_palpites_estatisticos_publico
+)
 
 router = APIRouter(prefix="/palpites", tags=["Palpites"])
 
 
-@router.get("/debug")
-def debug_palpites():
-    dados = obter_todos_palpites_debug()
+@router.get("/fixo")
+def palpite_fixo():
+    registro = obter_palpite_fixo_publico()
+
+    if not registro:
+        raise HTTPException(status_code=404, detail="Palpite fixo não encontrado")
 
     return {
         "status": "ok",
-        "total": len(dados),
-        "dados": dados
+        "data_referencia": registro.get("data_referencia"),
+        "numeros": registro.get("numeros"),
+        "soma": registro.get("soma_total"),
+        "pares": registro.get("pares"),
+        "impares": registro.get("impares"),
+        "score": (registro.get("metricas") or {}).get("score"),
+        "metodo": (registro.get("metricas") or {}).get("metodo"),
+    }
+
+
+@router.get("/estatisticos")
+def palpites_estatisticos():
+    dados = obter_palpites_estatisticos_publico()
+
+    palpites = [
+        {
+            "indice": r.get("indice_palpite"),
+            "numeros": r.get("numeros"),
+            "soma": r.get("soma_total"),
+            "pares": r.get("pares"),
+            "impares": r.get("impares"),
+            "score": (r.get("metricas") or {}).get("score"),
+            "metodo": (r.get("metricas") or {}).get("metodo"),
+        }
+        for r in dados
+    ]
+
+    return {
+        "status": "ok",
+        "data_referencia": dados[0]["data_referencia"] if dados else None,
+        "total": len(palpites),
+        "palpites": palpites,
     }
