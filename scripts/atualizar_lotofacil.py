@@ -40,7 +40,7 @@ def salvar_supabase(registros):
 # =========================
 def buscar_concurso(numero=None):
     url = BASE_URL if numero is None else f"{BASE_URL}/{numero}"
-    r = requests.get(url, timeout=30)
+    r = requests.get(url, timeout=60)
     r.raise_for_status()
     return r.json()
 
