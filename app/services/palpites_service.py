@@ -11,25 +11,21 @@ def obter_todos_palpites_debug():
             supabase
             .table("palpites_validos")
             .select("*")
-            .limit(5)
+            .limit(10)
             .execute()
         )
 
-        print("📦 SUPABASE RESPONSE:", response)
-        print("📦 SUPABASE DATA:", response.data)
-        print("❌ SUPABASE ERROR:", response.error)
-
-        if response.error:
-            raise Exception(response.error)
+        # LOGS IMPORTANTES (Vercel)
+        print("📦 RESPONSE TYPE:", type(response))
+        print("📦 RESPONSE DATA:", response.data)
 
         return response.data or []
 
     except Exception as e:
-        print("🔥 ERRO NO SERVICE DEBUG 🔥")
-        print(str(e))
+        print("🔥 ERRO REAL SUPABASE 🔥")
         traceback.print_exc()
 
         raise HTTPException(
             status_code=500,
-            detail=f"Erro Supabase: {str(e)}"
+            detail=str(e)
         )
