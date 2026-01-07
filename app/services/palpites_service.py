@@ -1,6 +1,7 @@
 import json
 from datetime import date
-from app.db.supabase import supabase
+from app.supabase import supabase
+
 
 
 # ==========================================================
