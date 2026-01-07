@@ -31,7 +31,9 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           PYTHONPATH: .
         run: |
-          python scripts/precalcular_estatisticas_numeros.py
-          python scripts/precalcular_estatisticas_diarias.py
-          python scripts/gerar_estatisticas_diarias.py
+          python scripts/consolidar_estatisticas_geral.py
+          python scripts/popular_supabase.py
+          python scripts/precalculo_diario.py
+          python scripts/precalcular_palpite_fixo.py
+          python scripts/conferir_resultados.py
 
