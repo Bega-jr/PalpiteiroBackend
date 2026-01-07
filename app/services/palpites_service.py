@@ -17,7 +17,8 @@ def obter_palpite_fixo_publico():
         resp = (
             supabase.table("palpites_validos")
             .select("*")
-            .eq("data_referencia", hoje)
+            .order("data_referencia", desc=True)
+            .limit(1) # No caso do fixo
             .eq("indice_palpite", 0)  # Identificador do Fixo no script unificado
             .execute()
         )
