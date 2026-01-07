@@ -2,30 +2,32 @@ from datetime import date
 from app.services.supabase_service import get_supabase
 
 # =====================================================
-# SERVIÇO DE PALPITES (LEITURA DIRETA DO SUPABASE)
-# Conforme Script Unificado 2026
+# SERVIÇO DE PALPITES (LEITURA INTELIGENTE 2026)
+# Fonte da verdade: Supabase - Tabela: palpites_validos
 # =====================================================
 
 def obter_palpite_fixo_publico():
     """
-    Busca o palpite de índice 0 (Fixo) gerado pelo processamento diário.
+    Busca o palpite de índice 0 (Fixo) mais recente disponível no banco.
     """
     try:
         supabase = get_supabase()
-        hoje = date.today().isoformat()
         
+        # Filtra pelo índice do palpite fixo (0) e ordena pela data mais recente
         resp = (
             supabase.table("palpites_validos")
             .select("*")
+            .eq("indice_palpite", 0)
             .order("data_referencia", desc=True)
-            .limit(1) # No caso do fixo
-            .eq("indice_palpite", 0)  # Identificador do Fixo no script unificado
+            .limit(1)
             .execute()
         )
 
         if not resp.data:
+            print("⚠️ Nenhum palpite fixo encontrado no banco.")
             return None
 
+        # Como usamos .limit(1), pegamos o primeiro item da lista
         registro = resp.data[0]
         return {
             "status": "ok",
@@ -39,18 +41,35 @@ def obter_palpite_fixo_publico():
 
 def obter_palpites_estatisticos_publico():
     """
-    Busca os palpites de índice 1 a 10 gerados pelo processamento diário.
+    Busca os palpites estatísticos (índices 1-10) da última data 
+    que possua registros no banco de dados.
     """
     try:
         supabase = get_supabase()
-        hoje = date.today().isoformat()
         
+        # 1. Busca qual é a data mais recente que possui qualquer palpite
+        ultima_data_resp = (
+            supabase.table("palpites_validos")
+            .select("data_referencia")
+            .order("data_referencia", desc=True)
+            .limit(1)
+            .execute()
+        )
+        
+        if not ultima_data_resp.data:
+            print("⚠️ Nenhum registro de palpite encontrado para determinar a data.")
+            return []
+            
+        ultima_data = ultima_data_resp.data[0]["data_referencia"]
+        print(f"📅 Carregando palpites estatísticos da data: {ultima_data}")
+
+        # 2. Busca todos os palpites (exceto o fixo) para essa data específica
         resp = (
             supabase.table("palpites_validos")
             .select("*")
-            .eq("data_referencia", hoje)
-            .gt("indice_palpite", 0)  # Pega apenas os estatísticos (índices > 0)
-            .order("indice_palpite")
+            .eq("data_referencia", ultima_data)
+            .gt("indice_palpite", 0)  # Índices 1 a 10
+            .order("indice_palpite", desc=False)
             .execute()
         )
 
