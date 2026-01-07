@@ -1,18 +1,19 @@
 from fastapi import APIRouter, HTTPException
-from app.services.palpites_service import (
-    obter_palpite_fixo_publico,
-    obter_palpites_estatisticos_publico
-)
+from app.services import palpites_service
 
 router = APIRouter(prefix="/palpites", tags=["Palpites"])
 
-
 @router.get("/fixo")
 def palpite_fixo():
+    """Retorna o palpite mestre (fixo) do dia."""
     try:
-        dados = obter_palpite_fixo_publico()
+        dados = palpites_service.obter_palpite_fixo_publico()
         if not dados:
-            raise ValueError("Nenhum palpite fixo encontrado")
+            # Retorna 404 caso o script diário ainda não tenha rodado
+            raise HTTPException(
+                status_code=404,
+                detail="Palpite fixo ainda não gerado para hoje."
+            )
 
         return {
             "status": "ok",
@@ -20,28 +21,37 @@ def palpite_fixo():
             **dados
         }
 
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        print("❌ Erro palpite fixo:", e)
+        print("❌ Erro rota palpite fixo:", e)
         raise HTTPException(
             status_code=500,
-            detail="Erro ao carregar palpite fixo"
+            detail="Erro interno ao carregar palpite fixo"
         )
-
 
 @router.get("/estatisticos")
 def palpites_estatisticos():
+    """Retorna a lista de palpites estatísticos validados."""
     try:
-        palpites = obter_palpites_estatisticos_publico()
-
+        palpites = palpites_service.obter_palpites_estatisticos_publico()
+        
+        # Em vez de erro, retornamos lista vazia se não houver dados, 
+        # indicando que o processamento está pendente.
         return {
             "status": "ok",
             "tipo": "estatisticos",
-            "palpites": palpites or []
+            "data_referencia": date.today().isoformat(),
+            "total": len(palpites),
+            "palpites": palpites
         }
 
     except Exception as e:
-        print("❌ Erro palpites estatísticos:", e)
+        print("❌ Erro rota palpites estatísticos:", e)
         raise HTTPException(
             status_code=500,
+            detail="Erro interno ao carregar palpites"
+        )
+
             detail="Erro ao carregar palpites"
         )
