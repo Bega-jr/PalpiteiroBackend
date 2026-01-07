@@ -2,18 +2,17 @@ from datetime import date
 from app.services.supabase_service import get_supabase
 
 # =====================================================
-# SERVIÇO DE PALPITES (LEITURA CORRIGIDA 2026)
-# Fonte da verdade: Supabase - Tabela: palpites_validos
+# SERVIÇO DE PALPITES (VERSÃO FINAL CORRIGIDA 2026)
 # =====================================================
 
 def obter_palpite_fixo_publico():
     """
-    Busca o palpite de índice 0 (Fixo) mais recente disponível no banco.
+    Busca o palpite de índice 0 (Fixo) mais recente disponível.
     """
     try:
         supabase = get_supabase()
         
-        # Filtra pelo índice do palpite fixo (0) e ordena pela data mais recente
+        # Busca especificamente o índice 0 ordenando pela data mais nova
         resp = (
             supabase.table("palpites_validos")
             .select("*")
@@ -23,34 +22,33 @@ def obter_palpite_fixo_publico():
             .execute()
         )
 
-        # O Supabase retorna uma lista em resp.data. Verificamos se ela não está vazia.
+        # O Supabase retorna uma lista. Verificamos se ela tem conteúdo.
         if not resp.data or len(resp.data) == 0:
-            print("⚠️ Nenhum palpite fixo encontrado no banco.")
+            print("⚠️ Service: Nenhum palpite fixo encontrado no banco.")
             return None
 
-        # Acessamos o primeiro item da lista retornada
+        # ACESSO AO PRIMEIRO ITEM [0]
         registro = resp.data[0]
         
         return {
             "status": "ok",
-            "data_referencia": registro.get("data_referencia"),
+            "data_referencia": str(registro.get("data_referencia")),
             "numeros": registro.get("numeros"),
             "metricas": registro.get("metricas", {})
         }
     except Exception as e:
-        print(f"❌ Erro ao ler palpite fixo no Supabase: {e}")
+        print(f"❌ Erro crítico no Service (Fixo): {repr(e)}")
         return None
 
 def obter_palpites_estatisticos_publico():
     """
-    Busca os palpites estatísticos (índices 1-10) da última data 
-    que possua registros no banco de dados.
+    Busca os palpites estatísticos da data mais recente disponível.
     """
     try:
         supabase = get_supabase()
         
-        # 1. Busca qual é a data mais recente que possui palpites registrados
-        ultima_data_resp = (
+        # 1. Identifica a data mais recente com registros
+        data_resp = (
             supabase.table("palpites_validos")
             .select("data_referencia")
             .order("data_referencia", desc=True)
@@ -58,19 +56,20 @@ def obter_palpites_estatisticos_publico():
             .execute()
         )
         
-        if not ultima_data_resp.data or len(ultima_data_resp.data) == 0:
-            print("⚠️ Nenhum registro de palpite encontrado para determinar a data.")
+        if not data_resp.data or len(data_resp.data) == 0:
+            print("⚠️ Service: Nenhuma data de palpite encontrada.")
             return []
             
-        # Extrai a data do primeiro registro da lista
-        ultima_data = ultima_data_resp.data[0]["data_referencia"]
+        # EXTRAÇÃO DA DATA DO PRIMEIRO ITEM [0]
+        ultima_data = data_resp.data[0]["data_referencia"]
+        print(f"📅 Service: Carregando palpites da data {ultima_data}")
 
-        # 2. Busca todos os palpites (exceto o fixo) para essa data específica
+        # 2. Busca todos os palpites daquela data específica (exceto o fixo 0)
         resp = (
             supabase.table("palpites_validos")
             .select("*")
             .eq("data_referencia", ultima_data)
-            .gt("indice_palpite", 0)  # Filtra índices de 1 a 10
+            .gt("indice_palpite", 0)
             .order("indice_palpite", desc=False)
             .execute()
         )
@@ -80,8 +79,7 @@ def obter_palpites_estatisticos_publico():
 
         palpites = []
         for r in resp.data:
-            # Tratamento seguro para o dicionário de métricas
-            metricas = r.get("metricas") if r.get("metricas") else {}
+            metricas = r.get("metricas") if isinstance(r.get("metricas"), dict) else {}
             
             palpites.append({
                 "indice": r.get("indice_palpite"),
@@ -94,6 +92,6 @@ def obter_palpites_estatisticos_publico():
         
         return palpites
     except Exception as e:
-        print(f"❌ Erro ao ler palpites estatísticos no Supabase: {e}")
+        print(f"❌ Erro crítico no Service (Estatísticos): {repr(e)}")
         return []
 
