@@ -1,38 +1,18 @@
-import json
+from typing import List, Dict, Optional
 from app.services.supabase_service import get_supabase
 
 
-def _normalizar_json(valor):
-    if isinstance(valor, dict):
-        return valor
-    if isinstance(valor, str):
-        try:
-            return json.loads(valor)
-        except Exception:
-            return {}
-    return {}
-
-
-def _normalizar_array(valor):
-    if isinstance(valor, list):
-        return valor
-    if isinstance(valor, str):
-        try:
-            return json.loads(valor)
-        except Exception:
-            return []
-    return []
-
-
-def obter_palpite_fixo_publico():
+def obter_palpite_fixo_publico() -> Optional[Dict]:
     """
-    Retorna o palpite fixo (indice_palpite = 0) mais recente
-    com dados normalizados.
+    Retorna o palpite fixo (indice_palpite = 0)
+    da data mais recente disponível no banco.
     """
     try:
         supabase = get_supabase()
+
         resp = (
-            supabase.table("palpites_validos")
+            supabase
+            .table("palpites_validos")
             .select("*")
             .eq("indice_palpite", 0)
             .order("data_referencia", desc=True)
@@ -40,36 +20,28 @@ def obter_palpite_fixo_publico():
             .execute()
         )
 
-        if not resp.data:
-            return None
+        if resp.data and len(resp.data) > 0:
+            return resp.data[0]
 
-        r = resp.data[0]
-
-        return {
-            "data_referencia": r.get("data_referencia"),
-            "numeros": _normalizar_array(r.get("numeros")),
-            "soma": r.get("soma_total"),
-            "pares": r.get("pares"),
-            "impares": r.get("impares"),
-            "metricas": _normalizar_json(r.get("metricas")),
-        }
+        return None
 
     except Exception as e:
-        print(f"❌ Erro Service Palpite Fixo: {repr(e)}")
+        print(f"❌ Erro obter_palpite_fixo_publico: {repr(e)}")
         return None
 
 
-def obter_palpites_estatisticos_publico():
+def obter_palpites_estatisticos_publico() -> List[Dict]:
     """
-    Retorna os palpites estatísticos da data mais recente
-    (indice_palpite > 0), todos normalizados.
+    Retorna todos os palpites estatísticos
+    (indice_palpite > 0) da data mais recente disponível.
     """
     try:
         supabase = get_supabase()
 
-        # Descobre a última data com dados
+        # 1️⃣ Descobre a data mais recente existente
         data_resp = (
-            supabase.table("palpites_validos")
+            supabase
+            .table("palpites_validos")
             .select("data_referencia")
             .order("data_referencia", desc=True)
             .limit(1)
@@ -77,36 +49,23 @@ def obter_palpites_estatisticos_publico():
         )
 
         if not data_resp.data:
-            return {"data_referencia": None, "palpites": []}
+            return []
 
         ultima_data = data_resp.data[0]["data_referencia"]
 
+        # 2️⃣ Busca todos os palpites dessa data
         resp = (
-            supabase.table("palpites_validos")
+            supabase
+            .table("palpites_validos")
             .select("*")
             .eq("data_referencia", ultima_data)
             .gt("indice_palpite", 0)
-            .order("indice_palpite", desc=False)
+            .order("indice_palpite")
             .execute()
         )
 
-        palpites = []
-        for r in resp.data or []:
-            metricas = _normalizar_json(r.get("metricas"))
-
-            palpites.append({
-                "indice": r.get("indice_palpite"),
-                "numeros": _normalizar_array(r.get("numeros")),
-                "soma": r.get("soma_total"),
-                "pares": r.get("pares"),
-                "score": float(metricas.get("score", 0)),
-            })
-
-        return {
-            "data_referencia": ultima_data,
-            "palpites": palpites
-        }
+        return resp.data or []
 
     except Exception as e:
-        print(f"❌ Erro Service Palpites Estatísticos: {repr(e)}")
-        return {"data_referencia": None, "palpites": []}
+        print(f"❌ Erro obter_palpites_estatisticos_publico: {repr(e)}")
+        return []
