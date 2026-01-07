@@ -1,27 +1,36 @@
-from fastapi import APIRouter, HTTPException
-from app.services.home_service import obter_dados_home
+from fastapi import APIRouter
+from app.services.supabase_service import get_supabase
 
 router = APIRouter(prefix="/home", tags=["Home"])
-
 
 @router.get("")
 def home():
     try:
-        dados = obter_dados_home()
+        resp = (
+            supabase
+            .from_("vw_lotofacil_stats")
+            .select("*")
+            .order("concurso", desc=True)
+            .limit(1)
+            .single()
+            .execute()
+        )
 
-        if not dados:
-            raise HTTPException(
-                status_code=404,
-                detail="Nenhum dado encontrado para a Home"
-            )
+        data = resp.data
 
-        return {
-            "status": "ok",
-            "data": dados
-        }
+        if not data:
+            return {"status": "empty"}
+
+        # 🔹 Normalização defensiva
+        data["municipios"] = data.get("municipios") or []
+        data["dezenas"] = [int(d) for d in data.get("dezenas", [])]
+
+        return data
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        # 🔴 NUNCA deixar estourar exceção na Home
+        return {
+            "status": "error",
+            "message": "Falha ao carregar dados da Home",
+            "detail": str(e)
+        }
