@@ -9,20 +9,22 @@ def palpite_fixo():
     """Retorna o palpite mestre (fixo) do dia."""
     try:
         dados = palpites_service.obter_palpite_fixo_publico()
+        
+        # Se o serviço retornou None, significa que não achou o índice 0 no banco
         if not dados:
             raise HTTPException(
                 status_code=404,
-                detail="Palpite fixo ainda não gerado para hoje."
+                detail="Palpite fixo não encontrado no banco de dados."
             )
-        return {
-            "status": "ok",
-            "tipo": "fixo",
-            **dados
-        }
+
+        # Retornamos os dados diretamente, pois o service já envia:
+        # {"status": "ok", "data_referencia": "...", "numeros": [...], "metricas": {...}}
+        return dados
+
     except HTTPException as e:
         raise e
     except Exception as e:
-        print("❌ Erro rota palpite fixo:", e)
+        print(f"❌ Erro na rota /palpites/fixo: {repr(e)}")
         raise HTTPException(
             status_code=500,
             detail="Erro interno ao carregar palpite fixo"
@@ -32,18 +34,20 @@ def palpite_fixo():
 def palpites_estatisticos():
     """Retorna a lista de palpites estatísticos validados."""
     try:
-        palpites = palpites_service.obter_palpites_estatisticos_publico()
+        lista_palpites = palpites_service.obter_palpites_estatisticos_publico()
         
+        # Garantimos que a resposta siga o padrão esperado pelo seu Frontend
         return {
             "status": "ok",
             "tipo": "estatisticos",
             "data_referencia": date.today().isoformat(),
-            "total": len(palpites),
-            "palpites": palpites
+            "total": len(lista_palpites),
+            "palpites": lista_palpites
         }
     except Exception as e:
-        print("❌ Erro rota palpites estatísticos:", e)
+        print(f"❌ Erro na rota /palpites/estatisticos: {repr(e)}")
         raise HTTPException(
             status_code=500,
             detail="Erro interno ao carregar palpites"
         )
+
