@@ -1,149 +1,91 @@
-from fastapi import HTTPException
+from typing import List, Dict, Any
 from app.services.supabase_service import get_supabase
 
-TABELA = "palpites"
+
+TABELA_PALPITES = "palpites"
 
 
-# ======================================================
-# UTILITÁRIOS
-# ======================================================
-def _obter_data_referencia_mais_recente():
-    resp = (
-        supabase
-        .table(TABELA)
-        .select("data_referencia")
-        .order("data_referencia", desc=True)
-        .limit(1)
-        .execute()
-    )
+def obter_palpite_fixo_publico() -> Dict[str, Any] | None:
+    """
+    Retorna o palpite fixo (indice_palpite = 0)
+    """
+    supabase = get_supabase()
 
-    if not resp.data:
+    try:
+        response = (
+            supabase
+            .table(TABELA_PALPITES)
+            .select("*")
+            .eq("indice_palpite", 0)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if not response.data:
+            return None
+
+        registro = response.data[0]
+
+        return {
+            "id": registro.get("id"),
+            "data_referencia": registro.get("data_referencia"),
+            "indice_palpite": registro.get("indice_palpite"),
+            "numeros": registro.get("numeros"),
+            "soma_total": registro.get("soma_total"),
+            "pares": registro.get("pares"),
+            "impares": registro.get("impares"),
+            "qtd_sequencias": registro.get("qtd_sequencias"),
+            "metricas": registro.get("metricas"),
+            "filtros_aplicados": registro.get("filtros_aplicados"),
+            "tipo": registro.get("tipo"),
+            "origem": registro.get("origem"),
+        }
+
+    except Exception as e:
+        print("❌ Erro ao obter palpite fixo:", e)
         return None
 
-    return resp.data[0]["data_referencia"]
 
-
-def _formatar_palpite(p):
+def obter_palpites_estatisticos_publico() -> List[Dict[str, Any]]:
     """
-    Padroniza o objeto enviado ao frontend
+    Retorna todos os palpites estatísticos (indice_palpite >= 1)
     """
-    return {
-        "id": p["id"],
-        "indice": p["indice_palpite"],
-        "tipo": p.get("tipo"),
-        "numeros": p["numeros"],
-        "soma": p["soma_total"],
-        "pares": p["pares"],
-        "impares": p["impares"],
-        "sequencias": p["qtd_sequencias"],
-        "metricas": p.get("metricas"),
-        "filtros": p.get("filtros_aplicados"),
-        "origem": p.get("origem"),
-        "criado_em": p["created_at"]
-    }
+    supabase = get_supabase()
 
+    try:
+        response = (
+            supabase
+            .table(TABELA_PALPITES)
+            .select("*")
+            .gte("indice_palpite", 1)
+            .order("indice_palpite")
+            .execute()
+        )
 
-# ======================================================
-# PALPITE FIXO
-# ======================================================
-def obter_palpite_fixo_publico():
-    data_ref = _obter_data_referencia_mais_recente()
+        if not response.data:
+            return []
 
-    if not data_ref:
-        raise HTTPException(404, "Nenhum palpite disponível")
+        palpites = []
 
-    resp = (
-        supabase
-        .table(TABELA)
-        .select("*")
-        .eq("data_referencia", data_ref)
-        .eq("indice_palpite", 0)
-        .limit(1)
-        .execute()
-    )
+        for r in response.data:
+            palpites.append({
+                "id": r.get("id"),
+                "data_referencia": r.get("data_referencia"),
+                "indice_palpite": r.get("indice_palpite"),
+                "numeros": r.get("numeros"),
+                "soma_total": r.get("soma_total"),
+                "pares": r.get("pares"),
+                "impares": r.get("impares"),
+                "qtd_sequencias": r.get("qtd_sequencias"),
+                "metricas": r.get("metricas"),
+                "filtros_aplicados": r.get("filtros_aplicados"),
+                "tipo": r.get("tipo"),
+                "origem": r.get("origem"),
+            })
 
-    if not resp.data:
-        raise HTTPException(404, "Palpite fixo não encontrado")
+        return palpites
 
-    palpite = resp.data[0]
-
-    return {
-        "status": "ok",
-        "data_referencia": data_ref,
-        "palpite": _formatar_palpite(palpite)
-    }
-
-
-# ======================================================
-# PALPITES ESTATÍSTICOS
-# ======================================================
-def obter_palpites_estatisticos_publico():
-    data_ref = _obter_data_referencia_mais_recente()
-
-    if not data_ref:
-        return {
-            "status": "ok",
-            "data_referencia": None,
-            "total": 0,
-            "palpites": []
-        }
-
-    resp = (
-        supabase
-        .table(TABELA)
-        .select("*")
-        .eq("data_referencia", data_ref)
-        .gt("indice_palpite", 0)
-        .order("indice_palpite")
-        .execute()
-    )
-
-    palpites = [_formatar_palpite(p) for p in resp.data]
-
-    return {
-        "status": "ok",
-        "data_referencia": data_ref,
-        "total": len(palpites),
-        "palpites": palpites
-    }
-
-
-# ======================================================
-# FIXO + ESTATÍSTICOS (ENDPOINT IDEAL PARA FRONTEND)
-# ======================================================
-def obter_todos_palpites_publico():
-    data_ref = _obter_data_referencia_mais_recente()
-
-    if not data_ref:
-        return {
-            "status": "ok",
-            "data_referencia": None,
-            "fixo": None,
-            "estatisticos": []
-        }
-
-    resp = (
-        supabase
-        .table(TABELA)
-        .select("*")
-        .eq("data_referencia", data_ref)
-        .order("indice_palpite")
-        .execute()
-    )
-
-    fixo = None
-    estatisticos = []
-
-    for p in resp.data:
-        if p["indice_palpite"] == 0:
-            fixo = _formatar_palpite(p)
-        else:
-            estatisticos.append(_formatar_palpite(p))
-
-    return {
-        "status": "ok",
-        "data_referencia": data_ref,
-        "fixo": fixo,
-        "total_estatisticos": len(estatisticos),
-        "estatisticos": estatisticos
-    }
+    except Exception as e:
+        print("❌ Erro ao obter palpites estatísticos:", e)
+        return []
