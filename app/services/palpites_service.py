@@ -1,8 +1,34 @@
-from datetime import date
+import json
 from app.services.supabase_service import get_supabase
 
+
+def _normalizar_json(valor):
+    if isinstance(valor, dict):
+        return valor
+    if isinstance(valor, str):
+        try:
+            return json.loads(valor)
+        except Exception:
+            return {}
+    return {}
+
+
+def _normalizar_array(valor):
+    if isinstance(valor, list):
+        return valor
+    if isinstance(valor, str):
+        try:
+            return json.loads(valor)
+        except Exception:
+            return []
+    return []
+
+
 def obter_palpite_fixo_publico():
-    """Busca o registro de índice 0 da data mais recente."""
+    """
+    Retorna o palpite fixo (indice_palpite = 0) mais recente
+    com dados normalizados.
+    """
     try:
         supabase = get_supabase()
         resp = (
@@ -13,27 +39,48 @@ def obter_palpite_fixo_publico():
             .limit(1)
             .execute()
         )
-        # Se resp.data for uma lista com itens, retornamos o primeiro dicionário puro
-        if resp.data and len(resp.data) > 0:
-            return resp.data[0] 
-        return None
+
+        if not resp.data:
+            return None
+
+        r = resp.data[0]
+
+        return {
+            "data_referencia": r.get("data_referencia"),
+            "numeros": _normalizar_array(r.get("numeros")),
+            "soma": r.get("soma_total"),
+            "pares": r.get("pares"),
+            "impares": r.get("impares"),
+            "metricas": _normalizar_json(r.get("metricas")),
+        }
+
     except Exception as e:
-        print(f"❌ Erro Service Fixo: {repr(e)}")
+        print(f"❌ Erro Service Palpite Fixo: {repr(e)}")
         return None
+
 
 def obter_palpites_estatisticos_publico():
-    """Busca todos os registros (exceto índice 0) da data mais recente."""
+    """
+    Retorna os palpites estatísticos da data mais recente
+    (indice_palpite > 0), todos normalizados.
+    """
     try:
         supabase = get_supabase()
-        # 1. Pega a data mais recente que tem algum dado
-        data_resp = supabase.table("palpites_validos").select("data_referencia").order("data_referencia", desc=True).limit(1).execute()
-        
+
+        # Descobre a última data com dados
+        data_resp = (
+            supabase.table("palpites_validos")
+            .select("data_referencia")
+            .order("data_referencia", desc=True)
+            .limit(1)
+            .execute()
+        )
+
         if not data_resp.data:
-            return []
-            
+            return {"data_referencia": None, "palpites": []}
+
         ultima_data = data_resp.data[0]["data_referencia"]
 
-        # 2. Busca os palpites dessa data
         resp = (
             supabase.table("palpites_validos")
             .select("*")
@@ -42,8 +89,24 @@ def obter_palpites_estatisticos_publico():
             .order("indice_palpite", desc=False)
             .execute()
         )
-        return resp.data or []
-    except Exception as e:
-        print(f"❌ Erro Service Estatisticos: {repr(e)}")
-        return []
 
+        palpites = []
+        for r in resp.data or []:
+            metricas = _normalizar_json(r.get("metricas"))
+
+            palpites.append({
+                "indice": r.get("indice_palpite"),
+                "numeros": _normalizar_array(r.get("numeros")),
+                "soma": r.get("soma_total"),
+                "pares": r.get("pares"),
+                "score": float(metricas.get("score", 0)),
+            })
+
+        return {
+            "data_referencia": ultima_data,
+            "palpites": palpites
+        }
+
+    except Exception as e:
+        print(f"❌ Erro Service Palpites Estatísticos: {repr(e)}")
+        return {"data_referencia": None, "palpites": []}
