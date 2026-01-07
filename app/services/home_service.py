@@ -1,42 +1,31 @@
-# app/services/home_service.py
-import json
-from app.services.supabase_service import get_supabase
+from app.core.supabase import supabase
 
 
 def obter_dados_home():
-    supabase = get_supabase()
+    """
+    Retorna os dados do último concurso diretamente da view vw_lotofacil_stats
+    """
+    try:
+        response = (
+            supabase
+            .table("vw_lotofacil_stats")
+            .select("*")
+            .order("concurso", desc=True)
+            .limit(1)
+            .execute()
+        )
 
-    response = (
-        supabase
-        .table("vw_lotofacil_stats")
-        .select("*")
-        .order("concurso", desc=True)
-        .limit(1)
-        .execute()
-    )
+        if not response.data:
+            return None
 
-    if not response.data:
-        return None
+        dados = response.data[0]
 
-    row = response.data[0]
+        # Trata campos JSON que vêm como string
+        if isinstance(dados.get("municipios"), str):
+            import json
+            dados["municipios"] = json.loads(dados["municipios"])
 
-    # 🔧 TRATAMENTOS IMPORTANTES
+        return dados
 
-    # dezenas → number[]
-    row["dezenas"] = [int(d) for d in row.get("dezenas", [])]
-
-    # municipios → array real
-    municipios_raw = row.get("municipios")
-    if isinstance(municipios_raw, str):
-        try:
-            row["municipios"] = json.loads(municipios_raw)
-        except Exception:
-            row["municipios"] = []
-    else:
-        row["municipios"] = municipios_raw or []
-
-    # normalizações opcionais
-    row["arrecadacao"] = float(row["arrecadacao"] or 0)
-    row["estimativa_proximo"] = float(row["estimativa_proximo"] or 0)
-
-    return row
+    except Exception as e:
+        raise RuntimeError(f"Erro ao buscar dados da home: {str(e)}")
