@@ -1,8 +1,6 @@
 import json
 from datetime import date
-from app.supabase import get_supabase
-
-
+from .supabase_service import supabase
 
 # ==========================================================
 # PALPITE FIXO (PUBLICO)
