@@ -37,7 +37,6 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }} # Adicione esta linha
           PYTHONPATH: .
         run: |
-          python scripts/consolidar_estatisticas_geral.py
-          python scripts/precalculo_diario.py
-          python scripts/precalcular_palpite_fixo.py
-          python scripts/conferir_resultados.py
+          python scripts/processamento_diario_lotofacil.py
+
+         
