@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Importação correta dos routers (note o caminho app/routes)
 from app.routes.health import router as health_router
+from app.routes.home import router as home_router
 from app.routes.ultimos import router as ultimos_router
 from app.routes.concurso import router as concurso_router
 from app.routes.estatisticas import router as estatisticas_router
@@ -48,6 +49,7 @@ def root():
 
 # Inclusão de todos os routers
 app.include_router(health_router, tags=["Health"])
+app.include_router(home_router, tags=["Home"])
 app.include_router(ultimos_router, tags=["Últimos Resultados"])
 app.include_router(concurso_router, tags=["Concurso"])
 app.include_router(estatisticas_router, tags=["Estatísticas"])
