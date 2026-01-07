@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from app.services.lotofacil_service import buscar_na_caixa, carregar_historico_csv
 
-router = APIRouter(prefix="/ultimos", tags=["Últimos"])
+router = APIRouter(prefix="/ultimos/1", tags=["Últimos"])
 
 
 @router.get("/{quantidade}")
