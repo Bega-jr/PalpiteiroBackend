@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Importação correta dos routers
+# Importação correta dos routers (note o caminho app/routes)
 from app.routes.health import router as health_router
 from app.routes.ultimos import router as ultimos_router
 from app.routes.concurso import router as concurso_router
 from app.routes.estatisticas import router as estatisticas_router
-from app.routes.palpites import router as palpites_router
+from app.routes.palpites import router as palpites_router  # ← ESSA LINHA É ESSENCIAL
 from app.routes.historico import router as historico_router
 from app.routes.resultados import router as resultados_router
 
@@ -18,7 +18,7 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configuração de CORS (adicionando mais origens comuns para evitar bloqueios)
+# CORS
 origins = [
     "https://palpiteiro-ia.netlify.app",
     "https://lovable.dev",
@@ -26,8 +26,7 @@ origins = [
     "http://localhost:5173",
     "http://localhost:3000",
     "https://palpiteiro-frontend.vercel.app",
-    "https://palpiteiro.vercel.app",  # caso use Vercel também
-    "*"  # temporário para teste (remova em produção)
+    "https://palpiteiro.vercel.app",
 ]
 
 app.add_middleware(
@@ -52,7 +51,7 @@ app.include_router(health_router, tags=["Health"])
 app.include_router(ultimos_router, tags=["Últimos Resultados"])
 app.include_router(concurso_router, tags=["Concurso"])
 app.include_router(estatisticas_router, tags=["Estatísticas"])
-app.include_router(palpites_router, tags=["Palpites"])
+app.include_router(palpites_router, tags=["Palpites"])  # ← ESSA LINHA ESTAVA FALTANDO OU ERRADA
 app.include_router(historico_router, tags=["Histórico"])
 app.include_router(resultados_router, tags=["Resultados"])
 
