@@ -3,7 +3,10 @@ from fastapi import HTTPException
 import traceback
 
 
-def obter_todos_palpites_debug():
+def _buscar_palpites_por_data():
+    """
+    Busca TODOS os palpites da data mais recente
+    """
     try:
         supabase = get_supabase()
 
@@ -11,21 +14,32 @@ def obter_todos_palpites_debug():
             supabase
             .table("palpites_validos")
             .select("*")
-            .limit(10)
+            .order("data_referencia", desc=True)
+            .order("indice_palpite")
             .execute()
         )
-
-        # LOGS IMPORTANTES (Vercel)
-        print("📦 RESPONSE TYPE:", type(response))
-        print("📦 RESPONSE DATA:", response.data)
 
         return response.data or []
 
     except Exception as e:
-        print("🔥 ERRO REAL SUPABASE 🔥")
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+
+def obter_palpite_fixo_publico():
+    dados = _buscar_palpites_por_data()
+
+    for r in dados:
+        if r.get("indice_palpite") == 0:
+            return r
+
+    return None
+
+
+def obter_palpites_estatisticos_publico():
+    dados = _buscar_palpites_por_data()
+
+    return [
+        r for r in dados
+        if r.get("indice_palpite", 0) > 0
+    ]
