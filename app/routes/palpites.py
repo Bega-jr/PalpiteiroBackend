@@ -7,12 +7,12 @@ router = APIRouter(prefix="/palpites", tags=["Palpites"])
 def palpite_fixo():
     registro = palpites_service.obter_palpite_fixo_publico()
     if not registro:
-        raise HTTPException(status_code=404, detail="Palpite fixo não encontrado")
+        raise HTTPException(status_code=404, detail="Palpite fixo não encontrado para hoje")
 
     return {
         "data_referencia": registro.get("data_referencia"),
         "numeros": registro.get("numeros", []),
-        "soma": registro.get("soma_total", 0),
+        "soma": registro.get("soma_total", 0),  # Mapeia soma_total para soma (frontend espera 'soma')
         "pares": registro.get("pares", 0),
         "impares": registro.get("impares", 0),
         "metricas": registro.get("metricas", {}),
@@ -35,7 +35,7 @@ def palpites_estatisticos():
         {
             "indice_palpite": r.get("indice_palpite"),
             "numeros": r.get("numeros", []),
-            "soma": r.get("soma_total", 0),
+            "soma": r.get("soma_total", 0),  # Mapeia soma_total para soma
             "pares": r.get("pares", 0),
             "score": (r.get("metricas") or {}).get("score", 0),
         }
