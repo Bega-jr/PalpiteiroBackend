@@ -32,7 +32,8 @@ jobs:
       - name: Executar Processamento de Estatisticas
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # Alterado de SUPABASE_KEY para SUPABASE_SERVICE_ROLE_KEY
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_KEY }} 
           PYTHONPATH: .
         run: |
           python scripts/consolidar_estatisticas_geral.py
