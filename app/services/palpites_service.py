@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from app.services.supabase_service import supabase
+from app.services.supabase_service import get_supabase
 
 TABELA = "palpites"
 
