@@ -1,58 +1,73 @@
 from datetime import date
-from app.repositories.palpites_repo import (
-    listar_palpites_hoje,
-    carregar_palpite_fixo
-)
+from app.services.supabase_service import get_supabase
 
 # =====================================================
-# SERVIÇO DE PALPITES (APENAS LEITURA)
-# Fonte da verdade: Supabase
+# SERVIÇO DE PALPITES (LEITURA DIRETA DO SUPABASE)
+# Conforme Script Unificado 2026
 # =====================================================
-
 
 def obter_palpite_fixo_publico():
     """
-    Retorna o palpite fixo do dia já pré-calculado.
+    Busca o palpite de índice 0 (Fixo) gerado pelo processamento diário.
     """
-    numeros = carregar_palpite_fixo()
+    try:
+        supabase = get_supabase()
+        hoje = date.today().isoformat()
+        
+        resp = (
+            supabase.table("palpites_validos")
+            .select("*")
+            .eq("data_referencia", hoje)
+            .eq("indice_palpite", 0)  # Identificador do Fixo no script unificado
+            .execute()
+        )
 
-    if not numeros:
+        if not resp.data:
+            return None
+
+        registro = resp.data[0]
         return {
-            "status": "indisponivel",
-            "mensagem": "Palpite fixo ainda não calculado para hoje"
+            "status": "ok",
+            "data_referencia": registro.get("data_referencia"),
+            "numeros": registro.get("numeros"),
+            "metricas": registro.get("metricas", {})
         }
-
-    return {
-        "status": "ok",
-        "data_referencia": date.today().isoformat(),
-        "numeros": numeros
-    }
-
+    except Exception as e:
+        print(f"❌ Erro ao ler palpite fixo no Supabase: {e}")
+        return None
 
 def obter_palpites_estatisticos_publico():
     """
-    Retorna os palpites estatísticos do dia já calculados.
+    Busca os palpites de índice 1 a 10 gerados pelo processamento diário.
     """
-    registros = listar_palpites_hoje()
+    try:
+        supabase = get_supabase()
+        hoje = date.today().isoformat()
+        
+        resp = (
+            supabase.table("palpites_validos")
+            .select("*")
+            .eq("data_referencia", hoje)
+            .gt("indice_palpite", 0)  # Pega apenas os estatísticos (índices > 0)
+            .order("indice_palpite")
+            .execute()
+        )
 
-    if not registros:
-        return {
-            "status": "indisponivel",
-            "mensagem": "Palpites ainda não calculados para hoje"
-        }
+        if not resp.data:
+            return []
 
-    palpites = []
-    for r in registros:
-        palpites.append({
-            "indice": r.get("indice_palpite"),
-            "numeros": r.get("numeros"),
-            "tipo": r.get("tipo"),
-            "score": r.get("metricas", {}).get("score"),
-        })
-
-    return {
-        "status": "ok",
-        "data_referencia": date.today().isoformat(),
-        "total": len(palpites),
-        "palpites": palpites
-    }
+        palpites = []
+        for r in resp.data:
+            palpites.append({
+                "indice": r.get("indice_palpite"),
+                "numeros": r.get("numeros"),
+                "tipo": r.get("tipo"),
+                "score": r.get("metricas", {}).get("score", 0.85),
+                "soma": r.get("soma_total"),
+                "pares": r.get("pares")
+            })
+        
+        return palpites
+    except Exception as e:
+        print(f"❌ Erro ao ler palpites estatísticos no Supabase: {e}")
+        return []
