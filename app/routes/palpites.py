@@ -1,35 +1,32 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from app.services.palpites_service import (
     obter_palpite_fixo_publico,
-    obter_palpites_estatisticos_publico,
-    obter_todos_palpites_publico
+    obter_palpites_estatisticos_publico
 )
 
-router = APIRouter(
-    prefix="/palpites",
-    tags=["Palpites"]
-)
+router = APIRouter(prefix="/palpites", tags=["Palpites"])
 
 
 @router.get("/fixo")
 def palpite_fixo():
-    """
-    Retorna o palpite fixo (indice_palpite = 0)
-    """
-    return obter_palpite_fixo_publico()
+    registro = obter_palpite_fixo_publico()
+
+    if not registro:
+        raise HTTPException(status_code=404, detail="Palpite fixo não encontrado")
+
+    return {
+        "status": "ok",
+        **registro
+    }
 
 
 @router.get("/estatisticos")
 def palpites_estatisticos():
-    """
-    Retorna todos os palpites estatísticos (indice_palpite > 0)
-    """
-    return obter_palpites_estatisticos_publico()
+    dados = obter_palpites_estatisticos_publico()
 
-
-@router.get("/todos")
-def todos_palpites():
-    """
-    Retorna fixo + estatísticos juntos (ideal para frontend)
-    """
-    return obter_todos_palpites_publico()
+    return {
+        "status": "ok",
+        "data_referencia": dados[0]["data_referencia"] if dados else None,
+        "total": len(dados),
+        "palpites": dados,
+    }
