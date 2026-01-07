@@ -32,8 +32,9 @@ jobs:
       - name: Executar Processamento de Estatisticas
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          # Alterado de SUPABASE_KEY para SUPABASE_SERVICE_ROLE_KEY
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_KEY }} 
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }} # Adicione esta linha
           PYTHONPATH: .
         run: |
           python scripts/consolidar_estatisticas_geral.py
@@ -41,4 +42,3 @@ jobs:
           python scripts/precalculo_diario.py
           python scripts/precalcular_palpite_fixo.py
           python scripts/conferir_resultados.py
-
