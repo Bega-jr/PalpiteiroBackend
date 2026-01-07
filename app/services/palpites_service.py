@@ -1,23 +1,25 @@
 from app.services.supabase_service import get_supabase
 
 
-def obter_todos_palpites():
+def obter_todos_palpites_debug():
     """
-    Busca TODOS os registros da tabela palpites, sem filtro algum.
-    Retorna exatamente o que o Supabase devolver.
+    Busca TODOS os registros da tabela palpites_validos
+    Retorna os dados crus, sem tratamento algum.
     """
     supabase = get_supabase()
 
     response = (
         supabase
-        .table("palpites")
+        .table("palpites_validos")
         .select("*")
-        .order("created_at", desc=True)
         .execute()
     )
 
-    # Logs essenciais para diagnóstico
+    # Logs essenciais (Vercel / Render)
     print("🔍 SUPABASE DATA:", response.data)
-    print("⚠️ SUPABASE ERROR:", response.error)
+    print("❌ SUPABASE ERROR:", response.error)
+
+    if response.error:
+        raise Exception(response.error.message)
 
     return response.data or []
