@@ -1,123 +1,107 @@
-from collections import Counter
-from supabase import create_client
-import os
+import sys
+import random
+from pathlib import Path
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.append(str(BASE_DIR))
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+from app.services.supabase_service import get_supabase
+from app.services.estatisticas_service import (
+    calcular_medias_recentes,
+    obter_estatisticas_com_score,
+    obter_numeros_mais_atrasados
+)
 
+# --------------------------------------------------
+def calcular_metricas_base(dezenas):
+    pares = sum(1 for n in dezenas if n % 2 == 0)
+    return {
+        "soma": sum(dezenas),
+        "pares": pares,
+        "impares": 15 - pares
+    }
 
-# =========================================================
-# 1. ÚLTIMO CONCURSO (DATA DE REFERÊNCIA)
-# =========================================================
-def obter_ultimo_concurso():
-    resp = (
-        supabase
-        .table("lotofacil_concursos")
-        .select("concurso,data,dezenas")
-        .order("concurso", desc=True)
-        .limit(1)
-        .execute()
-    )
+# --------------------------------------------------
+def salvar_estatisticas_numeros(data_ref, df_scores):
+    supabase = get_supabase()
 
-    if not resp.data:
-        raise Exception("Nenhum concurso encontrado")
-
-    return resp.data[0]
-
-
-# =========================================================
-# 2. HISTÓRICO COMPLETO
-# =========================================================
-def obter_historico():
-    resp = (
-        supabase
-        .table("lotofacil_concursos")
-        .select("concurso,dezenas")
-        .order("concurso")
-        .execute()
-    )
-
-    if not resp.data:
-        raise Exception("Histórico vazio")
-
-    return resp.data
-
-
-# =========================================================
-# 3. CALCULAR FREQUÊNCIA, ATRASO E SCORE
-# =========================================================
-def calcular_estatisticas_numeros(historico):
-    total_concursos = len(historico)
-    contagem = Counter()
-    ultimo_aparecimento = {}
-
-    for idx, item in enumerate(historico):
-        dezenas = list(map(int, item["dezenas"]))
-        contagem.update(dezenas)
-        for d in dezenas:
-            ultimo_aparecimento[d] = idx
-
-    estatisticas = {}
-
-    for numero in range(1, 26):
-        freq_abs = contagem.get(numero, 0)
-        freq_rel = freq_abs / total_concursos
-
-        atraso = (
-            total_concursos - 1 - ultimo_aparecimento[numero]
-            if numero in ultimo_aparecimento
-            else total_concursos
-        )
-
-        # score ponderado (frequência + atraso)
-        score = round((freq_rel * 0.7) + ((1 / (atraso + 1)) * 0.3), 6)
-
-        estatisticas[numero] = {
-            "frequencia": freq_abs,
-            "atraso": atraso,
-            "score": score
-        }
-
-    return estatisticas
-
-
-# =========================================================
-# 4. SALVAR estatisticas_numeros
-# =========================================================
-def salvar_estatisticas_numeros(supabase, data_ref, df_scores):
-    payload = []
-
-    for _, row in df_scores.iterrows():
-        payload.append({
+    payload = [
+        {
             "data_referencia": data_ref,
             "numero": int(row["numero"]),
             "frequencia": int(row["frequencia"]),
             "atraso": int(row["atraso"]),
             "score": float(row["score"])
-        })
+        }
+        for _, row in df_scores.iterrows()
+    ]
 
     supabase.table("estatisticas_numeros").upsert(
         payload,
         on_conflict="data_referencia,numero"
     ).execute()
 
-# =========================================================
-# 5. EXECUÇÃO PRINCIPAL
-# =========================================================
+# --------------------------------------------------
 def main():
-    ultimo = obter_ultimo_concurso()
-    data_ref = ultimo["data"]
+    supabase = get_supabase()
+    print("🚀 Processamento diário Lotofácil")
 
-    historico = obter_historico()
-    estatisticas = calcular_estatisticas_numeros(historico)
+    try:
+        ultimo = (
+            supabase
+            .table("lotofacil_concursos")
+            .select("concurso,data")
+            .order("concurso", desc=True)
+            .limit(1)
+            .execute()
+        )
 
-    salvar_estatisticas_numeros(data_ref, estatisticas)
+        if not ultimo.data:
+            raise RuntimeError("Nenhum concurso encontrado")
 
-    print(f"✔ estatisticas_numeros atualizada com base no concurso {ultimo['concurso']} ({data_ref})")
+        data_ref = ultimo.data[0]["data"]
+        concurso = ultimo.data[0]["concurso"]
 
+        print(f"📌 Concurso {concurso} | {data_ref}")
 
+        medias = calcular_medias_recentes()
+        df_scores = obter_estatisticas_com_score()
+        atrasados_top = obter_numeros_mais_atrasados()
+
+        if df_scores.empty:
+            raise RuntimeError("Estatísticas vazias")
+
+        quentes = df_scores.sort_values("score", ascending=False).head(5)["numero"].tolist()
+        frios = df_scores.sort_values("score").head(5)["numero"].tolist()
+        atrasados_ranking = df_scores.sort_values("atraso", ascending=False).head(5)["numero"].tolist()
+
+        payload_diario = {
+            "data_referencia": data_ref,
+            "numeros_quentes": quentes,
+            "numeros_frios": frios,
+            "numeros_atrasados": atrasados_top,
+            "media_soma": round(medias["soma_media"], 2),
+            "media_pares": round(medias["pares_media"], 2),
+            "media_impares": round(medias["impares_media"], 2),
+            "media_primos": round(medias.get("primos_media", 0), 2),
+            "sequencias_comuns": [3, 4],
+            "atrasados_ranking": atrasados_ranking
+        }
+
+        supabase.table("estatisticas_diarias_v2").upsert(
+            payload_diario,
+            on_conflict="data_referencia"
+        ).execute()
+
+        salvar_estatisticas_numeros(data_ref, df_scores)
+
+        print("✅ Processamento concluído com sucesso")
+
+    except Exception as e:
+        print(f"❌ Erro crítico: {e}")
+        raise
+
+# --------------------------------------------------
 if __name__ == "__main__":
     main()
 
