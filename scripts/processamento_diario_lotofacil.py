@@ -87,9 +87,11 @@ def calcular_estatisticas_numeros(historico):
 # 4. SALVAR estatisticas_numeros
 # =========================================================
 def salvar_estatisticas_numeros(data_ref, estatisticas):
-    supabase.table("estatisticas_numeros").delete().eq(
-        "data_referencia", data_ref
-    ).execute()
+           supabase.table("estatisticas_numeros").upsert(
+            payload,
+            on_conflict="data_referencia,numero"
+        ).execute()
+
 
     payload = [
         {
