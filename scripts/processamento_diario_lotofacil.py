@@ -1,5 +1,4 @@
-from datetime import date
-from collections import Counter, defaultdict
+from collections import Counter
 from supabase import create_client
 import os
 
@@ -10,13 +9,13 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # =========================================================
-# 1. BUSCAR ÚLTIMO CONCURSO (FONTE DA VERDADE)
+# 1. ÚLTIMO CONCURSO (DATA DE REFERÊNCIA)
 # =========================================================
 def obter_ultimo_concurso():
     resp = (
         supabase
         .table("lotofacil_concursos")
-        .select("concurso,data")
+        .select("concurso,data,dezenas")
         .order("concurso", desc=True)
         .limit(1)
         .execute()
@@ -29,7 +28,7 @@ def obter_ultimo_concurso():
 
 
 # =========================================================
-# 2. BUSCAR HISTÓRICO COMPLETO
+# 2. HISTÓRICO COMPLETO
 # =========================================================
 def obter_historico():
     resp = (
@@ -47,86 +46,47 @@ def obter_historico():
 
 
 # =========================================================
-# 3. CALCULAR ESTATÍSTICAS GERAIS
+# 3. CALCULAR FREQUÊNCIA, ATRASO E SCORE
 # =========================================================
-def calcular_estatisticas(historico):
+def calcular_estatisticas_numeros(historico):
     total_concursos = len(historico)
-
     contagem = Counter()
-    soma_total = 0
-    pares_total = 0
-    impares_total = 0
-    sequencias = Counter()
+    ultimo_aparecimento = {}
 
-    ultimo_concurso = historico[-1]["dezenas"]
-
-    for item in historico:
-        dezenas = sorted(map(int, item["dezenas"]))
+    for idx, item in enumerate(historico):
+        dezenas = list(map(int, item["dezenas"]))
         contagem.update(dezenas)
+        for d in dezenas:
+            ultimo_aparecimento[d] = idx
 
-        soma_total += sum(dezenas)
-        pares_total += len([d for d in dezenas if d % 2 == 0])
-        impares_total += len([d for d in dezenas if d % 2 != 0])
+    estatisticas = {}
 
-        # sequências
-        seq = 1
-        for i in range(1, len(dezenas)):
-            if dezenas[i] == dezenas[i - 1] + 1:
-                seq += 1
-                if seq >= 3:
-                    sequencias[seq] += 1
-            else:
-                seq = 1
+    for numero in range(1, 26):
+        freq_abs = contagem.get(numero, 0)
+        freq_rel = freq_abs / total_concursos
 
-    frequencias = {
-        n: contagem[n] / total_concursos
-        for n in range(1, 26)
-    }
+        atraso = (
+            total_concursos - 1 - ultimo_aparecimento[numero]
+            if numero in ultimo_aparecimento
+            else total_concursos
+        )
 
-    quentes = sorted(frequencias, key=frequencias.get, reverse=True)[:5]
-    frios = sorted(frequencias, key=frequencias.get)[:5]
+        # score ponderado (frequência + atraso)
+        score = round((freq_rel * 0.7) + ((1 / (atraso + 1)) * 0.3), 6)
 
-    atrasados = [
-        n for n in range(1, 26)
-        if n not in map(int, ultimo_concurso)
-    ]
+        estatisticas[numero] = {
+            "frequencia": freq_abs,
+            "atraso": atraso,
+            "score": score
+        }
 
-    return {
-        "frequencias": frequencias,
-        "numeros_quentes": quentes,
-        "numeros_frios": frios,
-        "numeros_atrasados": atrasados[:5],
-        "media_soma": soma_total / total_concursos,
-        "media_pares": pares_total / total_concursos,
-        "media_impares": impares_total / total_concursos,
-        "sequencias_comuns": [str(k) for k in sequencias if k >= 3]
-    }
+    return estatisticas
 
 
 # =========================================================
-# 4. SALVAR estatisticas_diarias_v2
+# 4. SALVAR estatisticas_numeros
 # =========================================================
-def salvar_estatisticas_diarias(data_ref, stats):
-    supabase.table("estatisticas_diarias_v2").delete().eq(
-        "data_referencia", data_ref
-    ).execute()
-
-    supabase.table("estatisticas_diarias_v2").insert({
-        "data_referencia": data_ref,
-        "numeros_quentes": [str(n) for n in stats["numeros_quentes"]],
-        "numeros_frios": [str(n) for n in stats["numeros_frios"]],
-        "numeros_atrasados": [str(n) for n in stats["numeros_atrasados"]],
-        "media_soma": round(stats["media_soma"], 2),
-        "media_pares": round(stats["media_pares"], 2),
-        "media_impares": round(stats["media_impares"], 2),
-        "sequencias_comuns": stats["sequencias_comuns"],
-    }).execute()
-
-
-# =========================================================
-# 5. SALVAR estatisticas_numeros (SCORE)
-# =========================================================
-def salvar_estatisticas_numeros(data_ref, frequencias):
+def salvar_estatisticas_numeros(data_ref, estatisticas):
     supabase.table("estatisticas_numeros").delete().eq(
         "data_referencia", data_ref
     ).execute()
@@ -134,31 +94,34 @@ def salvar_estatisticas_numeros(data_ref, frequencias):
     payload = [
         {
             "data_referencia": data_ref,
-            "numero": str(numero),
-            "score": round(score, 6),
+            "numero": numero,
+            "frequencia": dados["frequencia"],
+            "atraso": dados["atraso"],
+            "score": dados["score"]
         }
-        for numero, score in frequencias.items()
+        for numero, dados in estatisticas.items()
     ]
 
     supabase.table("estatisticas_numeros").insert(payload).execute()
 
 
 # =========================================================
-# 6. EXECUÇÃO PRINCIPAL
+# 5. EXECUÇÃO PRINCIPAL
 # =========================================================
 def main():
     ultimo = obter_ultimo_concurso()
     data_ref = ultimo["data"]
 
     historico = obter_historico()
-    stats = calcular_estatisticas(historico)
+    estatisticas = calcular_estatisticas_numeros(historico)
 
-    salvar_estatisticas_diarias(data_ref, stats)
-    salvar_estatisticas_numeros(data_ref, stats["frequencias"])
+    salvar_estatisticas_numeros(data_ref, estatisticas)
 
-    print(f"✔ Estatísticas atualizadas com base no concurso {ultimo['concurso']} ({data_ref})")
+    print(f"✔ estatisticas_numeros atualizada com base no concurso {ultimo['concurso']} ({data_ref})")
 
 
 if __name__ == "__main__":
+    main()
+
     main()
 
