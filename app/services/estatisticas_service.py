@@ -1,64 +1,45 @@
-from typing import Dict, Any, List
 import pandas as pd
+from typing import Dict, Any, List
 from app.services.supabase_service import get_supabase
 
-# ---------------------------------------------------------------------
-# CONSTANTES
-# ---------------------------------------------------------------------
-
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
-TABELA_CONCURSOS = "lotofacil_concursos"
 
-# ---------------------------------------------------------------------
-# HISTÓRICO (SUPABASE)
-# ---------------------------------------------------------------------
 
-def carregar_dados_para_estatistica() -> List[Dict[str, Any]]:
-    """
-    Carrega TODO o histórico diretamente do Supabase.
-    Fonte única de verdade.
-    """
+# -------------------------------------------------
+# HISTÓRICO DIRETO DO SUPABASE
+# -------------------------------------------------
+def carregar_historico():
     supabase = get_supabase()
 
-    resp = (
+    res = (
         supabase
-        .table(TABELA_CONCURSOS)
-        .select("concurso, data, dezenas")
+        .table("lotofacil_concursos")
+        .select("concurso,data,dezenas")
         .order("concurso")
         .execute()
     )
 
-    if not resp.data:
+    if not res.data:
         return []
 
     return [
         {
-            "concurso": int(r["concurso"]),
+            "concurso": r["concurso"],
             "data": r["data"],
             "numeros": [int(n) for n in r["dezenas"]],
         }
-        for r in resp.data
+        for r in res.data
     ]
 
-# ---------------------------------------------------------------------
-# ÚLTIMO RESULTADO
-# ---------------------------------------------------------------------
 
-def obter_ultimo_resultado() -> Dict[str, Any] | None:
-    historico = carregar_dados_para_estatistica()
-    return historico[-1] if historico else None
-
-# ---------------------------------------------------------------------
+# -------------------------------------------------
 # MÉTRICAS DE UM JOGO
-# ---------------------------------------------------------------------
-
+# -------------------------------------------------
 def calcular_metricas_jogo(jogo: List[int]) -> Dict[str, int]:
-    jogo = sorted(set(jogo))
-
     pares = sum(1 for n in jogo if n % 2 == 0)
     primos = sum(1 for n in jogo if n in PRIMOS)
 
-    maior_seq = seq = 1
+    seq = maior_seq = 1
     for i in range(1, len(jogo)):
         if jogo[i] == jogo[i - 1] + 1:
             seq += 1
@@ -69,64 +50,50 @@ def calcular_metricas_jogo(jogo: List[int]) -> Dict[str, int]:
     return {
         "soma": sum(jogo),
         "pares": pares,
-        "impares": len(jogo) - pares,
+        "impares": 15 - pares,
         "primos": primos,
         "maior_sequencia": maior_seq,
     }
 
-# ---------------------------------------------------------------------
-# ESTATÍSTICAS BASE (FREQUÊNCIA + ATRASO REAL)
-# ---------------------------------------------------------------------
 
+# -------------------------------------------------
+# ESTATÍSTICAS BASE (frequência + atraso)
+# -------------------------------------------------
 def obter_estatisticas_base() -> pd.DataFrame:
-    historico = carregar_dados_para_estatistica()
-    if not historico:
-        return pd.DataFrame()
+    historico = carregar_historico()
 
     df = pd.DataFrame(historico).explode("numeros")
     df["numeros"] = df["numeros"].astype(int)
 
-    # Frequência absoluta
     freq = df["numeros"].value_counts().sort_index()
 
     ultimo_concurso = df["concurso"].max()
 
-    # Última aparição real de cada número
-    ultima_aparicao = (
-        df.groupby("numeros")["concurso"]
-        .max()
-        .to_dict()
-    )
+    atraso = {
+        n: int(ultimo_concurso - df[df["numeros"] == n]["concurso"].max())
+        for n in range(1, 26)
+    }
 
-    dados = []
-    for n in range(1, 26):
-        dados.append({
-            "numero": n,
-            "frequencia": int(freq.get(n, 0)),
-            "atraso": int(ultimo_concurso - ultima_aparicao.get(n, ultimo_concurso)),
-        })
+    return pd.DataFrame({
+        "numero": range(1, 26),
+        "frequencia": [freq.get(n, 0) for n in range(1, 26)],
+        "atraso": [atraso[n] for n in range(1, 26)],
+    })
 
-    return pd.DataFrame(dados)
 
-# ---------------------------------------------------------------------
-# SCORE (NORMALIZADO)
-# ---------------------------------------------------------------------
-
-def obter_estatisticas_com_score(peso_freq: float = 0.6, peso_atraso: float = 0.4) -> pd.DataFrame:
+# -------------------------------------------------
+# SCORE
+# -------------------------------------------------
+def obter_estatisticas_com_score(peso_freq=0.6, peso_atraso=0.4) -> pd.DataFrame:
     df = obter_estatisticas_base()
-    if df.empty:
-        return df
 
-    # Normalizações seguras
     df["freq_norm"] = (
-        (df["frequencia"] - df["frequencia"].min()) /
-        max(1, df["frequencia"].max() - df["frequencia"].min())
-    )
+        df["frequencia"] - df["frequencia"].min()
+    ) / (df["frequencia"].max() - df["frequencia"].min())
 
     df["atraso_norm"] = (
-        (df["atraso"] - df["atraso"].min()) /
-        max(1, df["atraso"].max() - df["atraso"].min())
-    )
+        df["atraso"] - df["atraso"].min()
+    ) / (df["atraso"].max() - df["atraso"].min())
 
     df["score"] = (
         df["freq_norm"] * peso_freq +
@@ -135,12 +102,13 @@ def obter_estatisticas_com_score(peso_freq: float = 0.6, peso_atraso: float = 0.
 
     return df.sort_values("score", ascending=False).reset_index(drop=True)
 
-# ---------------------------------------------------------------------
-# MÉDIAS REAIS (ÚLTIMOS N CONCURSOS)
-# ---------------------------------------------------------------------
 
-def calcular_medias_recentes(qtd: int = 10) -> Dict[str, float]:
-    historico = carregar_dados_para_estatistica()
+# -------------------------------------------------
+# MÉDIAS REAIS
+# -------------------------------------------------
+def calcular_medias_recentes(qtd: int = 10) -> Dict[str, Any]:
+    historico = carregar_historico()
+
     if len(historico) < qtd:
         raise RuntimeError("Histórico insuficiente")
 
@@ -148,39 +116,29 @@ def calcular_medias_recentes(qtd: int = 10) -> Dict[str, float]:
 
     soma = pares = impares = primos = 0
 
-    for s in recentes:
-        m = calcular_metricas_jogo(s["numeros"])
+    for r in recentes:
+        m = calcular_metricas_jogo(r["numeros"])
         soma += m["soma"]
         pares += m["pares"]
         impares += m["impares"]
         primos += m["primos"]
 
     return {
-        "soma_media": round(soma / qtd, 2),
-        "pares_media": round(pares / qtd, 2),
-        "impares_media": round(impares / qtd, 2),
-        "primos_media": round(primos / qtd, 2),
-        "data_referencia": recentes[-1]["data"],  # data REAL do concurso
+        "soma_media": soma / qtd,
+        "pares_media": pares / qtd,
+        "impares_media": impares / qtd,
+        "primos_media": primos / qtd,
     }
 
-# ---------------------------------------------------------------------
-# CICLO (BASEADO NO HISTÓRICO TOTAL)
-# ---------------------------------------------------------------------
 
-def analisar_ciclo() -> List[int]:
-    """
-    Retorna os números que ainda NÃO apareceram
-    desde o início do ciclo atual (histórico completo).
-    """
-    historico = carregar_dados_para_estatistica()
-    vistos = set()
-
-    for s in reversed(historico):
-        vistos.update(s["numeros"])
-        if len(vistos) == 25:
-            break
-
-    return sorted(set(range(1, 26)) - vistos)
-
-
-    return list(set(range(1, 26)) - vistos)
+# -------------------------------------------------
+# 🔥 FUNÇÃO QUE ESTAVA FALTANDO
+# -------------------------------------------------
+def obter_numeros_mais_atrasados(qtd: int = 5) -> List[int]:
+    df = obter_estatisticas_base()
+    return (
+        df.sort_values("atraso", ascending=False)
+        .head(qtd)["numero"]
+        .astype(int)
+        .tolist()
+    )
