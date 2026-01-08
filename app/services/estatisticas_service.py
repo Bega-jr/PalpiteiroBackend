@@ -1,151 +1,186 @@
-# import pandas as pd
-# import os
-# from typing import Dict, Any, List
-# from app.services.historico_service import _carregar_historico
+from typing import Dict, Any, List
+import pandas as pd
+from app.services.supabase_service import get_supabase
 
-# # --- CONSTANTES ---
-# PRIMOS = [2, 3, 5, 7, 11, 13, 17, 19, 23]
+# ---------------------------------------------------------------------
+# CONSTANTES
+# ---------------------------------------------------------------------
 
-# # ---------------------------------------------------------------------
-# # HISTÓRICO
-# # ---------------------------------------------------------------------
+PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
+TABELA_CONCURSOS = "lotofacil_concursos"
 
-# def carregar_dados_para_estatistica():
-#     caminho_csv = os.path.join(os.getcwd(), "data", "Lotofacil.csv")
-#     if os.path.exists(caminho_csv):
-#         df = pd.read_csv(caminho_csv)
-#         colunas = [f"bola{i}" for i in range(1, 16)]
-#         df["numeros"] = df[colunas].values.tolist()
-#         return df[["concurso", "data", "numeros"]].to_dict("records")
-#     return _carregar_historico()
+# ---------------------------------------------------------------------
+# HISTÓRICO (SUPABASE)
+# ---------------------------------------------------------------------
 
-# # ---------------------------------------------------------------------
-# # ÚLTIMO RESULTADO  ✅ (FUNÇÃO QUE ESTAVA FALTANDO)
-# # ---------------------------------------------------------------------
+def carregar_dados_para_estatistica() -> List[Dict[str, Any]]:
+    """
+    Carrega TODO o histórico diretamente do Supabase.
+    Fonte única de verdade.
+    """
+    supabase = get_supabase()
 
-# def obter_ultimo_resultado() -> Dict[str, Any] | None:
-#     """
-#     Retorna o último concurso do histórico.
-#     Usado pelo serviço de palpites.
-#     """
-#     historico = carregar_dados_para_estatistica()
+    resp = (
+        supabase
+        .table(TABELA_CONCURSOS)
+        .select("concurso, data, dezenas")
+        .order("concurso")
+        .execute()
+    )
 
-#     if not historico:
-#         return None
+    if not resp.data:
+        return []
 
-#     return historico[-1]
+    return [
+        {
+            "concurso": int(r["concurso"]),
+            "data": r["data"],
+            "numeros": [int(n) for n in r["dezenas"]],
+        }
+        for r in resp.data
+    ]
 
-# # ---------------------------------------------------------------------
-# # MÉTRICAS DE UM JOGO
-# # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# ÚLTIMO RESULTADO
+# ---------------------------------------------------------------------
 
-# def calcular_metricas_jogo(jogo: List[int]) -> Dict[str, int]:
-#     jogo = sorted(set(jogo))
+def obter_ultimo_resultado() -> Dict[str, Any] | None:
+    historico = carregar_dados_para_estatistica()
+    return historico[-1] if historico else None
 
-#     pares = sum(1 for n in jogo if n % 2 == 0)
-#     primos = sum(1 for n in jogo if n in PRIMOS)
+# ---------------------------------------------------------------------
+# MÉTRICAS DE UM JOGO
+# ---------------------------------------------------------------------
 
-#     maior_seq = seq = 1
-#     for i in range(1, len(jogo)):
-#         if jogo[i] == jogo[i - 1] + 1:
-#             seq += 1
-#             maior_seq = max(maior_seq, seq)
-#         else:
-#             seq = 1
+def calcular_metricas_jogo(jogo: List[int]) -> Dict[str, int]:
+    jogo = sorted(set(jogo))
 
-#     return {
-#         "soma": sum(jogo),
-#         "pares": pares,
-#         "impares": 15 - pares,
-#         "primos": primos,
-#         "maior_sequencia": maior_seq
-#     }
+    pares = sum(1 for n in jogo if n % 2 == 0)
+    primos = sum(1 for n in jogo if n in PRIMOS)
 
-# # ---------------------------------------------------------------------
-# # ESTATÍSTICAS BASE (frequência + atraso)
-# # ---------------------------------------------------------------------
+    maior_seq = seq = 1
+    for i in range(1, len(jogo)):
+        if jogo[i] == jogo[i - 1] + 1:
+            seq += 1
+            maior_seq = max(maior_seq, seq)
+        else:
+            seq = 1
 
-# def obter_estatisticas_base():
-#     historico = carregar_dados_para_estatistica()
-#     df = pd.DataFrame(historico).explode("numeros")
-#     df["numeros"] = df["numeros"].astype(int)
+    return {
+        "soma": sum(jogo),
+        "pares": pares,
+        "impares": len(jogo) - pares,
+        "primos": primos,
+        "maior_sequencia": maior_seq,
+    }
 
-#     freq = df["numeros"].value_counts().sort_index()
-#     freq_df = pd.DataFrame({
-#         "numero": freq.index,
-#         "frequencia": freq.values
-#     })
+# ---------------------------------------------------------------------
+# ESTATÍSTICAS BASE (FREQUÊNCIA + ATRASO REAL)
+# ---------------------------------------------------------------------
 
-#     ultimo = df["concurso"].max()
-#     atraso = {
-#         n: int(ultimo - df[df["numeros"] == n]["concurso"].max())
-#         for n in range(1, 26)
-#     }
+def obter_estatisticas_base() -> pd.DataFrame:
+    historico = carregar_dados_para_estatistica()
+    if not historico:
+        return pd.DataFrame()
 
-#     freq_df["atraso"] = freq_df["numero"].map(atraso)
-#     return freq_df.reset_index(drop=True)
+    df = pd.DataFrame(historico).explode("numeros")
+    df["numeros"] = df["numeros"].astype(int)
 
-# # ---------------------------------------------------------------------
-# # SCORE
-# # ---------------------------------------------------------------------
+    # Frequência absoluta
+    freq = df["numeros"].value_counts().sort_index()
 
-# def obter_estatisticas_com_score(peso_freq=0.6, peso_atraso=0.4):
-#     df = obter_estatisticas_base()
+    ultimo_concurso = df["concurso"].max()
 
-#     df["freq_norm"] = (df["frequencia"] - df["frequencia"].min()) / (
-#         df["frequencia"].max() - df["frequencia"].min()
-#     )
+    # Última aparição real de cada número
+    ultima_aparicao = (
+        df.groupby("numeros")["concurso"]
+        .max()
+        .to_dict()
+    )
 
-#     df["atraso_norm"] = (df["atraso"] - df["atraso"].min()) / (
-#         df["atraso"].max() - df["atraso"].min()
-#     )
+    dados = []
+    for n in range(1, 26):
+        dados.append({
+            "numero": n,
+            "frequencia": int(freq.get(n, 0)),
+            "atraso": int(ultimo_concurso - ultima_aparicao.get(n, ultimo_concurso)),
+        })
 
-#     df["score"] = (
-#         df["freq_norm"] * peso_freq +
-#         df["atraso_norm"] * peso_atraso
-#     )
+    return pd.DataFrame(dados)
 
-#     return df.sort_values("score", ascending=False).reset_index(drop=True)
+# ---------------------------------------------------------------------
+# SCORE (NORMALIZADO)
+# ---------------------------------------------------------------------
 
-# # ---------------------------------------------------------------------
-# # MÉDIAS REAIS (ÚLTIMOS N CONCURSOS)
-# # ---------------------------------------------------------------------
+def obter_estatisticas_com_score(peso_freq: float = 0.6, peso_atraso: float = 0.4) -> pd.DataFrame:
+    df = obter_estatisticas_base()
+    if df.empty:
+        return df
 
-# def calcular_medias_recentes(qtd: int = 10):
-#     historico = carregar_dados_para_estatistica()
-#     if len(historico) < qtd:
-#         raise RuntimeError("Histórico insuficiente")
+    # Normalizações seguras
+    df["freq_norm"] = (
+        (df["frequencia"] - df["frequencia"].min()) /
+        max(1, df["frequencia"].max() - df["frequencia"].min())
+    )
 
-#     recentes = historico[-qtd:]
+    df["atraso_norm"] = (
+        (df["atraso"] - df["atraso"].min()) /
+        max(1, df["atraso"].max() - df["atraso"].min())
+    )
 
-#     soma = pares = impares = primos = 0
+    df["score"] = (
+        df["freq_norm"] * peso_freq +
+        df["atraso_norm"] * peso_atraso
+    )
 
-#     for s in recentes:
-#         m = calcular_metricas_jogo(s["numeros"])
-#         soma += m["soma"]
-#         pares += m["pares"]
-#         impares += m["impares"]
-#         primos += m["primos"]
+    return df.sort_values("score", ascending=False).reset_index(drop=True)
 
-#     return {
-#         "soma_media": soma / qtd,
-#         "pares_media": pares / qtd,
-#         "impares_media": impares / qtd,
-#         "primos_media": primos / qtd,
-#         "data_referencia": recentes[-1]["data"]
-#     }
+# ---------------------------------------------------------------------
+# MÉDIAS REAIS (ÚLTIMOS N CONCURSOS)
+# ---------------------------------------------------------------------
 
-# # ---------------------------------------------------------------------
-# # CICLO
-# # ---------------------------------------------------------------------
+def calcular_medias_recentes(qtd: int = 10) -> Dict[str, float]:
+    historico = carregar_dados_para_estatistica()
+    if len(historico) < qtd:
+        raise RuntimeError("Histórico insuficiente")
 
-# def analisar_ciclo():
-#     historico = carregar_dados_para_estatistica()
-#     vistos = set()
+    recentes = historico[-qtd:]
 
-#     for s in reversed(historico):
-#         vistos.update(s["numeros"])
-#         if len(vistos) == 25:
-#             break
+    soma = pares = impares = primos = 0
 
-#     return list(set(range(1, 26)) - vistos)
+    for s in recentes:
+        m = calcular_metricas_jogo(s["numeros"])
+        soma += m["soma"]
+        pares += m["pares"]
+        impares += m["impares"]
+        primos += m["primos"]
+
+    return {
+        "soma_media": round(soma / qtd, 2),
+        "pares_media": round(pares / qtd, 2),
+        "impares_media": round(impares / qtd, 2),
+        "primos_media": round(primos / qtd, 2),
+        "data_referencia": recentes[-1]["data"],  # data REAL do concurso
+    }
+
+# ---------------------------------------------------------------------
+# CICLO (BASEADO NO HISTÓRICO TOTAL)
+# ---------------------------------------------------------------------
+
+def analisar_ciclo() -> List[int]:
+    """
+    Retorna os números que ainda NÃO apareceram
+    desde o início do ciclo atual (histórico completo).
+    """
+    historico = carregar_dados_para_estatistica()
+    vistos = set()
+
+    for s in reversed(historico):
+        vistos.update(s["numeros"])
+        if len(vistos) == 25:
+            break
+
+    return sorted(set(range(1, 26)) - vistos)
+
+
+    return list(set(range(1, 26)) - vistos)
