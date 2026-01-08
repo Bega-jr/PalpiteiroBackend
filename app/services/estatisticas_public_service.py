@@ -4,8 +4,9 @@ from app.repositories.estatisticas_repo import carregar_estatisticas_hoje
 def obter_estatisticas_publicas():
     """
     Retorna estatísticas prontas para exibição pública.
-    Não executa cálculos pesados.
+    Apenas leitura de dados consolidados no Supabase.
     """
+
     dados = carregar_estatisticas_hoje()
 
     if not dados:
@@ -17,11 +18,17 @@ def obter_estatisticas_publicas():
     return {
         "status": "ok",
         "data_referencia": dados.get("data_referencia"),
+
+        # Listas prontas
         "numeros_quentes": dados.get("numeros_quentes", []),
         "numeros_frios": dados.get("numeros_frios", []),
         "numeros_atrasados": dados.get("numeros_atrasados", []),
+
+        # Métricas consolidadas
         "media_soma": dados.get("media_soma"),
         "media_pares": dados.get("media_pares"),
-        "sequencias_comuns": dados.get("sequencias_comuns", []),
         "faixa_pares": dados.get("faixa_pares"),
+
+        # Padrões recorrentes
+        "sequencias_comuns": dados.get("sequencias_comuns", [])
     }
