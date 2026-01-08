@@ -1,5 +1,4 @@
 import sys
-import random
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -13,13 +12,46 @@ from app.services.estatisticas_service import (
 )
 
 # --------------------------------------------------
-def calcular_metricas_base(dezenas):
-    pares = sum(1 for n in dezenas if n % 2 == 0)
-    return {
-        "soma": sum(dezenas),
-        "pares": pares,
-        "impares": 15 - pares
-    }
+# HISTÓRICO COMPLETO (FONTE ÚNICA)
+# --------------------------------------------------
+def carregar_historico():
+    supabase = get_supabase()
+
+    res = (
+        supabase
+        .table("lotofacil_concursos")
+        .select("concurso,data,dezenas")
+        .order("concurso")
+        .execute()
+    )
+
+    if not res.data:
+        return []
+
+    return [
+        {
+            "concurso": r["concurso"],
+            "data": r["data"],
+            "numeros": [int(n) for n in r["dezenas"]],
+        }
+        for r in res.data
+    ]
+
+
+# --------------------------------------------------
+# CICLO REAL (CORRETO)
+# --------------------------------------------------
+def calcular_ciclo_atual(historico):
+    vistos = set()
+
+    for r in reversed(historico):
+        vistos.update(r["numeros"])
+        if len(vistos) == 25:
+            break
+
+    faltam = sorted(set(range(1, 26)) - vistos)
+    return faltam
+
 
 # --------------------------------------------------
 def salvar_estatisticas_numeros(data_ref, df_scores):
@@ -31,15 +63,21 @@ def salvar_estatisticas_numeros(data_ref, df_scores):
             "numero": int(row["numero"]),
             "frequencia": int(row["frequencia"]),
             "atraso": int(row["atraso"]),
-            "score": float(row["score"])
+            "score": float(row["score"]),
         }
         for _, row in df_scores.iterrows()
     ]
 
-    supabase.table("estatisticas_numeros").upsert(
-        payload,
-        on_conflict="data_referencia,numero"
-    ).execute()
+    # limpa antes para evitar lixo histórico
+    supabase.table("estatisticas_numeros") \
+        .delete() \
+        .eq("data_referencia", data_ref) \
+        .execute()
+
+    supabase.table("estatisticas_numeros") \
+        .insert(payload) \
+        .execute()
+
 
 # --------------------------------------------------
 def main():
@@ -59,40 +97,67 @@ def main():
         if not ultimo.data:
             raise RuntimeError("Nenhum concurso encontrado")
 
-        data_ref = ultimo.data[0]["data"]
         concurso = ultimo.data[0]["concurso"]
+        data_ref = ultimo.data[0]["data"]
 
         print(f"📌 Concurso {concurso} | {data_ref}")
 
+        # --------------------------------------------------
+        # BASE DE DADOS
+        historico = carregar_historico()
         medias = calcular_medias_recentes()
         df_scores = obter_estatisticas_com_score()
-        atrasados_top = obter_numeros_mais_atrasados()
+        atrasados_ranking = obter_numeros_mais_atrasados()
 
         if df_scores.empty:
             raise RuntimeError("Estatísticas vazias")
 
-        quentes = df_scores.sort_values("score", ascending=False).head(5)["numero"].tolist()
-        frios = df_scores.sort_values("score").head(5)["numero"].tolist()
-        atrasados_ranking = df_scores.sort_values("atraso", ascending=False).head(5)["numero"].tolist()
+        # --------------------------------------------------
+        # RANKINGS
+        numeros_quentes = (
+            df_scores.sort_values("score", ascending=False)
+            .head(5)["numero"]
+            .astype(int)
+            .tolist()
+        )
 
+        numeros_frios = (
+            df_scores.sort_values("score")
+            .head(5)["numero"]
+            .astype(int)
+            .tolist()
+        )
+
+        # 🔥 CICLO REAL
+        numeros_atrasados = calcular_ciclo_atual(historico)
+
+        # --------------------------------------------------
+        # estatisticas_diarias_v2 (FONTE DO FRONT)
         payload_diario = {
             "data_referencia": data_ref,
-            "numeros_quentes": quentes,
-            "numeros_frios": frios,
-            "numeros_atrasados": atrasados_top,
+            "numeros_quentes": numeros_quentes,
+            "numeros_frios": numeros_frios,
+            "numeros_atrasados": numeros_atrasados,
+            "atrasados_ranking": atrasados_ranking,
             "media_soma": round(medias["soma_media"], 2),
             "media_pares": round(medias["pares_media"], 2),
             "media_impares": round(medias["impares_media"], 2),
             "media_primos": round(medias.get("primos_media", 0), 2),
             "sequencias_comuns": [3, 4],
-            "atrasados_ranking": atrasados_ranking
         }
 
-        supabase.table("estatisticas_diarias_v2").upsert(
-            payload_diario,
-            on_conflict="data_referencia"
-        ).execute()
+        # limpa e recria (garante consistência)
+        supabase.table("estatisticas_diarias_v2") \
+            .delete() \
+            .eq("data_referencia", data_ref) \
+            .execute()
 
+        supabase.table("estatisticas_diarias_v2") \
+            .insert(payload_diario) \
+            .execute()
+
+        # --------------------------------------------------
+        # estatisticas_numeros
         salvar_estatisticas_numeros(data_ref, df_scores)
 
         print("✅ Processamento concluído com sucesso")
@@ -101,7 +166,7 @@ def main():
         print(f"❌ Erro crítico: {e}")
         raise
 
+
 # --------------------------------------------------
 if __name__ == "__main__":
     main()
-
