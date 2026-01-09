@@ -7,7 +7,7 @@ router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
 def estatisticas():
     supabase = get_supabase()
 
-    # 1. Busca dados da última análise processada
+    # 1. Busca a última análise diária processada
     res_diaria = (
         supabase.table("estatisticas_diarias_v2")
         .select("*")
@@ -17,12 +17,14 @@ def estatisticas():
     )
 
     if not res_diaria.data:
-        raise HTTPException(status_code=404, detail="Dados não processados.")
+        raise HTTPException(status_code=404, detail="Estatísticas não processadas.")
 
     diaria = res_diaria.data[0]
     data_ref = diaria["data_referencia"]
+    num_concurso = diaria.get("concurso", "---")
+    num_ciclo = diaria.get("numero_ciclo", "---")
 
-    # 2. Busca últimos dados da tabela estatisticas_numeros
+    # 2. Busca os detalhes dos 25 números (para gráfico e tabela)
     res_numeros = (
         supabase.table("estatisticas_numeros")
         .select("numero, frequencia, atraso, score")
@@ -31,16 +33,7 @@ def estatisticas():
         .execute()
     )
 
-    # 3. Busca o número do último concurso para a fonte
-    res_ultimo_conc = (
-        supabase.table("lotofacil_concursos")
-        .select("concurso")
-        .order("concurso", desc=True)
-        .limit(1)
-        .execute()
-    )
-    concurso_label = res_ultimo_conc.data[0]["concurso"] if res_ultimo_conc.data else "Atualizado"
-
+    # 3. Retorno formatado para o componente React
     return {
         "estatisticas": res_numeros.data,
         "analise": {
@@ -52,7 +45,8 @@ def estatisticas():
         },
         "ciclo": {
             "faltam": diaria["numeros_atrasados"],
-            "total_faltam": len(diaria["numeros_atrasados"])
+            "total_faltam": len(diaria["numeros_atrasados"]),
+            "numero_ciclo": num_ciclo
         },
         "listas": {
             "numeros_quentes": diaria["numeros_quentes"],
@@ -60,7 +54,8 @@ def estatisticas():
             "atrasados_ranking": diaria["atrasados_ranking"]
         },
         "meta": {
-            "fonte": f"Concurso {concurso_label}",
+            "fonte": f"Concurso {num_concurso} | Ciclo {num_ciclo}",
             "total_numeros": len(res_numeros.data)
         }
     }
+
