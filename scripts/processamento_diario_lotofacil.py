@@ -8,66 +8,62 @@ from app.services.supabase_service import get_supabase
 from app.services.estatisticas_service import (
     calcular_medias_recentes,
     obter_estatisticas_com_score,
-    obter_top_listas
+    obter_top_listas,
+    carregar_historico
 )
 
-def calcular_ciclo_historico_seguro(historico):
-    if not historico:
-        return sorted(list(range(1, 26))), 1
-
+def calcular_ciclo_final(historico):
+    """Calcula o ciclo garantindo que o último concurso seja respeitado."""
     todos_25 = set(range(1, 26))
     sorteados_no_ciclo = set()
     contador_ciclos = 1
     
-    # Identifica o último sorteio para auditoria
-    ultimo_sorteio_real = set(historico[-1]["numeros"])
-
-    for concurso in historico:
-        sorteados_no_ciclo.update(concurso["numeros"])
+    # Ordem cronológica
+    for conc in historico:
+        sorteados_no_ciclo.update(conc["numeros"])
         if sorteados_no_ciclo == todos_25:
             sorteados_no_ciclo = set()
             contador_ciclos += 1
-
+            
     faltam = sorted(todos_25 - sorteados_no_ciclo)
-    
-    # TRAVA DE SEGURANÇA: Se o número saiu no último concurso, ele DEVE ser removido de 'faltam'
-    # Isso corrige bugs de dessincronização de cache do banco
-    faltam = [n for n in faltam if n not in ultimo_sorteio_real]
-    
-    if not faltam:
-        faltam = sorted(list(range(1, 26)))
-        
-    return sorted(faltam), contador_ciclos
+    return (faltam if faltam else sorted(list(range(1, 26)))), contador_ciclos
 
 def main():
     supabase = get_supabase()
-    print("🚀 Processamento Diário - Verificação de Ciclo 2026")
+    print("🚀 Processamento Diário Lotofácil 2026")
 
     try:
-        # Força busca sem cache para garantir o último concurso
-        historico = carregar_historico() 
-        ultimo_conc_data = historico[-1]
-        
-        concurso_n = ultimo_conc_data["concurso"]
-        # Busca a data real do último concurso para o payload
-        data_res = supabase.table("lotofacil_concursos").select("data").eq("concurso", concurso_n).single().execute()
-        data_ref = data_res.data["data"]
+        # 1. Carrega o histórico COMPLETO e ATUALIZADO
+        historico = carregar_historico()
+        ultimo_sorteio = historico[-1]
+        dezenas_sorteadas_hoje = set(ultimo_sorteio["numeros"])
+        concurso_n = ultimo_sorteio["concurso"]
+        data_ref = ultimo_sorteio["data"]
 
+        print(f"📌 Analisando Concurso {concurso_n} - Dezenas: {dezenas_sorteadas_hoje}")
+
+        # 2. Gera estatísticas base
         df_scores = obter_estatisticas_com_score()
         medias = calcular_medias_recentes()
+        
+        # --- CORREÇÃO DE CONSISTÊNCIA (HARD FIX) ---
+        # Se o 25 saiu hoje, o atraso DEVE ser 0 e ele não pode estar no topo do ranking de atraso
+        for num in dezenas_sorteadas_hoje:
+            df_scores.loc[df_scores['numero'] == num, 'atraso'] = 0
+        
+        # Recalcula as listas após a correção do atraso
         listas = obter_top_listas(df_scores)
-
-        # Cálculo com a trava de segurança para o número 25
-        numeros_faltantes, num_ciclo = calcular_ciclo_historico_seguro(historico)
+        numeros_faltantes, num_ciclo = calcular_ciclo_final(historico)
+        # -------------------------------------------
 
         payload_diario = {
             "data_referencia": data_ref,
             "concurso": int(concurso_n),
             "numero_ciclo": int(num_ciclo),
-            "numeros_quentes": listas.get("numeros_quentes", []),
-            "numeros_frios": listas.get("numeros_frios", []),
+            "numeros_quentes": listas["numeros_quentes"],
+            "numeros_frios": listas["numeros_frios"],
             "numeros_atrasados": numeros_faltantes,
-            "atrasados_ranking": listas.get("atrasados_ranking", []),
+            "atrasados_ranking": listas["atrasados_ranking"],
             "media_soma": float(medias.get("soma_media", 0)),
             "media_pares": float(medias.get("pares_media", 0)),
             "media_impares": float(medias.get("impares_media", 0)),
@@ -75,18 +71,28 @@ def main():
             "sequencias_comuns": [3, 4]
         }
 
-        # Limpa e Insere
+        # Salva resultados
         supabase.table("estatisticas_diarias_v2").delete().eq("data_referencia", data_ref).execute()
         supabase.table("estatisticas_diarias_v2").insert(payload_diario).execute()
-        
-        print(f"✅ Sucesso! Concurso {concurso_n} processado.")
-        print(f"🎯 Ciclo {num_ciclo} | Faltantes reais: {numeros_faltantes}")
+
+        # Salva estatísticas individuais
+        payload_numeros = [
+            {
+                "data_referencia": data_ref,
+                "numero": int(row["numero"]),
+                "frequencia": int(row["frequencia"]),
+                "atraso": int(row["atraso"]),
+                "score": float(row["score"]),
+            }
+            for _, row in df_scores.iterrows()
+        ]
+        supabase.table("estatisticas_numeros").delete().eq("data_referencia", data_ref).execute()
+        supabase.table("estatisticas_numeros").insert(payload_numeros).execute()
+
+        print(f"✅ Processado com Sucesso! Ciclo: {num_ciclo} | Faltam: {numeros_faltantes}")
 
     except Exception as e:
         print(f"❌ Erro: {e}")
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
