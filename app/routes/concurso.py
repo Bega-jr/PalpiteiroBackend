@@ -6,7 +6,7 @@ router = APIRouter(prefix="/concurso", tags=["Concurso"])
 @router.get("/ultimo")
 def ultimo_concurso():
     """
-    Retorna o objeto do último concurso sorteado (Ex: 3582).
+    Busca o último concurso sorteado no banco de dados.
     """
     try:
         supabase = get_supabase()
@@ -21,7 +21,7 @@ def ultimo_concurso():
         if not res.data or len(res.data) == 0:
             raise HTTPException(status_code=404, detail="Nenhum concurso encontrado.")
 
-        # Retorna o objeto direto (index 0) para o Frontend não receber uma lista
+        # Retorna o primeiro objeto da lista [0]
         return res.data[0]
 
     except Exception as e:
@@ -41,7 +41,7 @@ def concurso_por_numero(numero: int):
             .execute()
         )
         
-        if not res.data:
+        if not res.data or len(res.data) == 0:
             raise HTTPException(status_code=404, detail="Concurso não encontrado.")
             
         return res.data[0]
