@@ -7,7 +7,7 @@ router = APIRouter(prefix="/estatisticas", tags=["Estatísticas"])
 def estatisticas():
     supabase = get_supabase()
 
-    # 1. Busca os dados processados da tabela diária (o mais recente)
+    # 1. Busca dados da última análise processada
     res_diaria = (
         supabase.table("estatisticas_diarias_v2")
         .select("*")
@@ -17,12 +17,12 @@ def estatisticas():
     )
 
     if not res_diaria.data:
-        raise HTTPException(status_code=404, detail="Estatísticas não encontradas. Rode o processamento.")
+        raise HTTPException(status_code=404, detail="Dados não processados.")
 
     diaria = res_diaria.data[0]
     data_ref = diaria["data_referencia"]
 
-    # 2. Busca os detalhes de cada número para a tabela/gráfico
+    # 2. Busca últimos dados da tabela estatisticas_numeros
     res_numeros = (
         supabase.table("estatisticas_numeros")
         .select("numero, frequencia, atraso, score")
@@ -31,7 +31,16 @@ def estatisticas():
         .execute()
     )
 
-    # 3. Formata a resposta para o Front-end
+    # 3. Busca o número do último concurso para a fonte
+    res_ultimo_conc = (
+        supabase.table("lotofacil_concursos")
+        .select("concurso")
+        .order("concurso", desc=True)
+        .limit(1)
+        .execute()
+    )
+    concurso_label = res_ultimo_conc.data[0]["concurso"] if res_ultimo_conc.data else "Atualizado"
+
     return {
         "estatisticas": res_numeros.data,
         "analise": {
@@ -39,7 +48,7 @@ def estatisticas():
             "pares_media": diaria["media_pares"],
             "impares_media": diaria["media_impares"],
             "primos_media": diaria["media_primos"],
-            "data_referencia": data_ref  # Exibe a data real no Hero do Front
+            "data_referencia": data_ref
         },
         "ciclo": {
             "faltam": diaria["numeros_atrasados"],
@@ -51,7 +60,7 @@ def estatisticas():
             "atrasados_ranking": diaria["atrasados_ranking"]
         },
         "meta": {
-            "fonte": f"Concurso {diaria.get('concurso', 'Atualizado')}", # Mostra o número do concurso se existir
-            "total_numeros": 25
+            "fonte": f"Concurso {concurso_label}",
+            "total_numeros": len(res_numeros.data)
         }
     }
