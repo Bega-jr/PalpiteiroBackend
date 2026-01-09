@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+# Configuração de diretório base
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -13,7 +14,7 @@ from app.services.estatisticas_service import (
 )
 
 def calcular_ciclo_historico(historico):
-    """Calcula quais números faltam e qual o número do ciclo atual."""
+    """Calcula quais números faltam e qual o número do ciclo atual desde o início."""
     if not historico:
         return sorted(list(range(1, 26))), 1
 
@@ -21,6 +22,7 @@ def calcular_ciclo_historico(historico):
     sorteados_no_ciclo = set()
     contador_ciclos = 1
 
+    # Percorre cronologicamente para contar os ciclos corretamente
     for concurso in historico:
         sorteados_no_ciclo.update(concurso["numeros"])
         if sorteados_no_ciclo == todos_25:
@@ -29,7 +31,7 @@ def calcular_ciclo_historico(historico):
 
     faltam = sorted(todos_25 - sorteados_no_ciclo)
     
-    # Se o último concurso fechou o ciclo, faltam os 25 para o próximo
+    # Se o ciclo fechou no último sorteio, o próximo concurso inicia um novo
     if not faltam:
         faltam = sorted(list(range(1, 26)))
         
@@ -47,38 +49,43 @@ def salvar_estatisticas_numeros(data_ref, df_scores):
         }
         for _, row in df_scores.iterrows()
     ]
+    # Limpa dados da data para evitar duplicados
     supabase.table("estatisticas_numeros").delete().eq("data_referencia", data_ref).execute()
     if payload:
         supabase.table("estatisticas_numeros").insert(payload).execute()
 
 def main():
     supabase = get_supabase()
-    print("🚀 Processamento Lotofácil 2026")
+    print("🚀 Iniciando Processamento Lotofácil 2026")
 
     try:
-        ultimo = supabase.table("lotofacil_concursos").select("concurso,data").order("concurso", desc=True).limit(1).execute()
-        if not ultimo.data:
-            raise RuntimeError("Banco vazio")
+        # 1. Obter referência do último concurso sorteado
+        ultimo_res = supabase.table("lotofacil_concursos").select("concurso,data").order("concurso", desc=True).limit(1).execute()
+        if not ultimo_res.data:
+            raise RuntimeError("Nenhum concurso encontrado no banco.")
 
-        data_ref = ultimo.data[0]["data"]
-        concurso_n = ultimo.data[0]["concurso"]
+        ultimo_concurso = ultimo_res.data[0]
+        data_ref = ultimo_concurso["data"]
+        concurso_n = ultimo_concurso["concurso"]
 
+        # 2. Carregar Histórico e Gerar Estatísticas
         historico = carregar_base_service()
         df_scores = obter_estatisticas_com_score()
         medias = calcular_medias_recentes()
         listas = obter_top_listas(df_scores)
 
-        # Cálculo do Ciclo e Número do Ciclo
+        # 3. Calcular Ciclo e Contador
         numeros_faltantes, num_ciclo = calcular_ciclo_historico(historico)
 
-       payload_diario = {
+        # 4. Montar Payload para estatisticas_diarias_v2
+        payload_diario = {
             "data_referencia": data_ref,
-            "concurso": concurso_n,       # Agora salvando o número do concurso
-            "numero_ciclo": num_ciclo,     # Agora salvando o número do ciclo
-            "numeros_quentes": listas["numeros_quentes"],
-            "numeros_frios": listas["numeros_frios"],
+            "concurso": int(concurso_n),
+            "numero_ciclo": int(num_ciclo),
+            "numeros_quentes": listas.get("numeros_quentes", []),
+            "numeros_frios": listas.get("numeros_frios", []),
             "numeros_atrasados": numeros_faltantes,
-            "atrasados_ranking": listas["atrasados_ranking"],
+            "atrasados_ranking": listas.get("atrasados_ranking", []),
             "media_soma": float(medias.get("soma_media", 0)),
             "media_pares": float(medias.get("pares_media", 0)),
             "media_impares": float(medias.get("impares_media", 0)),
@@ -86,17 +93,18 @@ def main():
             "sequencias_comuns": [3, 4]
         }
 
-        # Armazenamos o concurso e ciclo em um campo de log ou na própria tabela
-        print(f"📡 Concurso: {concurso_n} | Ciclo Atual: {num_ciclo}")
-
+        # 5. Salvar no Supabase
+        print(f"📡 Salvando Concurso {concurso_n} | Ciclo {num_ciclo}")
+        
         supabase.table("estatisticas_diarias_v2").delete().eq("data_referencia", data_ref).execute()
         supabase.table("estatisticas_diarias_v2").insert(payload_diario).execute()
         
         salvar_estatisticas_numeros(data_ref, df_scores)
-        print(f"✅ Sucesso! Faltam {len(numeros_faltantes)} números para fechar o ciclo {num_ciclo}.")
+        
+        print(f"✅ Processamento concluído: Ciclo {num_ciclo} (Faltam {len(numeros_faltantes)})")
 
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"❌ Erro Crítico: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":
