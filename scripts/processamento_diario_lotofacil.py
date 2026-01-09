@@ -42,37 +42,41 @@ def calcular_ciclo_historico_completo(historico):
 
 def main():
     supabase = get_supabase()
-    print("🚀 Processamento Estruturado Lotofácil 2026")
+    print("🚀 Iniciando Processamento Completo 2026")
 
     try:
-        # 1. Carrega histórico (deve retornar todos os concursos do 1 ao mais atual)
+        # 1. Carrega histórico TOTAL (com a nova função de paginação)
         historico = carregar_historico()
-        ultimo_sorteio = historico[-1] # Pega o mais recente
+        ultimo_sorteio = historico[-1] 
         
-        dezenas_hoje = set(ultimo_sorteio["numeros"])
         concurso_atual = ultimo_sorteio["concurso"]
         data_atual = ultimo_sorteio["data"]
+        dezenas_hoje = set(ultimo_sorteio["numeros"])
 
-        print(f"📊 Analisando Concurso {concurso_atual} | Dezenas: {sorted(list(dezenas_hoje))}")
+        # LOG DE CONFERÊNCIA - Verifique isso no terminal
+        print(f"✅ Sucesso ao carregar histórico!")
+        print(f"📌 Concurso Identificado: {concurso_atual}")
+        print(f"📅 Data Identificada: {data_atual}")
+        print(f"🔢 Dezenas: {sorted(list(dezenas_hoje))}")
 
-        # 2. Gera estatísticas (Frequência e Scores)
-        df_scores = obter_estatisticas_com_score()
+        if concurso_atual < 3000:
+            print("⚠️ AVISO: O script ainda está pegando concursos antigos. Verifique a paginação.")
+
+        # 2. Gera estatísticas baseadas no histórico completo
+        df_scores = obter_estatisticas_com_score() # Certifique-se que esta func usa o novo carregar_historico
         medias = calcular_medias_recentes()
 
-        # ---------------------------------------------------------
-        # AJUSTE DE SEGURANÇA: ZERAR ATRASO DOS NÚMEROS QUE SAÍRAM
-        # ---------------------------------------------------------
-        # Garante que números sorteados hoje tenham atraso 0 no banco
+        # 3. Força atraso zero para o que saiu hoje
         for num in dezenas_hoje:
             df_scores.loc[df_scores['numero'] == num, 'atraso'] = 0
         
-        # 3. Calcula Ciclo e Listas atualizadas
+        # 4. Rankings e Ciclo
         listas = obter_top_listas(df_scores)
         numeros_faltantes, ciclo_contagem = calcular_ciclo_historico_completo(historico)
 
-        # 4. Monta o Payload para estatisticas_diarias_v2
+        # 5. Payload
         payload_diario = {
-            "data_referencia": data_atual,
+            "data_referencia": data_ref, # Use data_atual obtida do historico[-1]
             "concurso": int(concurso_atual),
             "numero_ciclo": int(ciclo_contagem),
             "numeros_quentes": listas["numeros_quentes"],
@@ -86,29 +90,14 @@ def main():
             "sequencias_comuns": [3, 4]
         }
 
-        # 5. Salva no Supabase
-        # Tabela Diária
-        supabase.table("estatisticas_diarias_v2").delete().eq("data_referencia", data_atual).execute()
+        # 6. Delete por concurso/data para garantir limpeza
+        supabase.table("estatisticas_diarias_v2").delete().eq("concurso", concurso_atual).execute()
         supabase.table("estatisticas_diarias_v2").insert(payload_diario).execute()
 
-        # Tabela por Número
-        payload_numeros = [
-            {
-                "data_referencia": data_atual,
-                "numero": int(row["numero"]),
-                "frequencia": int(row["frequencia"]),
-                "atraso": int(row["atraso"]),
-                "score": float(row["score"]),
-            }
-            for _, row in df_scores.iterrows()
-        ]
-        supabase.table("estatisticas_numeros").delete().eq("data_referencia", data_atual).execute()
-        supabase.table("estatisticas_numeros").insert(payload_numeros).execute()
-
-        print(f"✅ Sucesso! Ciclo {ciclo_contagem} atualizado. Faltam: {numeros_faltantes}")
+        print(f"🏁 Finalizado! Ciclo {ciclo_contagem} salvo para o concurso {concurso_atual}.")
 
     except Exception as e:
-        print(f"❌ Erro no processamento: {str(e)}")
+        print(f"❌ Erro: {e}")
 
 if __name__ == "__main__":
     main()
