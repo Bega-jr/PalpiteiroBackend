@@ -9,26 +9,25 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def formatar_data_para_br(data_raw: str) -> str:
+def formatar_data_estatica(data_raw: str) -> str:
     """
-    Converte '2026-01-08' ou '2003-09-29T00:00:00' para '08/01/2026' ou '29/09/2003'.
-    Isso evita que o Frontend JavaScript erre o fuso horário.
+    Transforma YYYY-MM-DD em DD/MM/YYYY como STRING PURA.
+    Isso impede que o navegador do usuário subtraia horas pelo fuso horário.
     """
     if not data_raw:
         return ""
     try:
-        # Pega apenas os primeiros 10 caracteres (ignora T00:00:00 se houver)
-        data_limpa = str(data_raw)[:10]
-        
-        # Converte YYYY-MM-DD para objeto date e depois para DD/MM/YYYY
-        data_obj = datetime.strptime(data_limpa, "%Y-%m-%d")
-        return data_obj.strftime("%d/%m/%Y")
+        # Pega apenas a parte da data (YYYY-MM-DD)
+        data_str = str(data_raw)[:10].replace("/", "-")
+        # Converte para objeto e gera string brasileira
+        dt = datetime.strptime(data_str, "%Y-%m-%d")
+        return dt.strftime("%d/%m/%Y")
     except Exception:
-        # Se a data já estiver formatada ou for inválida, retorna o original
+        # Se der erro ou já for BR, retorna como está
         return str(data_raw)
 
 def fetch_resultados_supabase(page: int = 1, limit: int = 10) -> Dict:
-    """Busca resultados paginados do Supabase com data formatada"""
+    """Busca resultados e já formata a data no servidor"""
     try:
         start = (page - 1) * limit
         end = start + limit - 1
@@ -39,14 +38,12 @@ def fetch_resultados_supabase(page: int = 1, limit: int = 10) -> Dict:
             .range(start, end) \
             .execute()
 
-        # FORMATAÇÃO: Tratamos a data de cada item antes de enviar para o Frontend
-        resultados_formatados = []
+        # Normaliza a data de cada concurso antes de enviar
         for item in response.data:
-            item["data"] = formatar_data_para_br(item.get("data"))
-            resultados_formatados.append(item)
+            item["data"] = formatar_data_estatica(item.get("data"))
 
         return {
-            "resultados": resultados_formatados,
+            "resultados": response.data,
             "total": response.count
         }
     except Exception as e:
@@ -54,7 +51,7 @@ def fetch_resultados_supabase(page: int = 1, limit: int = 10) -> Dict:
         return {"resultados": [], "total": 0}
 
 def fetch_concurso_unico_supabase(numero: int) -> Dict:
-    """Busca um concurso específico no Supabase com data formatada"""
+    """Busca um concurso único e formata a data"""
     try:
         response = supabase.table("lotofacil_concursos") \
             .select("*") \
@@ -64,9 +61,10 @@ def fetch_concurso_unico_supabase(numero: int) -> Dict:
         
         data = response.data
         if data:
-            data["data"] = formatar_data_para_br(data.get("data"))
+            data["data"] = formatar_data_estatica(data.get("data"))
             
         return data
     except Exception as e:
         print(f"Erro ao buscar concurso {numero}: {e}")
         return None
+
