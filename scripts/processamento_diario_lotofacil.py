@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+# Configuração de diretório base
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -12,16 +13,17 @@ from app.services.estatisticas_service import (
 )
 
 # --------------------------------------------------
-# HISTÓRICO COMPLETO (FONTE ÚNICA)
+# HISTÓRICO COMPLETO (ORDEM CRONOLÓGICA)
 # --------------------------------------------------
 def carregar_historico():
+    """Carrega o histórico do primeiro ao último para cálculo de ciclos."""
     supabase = get_supabase()
 
     res = (
         supabase
         .table("lotofacil_concursos")
         .select("concurso,data,dezenas")
-        .order("concurso")
+        .order("concurso", desc=False) # Importante: Ascendente para lógica de ciclo
         .execute()
     )
 
@@ -39,20 +41,37 @@ def carregar_historico():
 
 
 # --------------------------------------------------
-# CICLO REAL (CORRETO)
+# CÁLCULO DE CICLO REAL (CORRIGIDO)
 # --------------------------------------------------
 def calcular_ciclo_atual(historico):
-    vistos = set()
+    """
+    Identifica quais números faltam para fechar o ciclo atual.
+    O ciclo reinicia quando todas as 25 dezenas foram sorteadas.
+    """
+    if not historico:
+        return sorted(list(range(1, 26)))
 
-    for r in reversed(historico):
-        vistos.update(r["numeros"])
-        if len(vistos) == 25:
-            break
+    todos_25 = set(range(1, 26))
+    sorteados_no_ciclo_atual = set()
 
-    faltam = sorted(set(range(1, 26)) - vistos)
-    return faltam
+    for concurso in historico:
+        sorteados_no_ciclo_atual.update(concurso["numeros"])
+        
+        # Se completou as 25, o ciclo fechou. 
+        # O próximo concurso iniciará um novo set.
+        if sorteados_no_ciclo_atual == todos_25:
+            sorteados_no_ciclo_atual = set()
+
+    # O que restar em sorteados_no_ciclo_atual são os números que já saíram no ciclo aberto
+    faltam = sorted(todos_25 - sorteados_no_ciclo_atual)
+    
+    # Se 'faltam' estiver vazio aqui, significa que o último concurso fechou o ciclo exatamente.
+    # Portanto, para o próximo concurso, faltam todos os 25.
+    return faltam if faltam else sorted(list(range(1, 26)))
 
 
+# --------------------------------------------------
+# SALVAR ESTATÍSTICAS POR NÚMERO
 # --------------------------------------------------
 def salvar_estatisticas_numeros(data_ref, df_scores):
     supabase = get_supabase()
@@ -68,23 +87,25 @@ def salvar_estatisticas_numeros(data_ref, df_scores):
         for _, row in df_scores.iterrows()
     ]
 
-    # limpa antes para evitar lixo histórico
+    # Limpa apenas os dados daquela data específica para evitar duplicidade
     supabase.table("estatisticas_numeros") \
         .delete() \
         .eq("data_referencia", data_ref) \
         .execute()
 
-    supabase.table("estatisticas_numeros") \
-        .insert(payload) \
-        .execute()
+    if payload:
+        supabase.table("estatisticas_numeros").insert(payload).execute()
 
 
 # --------------------------------------------------
+# MAIN (ORQUESTRADOR)
+# --------------------------------------------------
 def main():
     supabase = get_supabase()
-    print("🚀 Processamento diário Lotofácil")
+    print("🚀 Iniciando Processamento Lotofácil 2026")
 
     try:
+        # 1. Busca último concurso para referência
         ultimo = (
             supabase
             .table("lotofacil_concursos")
@@ -95,78 +116,73 @@ def main():
         )
 
         if not ultimo.data:
-            raise RuntimeError("Nenhum concurso encontrado")
+            raise RuntimeError("Nenhum concurso encontrado no banco de dados.")
 
-        concurso = ultimo.data[0]["concurso"]
+        concurso_n = ultimo.data[0]["concurso"]
         data_ref = ultimo.data[0]["data"]
 
-        print(f"📌 Concurso {concurso} | {data_ref}")
+        print(f"📌 Referência: Concurso {concurso_n} em {data_ref}")
 
-        # --------------------------------------------------
-        # BASE DE DADOS
+        # 2. Carrega dados e executa serviços
         historico = carregar_historico()
-        medias = calcular_medias_recentes()
+        medias = calcular_medias_recentes() # Recomenda-se validar se este serviço usa dados atualizados
         df_scores = obter_estatisticas_com_score()
         atrasados_ranking = obter_numeros_mais_atrasados()
 
         if df_scores.empty:
-            raise RuntimeError("Estatísticas vazias")
+            raise RuntimeError("Erro: DataFrame de scores está vazio.")
 
-        # --------------------------------------------------
-        # RANKINGS
+        # 3. Rankings de Quentes e Frios
         numeros_quentes = (
             df_scores.sort_values("score", ascending=False)
             .head(5)["numero"]
-            .astype(int)
-            .tolist()
+            .astype(int).tolist()
         )
 
         numeros_frios = (
-            df_scores.sort_values("score")
+            df_scores.sort_values("score", ascending=True)
             .head(5)["numero"]
-            .astype(int)
-            .tolist()
+            .astype(int).tolist()
         )
 
-        # 🔥 CICLO REAL
-        numeros_atrasados = calcular_ciclo_atual(historico)
+        # 4. Cálculo do Ciclo (Lógica Corrigida)
+        numeros_faltantes_ciclo = calcular_ciclo_atual(historico)
 
-        # --------------------------------------------------
-        # estatisticas_diarias_v2 (FONTE DO FRONT)
+        # 5. Preparação do Payload para estatisticas_diarias_v2
         payload_diario = {
             "data_referencia": data_ref,
+            "concurso": concurso_n,
             "numeros_quentes": numeros_quentes,
             "numeros_frios": numeros_frios,
-            "numeros_atrasados": numeros_atrasados,
-            "atrasados_ranking": atrasados_ranking,
-            "media_soma": round(medias["soma_media"], 2),
-            "media_pares": round(medias["pares_media"], 2),
-            "media_impares": round(medias["impares_media"], 2),
+            "numeros_atrasados": numeros_faltantes_ciclo, # Números que faltam para fechar o ciclo
+            "atrasados_ranking": atrasados_ranking,       # Ranking geral de atraso (frequência)
+            "media_soma": round(medias.get("soma_media", 0), 2),
+            "media_pares": round(medias.get("pares_media", 0), 2),
+            "media_impares": round(medias.get("impares_media", 0), 2),
             "media_primos": round(medias.get("primos_media", 0), 2),
             "sequencias_comuns": [3, 4],
+            "atualizado_em": data_ref
         }
 
-        # limpa e recria (garante consistência)
+        # 6. Persistência no Supabase
+        # Limpa registros antigos para evitar sobreposição de dados no front
         supabase.table("estatisticas_diarias_v2") \
             .delete() \
             .eq("data_referencia", data_ref) \
             .execute()
 
-        supabase.table("estatisticas_diarias_v2") \
-            .insert(payload_diario) \
-            .execute()
+        supabase.table("estatisticas_diarias_v2").insert(payload_diario).execute()
 
-        # --------------------------------------------------
-        # estatisticas_numeros
+        # Salva detalhes individuais por número
         salvar_estatisticas_numeros(data_ref, df_scores)
 
-        print("✅ Processamento concluído com sucesso")
+        print(f"✅ Sucesso! Ciclo atual falta: {numeros_faltantes_ciclo}")
 
     except Exception as e:
-        print(f"❌ Erro crítico: {e}")
-        raise
+        print(f"❌ Erro crítico no processamento: {str(e)}")
+        sys.exit(1)
 
 
-# --------------------------------------------------
 if __name__ == "__main__":
     main()
+
