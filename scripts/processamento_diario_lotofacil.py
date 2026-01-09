@@ -71,18 +71,19 @@ def main():
         # Cálculo do Ciclo e Número do Ciclo
         numeros_faltantes, num_ciclo = calcular_ciclo_historico(historico)
 
-        payload_diario = {
+       payload_diario = {
             "data_referencia": data_ref,
-            "numeros_quentes": listas["numbers_quentes"] if "numbers_quentes" in listas else listas.get("numeros_quentes"),
-            "numeros_frios": listas["numbers_frios"] if "numbers_frios" in listas else listas.get("numeros_frios"),
+            "concurso": concurso_n,       # Agora salvando o número do concurso
+            "numero_ciclo": num_ciclo,     # Agora salvando o número do ciclo
+            "numeros_quentes": listas["numeros_quentes"],
+            "numeros_frios": listas["numeros_frios"],
             "numeros_atrasados": numeros_faltantes,
             "atrasados_ranking": listas["atrasados_ranking"],
             "media_soma": float(medias.get("soma_media", 0)),
             "media_pares": float(medias.get("pares_media", 0)),
             "media_impares": float(medias.get("impares_media", 0)),
             "media_primos": float(medias.get("primos_media", 0)),
-            "sequencias_comuns": [3, 4],
-            # Dica: Se quiser salvar o num_ciclo no banco, adicione a coluna na tabela estatisticas_diarias_v2
+            "sequencias_comuns": [3, 4]
         }
 
         # Armazenamos o concurso e ciclo em um campo de log ou na própria tabela
