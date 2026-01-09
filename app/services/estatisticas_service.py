@@ -7,19 +7,24 @@ PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 # -------------------------------------------------
 def carregar_historico():
     supabase = get_supabase()
+    all_data = []
+    chunk_size = 1000
+    start = 0
+    
+    while True:
+        res = (
+            supabase.table("lotofacil_concursos")
+            .select("concurso,data,dezenas")
+            .order("concurso", desc=False)
+            .range(start, start + chunk_size - 1)
+            .execute()
+        )
+        all_data.extend(res.data)
+        if len(res.data) < chunk_size:
+            break
+        start += chunk_size
 
-    # IMPORTANTE: Em 2026, a Lotofácil tem mais de 3000 concursos. 
-    # Precisamos garantir que o range cubra todos os registros.
-    res = (
-        supabase
-        .table("lotofacil_concursos")
-        .select("concurso,data,dezenas")
-        .order("concurso", desc=False) # Ordem cronológica para cálculos
-        .range(0, 5000) # Garante que pegará todos os concursos históricos
-        .execute()
-    )
-
-    if not res.data:
+    if not all_data:
         raise RuntimeError("Histórico vazio")
 
     return [
@@ -28,7 +33,7 @@ def carregar_historico():
             "data": r["data"],
             "numeros": [int(n) for n in r["dezenas"]],
         }
-        for r in res.data
+        for r in all_data
     ]
 
 # -------------------------------------------------
