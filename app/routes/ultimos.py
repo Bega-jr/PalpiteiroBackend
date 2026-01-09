@@ -1,25 +1,35 @@
-from fastapi import APIRouter
-from app.services.lotofacil_service import buscar_na_caixa, carregar_historico_csv
+from fastapi import APIRouter, HTTPException
+from app.services.supabase_service import get_supabase
 
 router = APIRouter(prefix="/ultimos", tags=["Últimos"])
 
-
 @router.get("/{quantidade}")
 def listar_ultimos(quantidade: int):
-    if quantidade == 1:
-        dados = buscar_na_caixa("")
-        if dados:
-            return dados
+    """
+    Lista os 'quantidade' últimos concursos do Supabase.
+    """
+    if quantidade <= 0:
+        raise HTTPException(status_code=400, detail="A quantidade deve ser um número positivo.")
 
-    historico = carregar_historico_csv(quantidade)
+    try:
+        supabase = get_supabase()
+        historico = (
+            supabase.table("lotofacil_concursos")
+            .select("*")
+            .order("concurso", desc=True)
+            .limit(quantidade)
+            .execute()
+        )
 
-    if historico:
-        return historico[0] if quantidade == 1 else historico
+        if not historico.data:
+            return [] # Retorna uma lista vazia se não houver dados
 
-    return {
-        "concurso": 0,
-        "data": "---",
-        "dezenas": [],
-        "municipios": [],
-        "estimativa_proximo": 0,
-    }
+        # Se a quantidade for 1, retorna o objeto diretamente, senão retorna a lista
+        if quantidade == 1:
+            return historico.data[0]
+        
+        return historico.data
+
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=f"Erro ao listar últimos concursos: {str(e)}")
+
