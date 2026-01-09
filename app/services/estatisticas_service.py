@@ -8,11 +8,14 @@ PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 def carregar_historico():
     supabase = get_supabase()
 
+    # IMPORTANTE: Em 2026, a Lotofácil tem mais de 3000 concursos. 
+    # Precisamos garantir que o range cubra todos os registros.
     res = (
         supabase
         .table("lotofacil_concursos")
         .select("concurso,data,dezenas")
-        .order("concurso")
+        .order("concurso", desc=False) # Ordem cronológica para cálculos
+        .range(0, 5000) # Garante que pegará todos os concursos históricos
         .execute()
     )
 
@@ -52,13 +55,12 @@ def obter_estatisticas_base() -> pd.DataFrame:
 def obter_estatisticas_com_score(peso_freq=0.6, peso_atraso=0.4) -> pd.DataFrame:
     df = obter_estatisticas_base()
 
-    df["freq_norm"] = (
-        df["frequencia"] - df["frequencia"].min()
-    ) / (df["frequencia"].max() - df["frequencia"].min())
+    # Normalização segura para evitar divisão por zero
+    max_f, min_f = df["frequencia"].max(), df["frequencia"].min()
+    df["freq_norm"] = (df["frequencia"] - min_f) / (max_f - min_f) if max_f > min_f else 0
 
-    df["atraso_norm"] = (
-        df["atraso"] - df["atraso"].min()
-    ) / (df["atraso"].max() - df["atraso"].min())
+    max_a, min_a = df["atraso"].max(), df["atraso"].min()
+    df["atraso_norm"] = (df["atraso"] - min_a) / (max_a - min_a) if max_a > min_a else 0
 
     df["score"] = df["freq_norm"] * peso_freq + df["atraso_norm"] * peso_atraso
 
@@ -87,15 +89,31 @@ def calcular_medias_recentes(qtd: int = 10) -> Dict[str, Any]:
 
 # -------------------------------------------------
 def obter_ciclo_atual() -> Dict[str, Any]:
+    """Calcula corretamente os números que faltam para fechar o ciclo"""
     historico = carregar_historico()
-
+    
+    todos_25 = set(range(1, 26))
     vistos = set()
+    
+    # Percorre do mais recente para o mais antigo
     for r in reversed(historico):
         vistos.update(r["numeros"])
         if len(vistos) == 25:
+            # Aqui identificamos onde o ciclo anterior fechou. 
+            # Mas queremos os que faltam no ciclo ATUAL.
             break
 
-    faltam = sorted(set(range(1, 26)) - vistos)
+    # Reinicia a lógica para pegar apenas o ciclo aberto atual
+    vistos_atual = set()
+    for r in reversed(historico):
+        # Se ao adicionar esses números completarmos 25, 
+        # significa que este concurso fechou um ciclo.
+        temp_set = vistos_atual | set(r["numeros"])
+        if temp_set == todos_25:
+            break
+        vistos_atual = temp_set
+
+    faltam = sorted(todos_25 - vistos_atual)
 
     return {
         "faltam": faltam,
@@ -113,3 +131,4 @@ def obter_top_listas(df: pd.DataFrame) -> Dict[str, List[int]]:
             .tolist()
         )
     }
+
