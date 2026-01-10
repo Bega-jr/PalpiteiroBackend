@@ -2,7 +2,7 @@ name: Atualizar Estatisticas Diarias
 
 on:
   schedule:
-    - cron: "30 0 * * *" # 21:30 Horário de Brasília
+    - cron: "45 0 * * *" # 21:30 Horário de Brasília
   workflow_dispatch:
 
 jobs:
