@@ -1,6 +1,5 @@
 from app.services.supabase_service import get_supabase
 from fastapi import HTTPException
-from datetime import date
 import json
 
 # ==========================
@@ -10,28 +9,37 @@ import json
 def obter_palpite_fixo_publico():
     supabase = get_supabase()
 
-    res = (
-        supabase
-        .table("palpites_validos")
-        .select("*")
-        .eq("tipo_palpite", "fixo")
-        .order("data_referencia", desc=True)
-        .limit(1)
-        .execute()
-    )
+    try:
+        res = (
+            supabase
+            .table("palpites_validos")
+            .select("*")
+            .eq("tipo_palpite", "fixo")
+            .order("data_referencia", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        print(f"[ERROR] Falha ao consultar palpites fixos: {e}")
+        return None
 
     if not res.data:
+        print("[INFO] Nenhum palpite fixo encontrado no Supabase.")
         return None
 
     r = res.data[0]
 
+    # 🔹 Conversão defensiva de JSON
+    numeros = json.loads(r.get("numeros")) if isinstance(r.get("numeros"), str) else r.get("numeros")
+    metricas = json.loads(r.get("metricas")) if isinstance(r.get("metricas"), str) else r.get("metricas") or {}
+
     return {
         "data_referencia": r.get("data_referencia"),
-        "numeros": r.get("numeros"),
+        "numeros": numeros,
         "soma_total": r.get("soma"),
         "pares": r.get("pares"),
         "impares": r.get("impares"),
-        "metricas": r.get("metricas") or {}
+        "metricas": metricas
     }
 
 
@@ -42,13 +50,24 @@ def obter_palpite_fixo_publico():
 def obter_palpites_estatisticos_publico():
     supabase = get_supabase()
 
-    res = (
-        supabase
-        .table("palpites_validos")
-        .select("*")
-        .eq("tipo_palpite", "estatistico")
-        .order("indice_palpite")
-        .execute()
-    )
+    try:
+        res = (
+            supabase
+            .table("palpites_validos")
+            .select("*")
+            .eq("tipo_palpite", "estatistico")
+            .order("indice_palpite")
+            .execute()
+        )
+    except Exception as e:
+        print(f"[ERROR] Falha ao consultar palpites estatísticos: {e}")
+        return []
 
-    return res.data or []
+    dados = res.data or []
+
+    # 🔹 Conversão defensiva de JSON
+    for r in dados:
+        r["numeros"] = json.loads(r.get("numeros")) if isinstance(r.get("numeros"), str) else r.get("numeros")
+        r["metricas"] = json.loads(r.get("metricas")) if isinstance(r.get("metricas"), str) else r.get("metricas") or {}
+
+    return dados
