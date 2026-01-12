@@ -1,75 +1,72 @@
 from app.services.supabase_service import get_supabase
-from app.services.palpites_service import _gerar_palpites_core
+from app.services.palpites_service import gerar_palpites_validos
+from fastapi import HTTPException
+import json
+import traceback
 
+# ==========================
+# BACKTEST
+# ==========================
 
 def executar_backtest(
     concurso_inicio: int,
     concurso_fim: int,
     qtd_palpites: int = 7
 ):
-    supabase = get_supabase()
+    try:
+        supabase = get_supabase()
 
-    concursos = (
-        supabase
-        .table("lotofacil_concursos")
-        .select("concurso, numeros")
-        .gte("concurso", concurso_inicio)
-        .lte("concurso", concurso_fim)
-        .order("concurso")
-        .execute()
-        .data
-    )
+        # gera palpites reais do sistema
+        gerar_palpites_validos(qtd_palpites)
 
-    if not concursos:
-        raise Exception("Concursos não encontrados")
-
-    estatisticas = (
-        supabase
-        .table("estatisticas_numeros")
-        .select("numero, score, frequencia, atraso, tendencia")
-        .execute()
-        .data
-    )
-
-    resumo = {
-        "total_concursos": 0,
-        "media_acertos": 0,
-        "melhor_acerto": 0,
-        "acertos_11+": 0,
-        "acertos_12+": 0,
-        "acertos_13+": 0
-    }
-
-    total_acertos = 0
-
-    for conc in concursos:
-        resultado = conc["numeros"]
-
-        palpites = _gerar_palpites_core(
-            estatisticas=estatisticas,
-            qtd_palpites=qtd_palpites,
-            persistir=False
+        palpites = (
+            supabase
+            .table("palpites_validos")
+            .select("numeros")
+            .order("id", desc=True)
+            .limit(qtd_palpites)
+            .execute()
+            .data
         )
 
-        melhor = 0
-        for p in palpites:
-            acertos = len(set(p) & set(resultado))
-            melhor = max(melhor, acertos)
+        concursos = (
+            supabase
+            .table("lotofacil_concursos")
+            .select("concurso, dezenas")
+            .gte("concurso", concurso_inicio)
+            .lte("concurso", concurso_fim)
+            .order("concurso")
+            .execute()
+            .data
+        )
 
-        resumo["total_concursos"] += 1
-        total_acertos += melhor
-        resumo["melhor_acerto"] = max(resumo["melhor_acerto"], melhor)
+        if not concursos:
+            raise Exception("Nenhum concurso encontrado")
 
-        if melhor >= 11:
-            resumo["acertos_11+"] += 1
-        if melhor >= 12:
-            resumo["acertos_12+"] += 1
-        if melhor >= 13:
-            resumo["acertos_13+"] += 1
+        resumo = []
 
-    resumo["media_acertos"] = round(
-        total_acertos / resumo["total_concursos"], 2
-    )
+        for conc in concursos:
+            resultado = set(int(n) for n in conc["dezenas"])
 
-    return resumo
+            for idx, palpite in enumerate(palpites):
+                numeros_palpite = set(json.loads(palpite["numeros"]))
+                acertos = len(resultado & numeros_palpite)
+
+                resumo.append({
+                    "concurso": conc["concurso"],
+                    "palpite": idx,
+                    "acertos": acertos
+                })
+
+        return {
+            "status": "ok",
+            "concurso_inicio": concurso_inicio,
+            "concurso_fim": concurso_fim,
+            "total_registros": len(resumo),
+            "resultado": resumo
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
