@@ -1,33 +1,12 @@
 from app.services.supabase_service import get_supabase
-from app.services.palpites_service import gerar_palpites_validos
+from app.services.palpites_service import gerar_palpites_em_memoria
 from fastapi import HTTPException
-import json
 import traceback
 
-# ==========================
-# BACKTEST
-# ==========================
 
-def executar_backtest(
-    concurso_inicio: int,
-    concurso_fim: int,
-    qtd_palpites: int = 7
-):
+def executar_backtest(concurso_inicio, concurso_fim, qtd_palpites=7):
     try:
         supabase = get_supabase()
-
-        # gera palpites reais do sistema
-        gerar_palpites_validos(qtd_palpites)
-
-        palpites = (
-            supabase
-            .table("palpites_validos")
-            .select("numeros")
-            .order("id", desc=True)
-            .limit(qtd_palpites)
-            .execute()
-            .data
-        )
 
         concursos = (
             supabase
@@ -37,36 +16,27 @@ def executar_backtest(
             .lte("concurso", concurso_fim)
             .order("concurso")
             .execute()
-            .data
-        )
+        ).data or []
 
         if not concursos:
-            raise Exception("Nenhum concurso encontrado")
+            raise Exception("Concursos não encontrados")
 
-        resumo = []
-
-        for conc in concursos:
-            resultado = set(int(n) for n in conc["dezenas"])
-
-            for idx, palpite in enumerate(palpites):
-                numeros_palpite = set(json.loads(palpite["numeros"]))
-                acertos = len(resultado & numeros_palpite)
-
-                resumo.append({
-                    "concurso": conc["concurso"],
-                    "palpite": idx,
-                    "acertos": acertos
-                })
-
-        return {
-            "status": "ok",
-            "concurso_inicio": concurso_inicio,
-            "concurso_fim": concurso_fim,
-            "total_registros": len(resumo),
-            "resultado": resumo
+        resultado = {
+            "total_concursos": len(concursos),
+            "acertos": {11: 0, 12: 0, 13: 0, 14: 0, 15: 0}
         }
+
+        for c in concursos:
+            dezenas = set(int(d) for d in c["dezenas"])
+            palpites = gerar_palpites_em_memoria(qtd_palpites)
+
+            for palpite in palpites:
+                acertos = len(set(palpite) & dezenas)
+                if acertos >= 11:
+                    resultado["acertos"][acertos] += 1
+
+        return resultado
 
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
