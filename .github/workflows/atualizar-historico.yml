@@ -8,8 +8,6 @@ on:
 jobs:
   atualizar:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -30,15 +28,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pandas supabase
 
-      - name: 🔄 Atualizar histórico (CSV + Supabase)
+      - name: 🔄 Atualizar Supabase
         run: python scripts/atualizar_lotofacil.py
-
-      - name: 📤 Commit automático se houver mudanças
-        run: |
-          git config user.email "github-actions@github.com"
-          git config user.name "github-actions"
-          git add data/Lotofacil.csv
-          git diff --cached --quiet || (
-            git commit -m "Atualiza histórico Lotofácil (CSV + Supabase)" &&
-            git push origin main
-          )
