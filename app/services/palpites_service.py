@@ -4,31 +4,39 @@ import random
 import json
 import traceback
 from datetime import date
+from typing import Any
 
 
 # ==========================
 # UTILIDADES
 # ==========================
 
+def safe_float(valor: Any, default: float = 0.0) -> float:
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return default
+
+
 def _calcular_metricas(numeros):
     pares = sum(1 for n in numeros if n % 2 == 0)
     impares = 15 - pares
     soma = sum(numeros)
 
-    sequencias = 0
-    seq_atual = 1
+    sequencias = 1
+    max_seq = 1
     for i in range(1, len(numeros)):
         if numeros[i] == numeros[i - 1] + 1:
-            seq_atual += 1
-            sequencias = max(sequencias, seq_atual)
+            sequencias += 1
+            max_seq = max(max_seq, sequencias)
         else:
-            seq_atual = 1
+            sequencias = 1
 
     return {
         "soma_total": soma,
         "pares": pares,
         "impares": impares,
-        "qtd_sequencias": sequencias
+        "qtd_sequencias": max_seq
     }
 
 
@@ -61,7 +69,7 @@ def _buscar_estatisticas():
 # GERADOR PRINCIPAL
 # ==========================
 
-def gerar_palpites_validos(qtd_palpites=7):
+def gerar_palpites_validos(qtd_palpites: int = 7):
     try:
         supabase = get_supabase()
         estatisticas = _buscar_estatisticas()
@@ -69,35 +77,53 @@ def gerar_palpites_validos(qtd_palpites=7):
         if not estatisticas:
             raise Exception("Estatísticas não encontradas")
 
-        # normaliza pesos
+        # ==========================
+        # NORMALIZAÇÃO DE PESOS
+        # ==========================
+
         pool = []
         for e in estatisticas:
+            score = safe_float(e.get("score"))
+            atraso = safe_float(e.get("atraso"))
+            tendencia = safe_float(e.get("tendencia"))
+
             peso = (
-                float(e["score"]) * 0.5 +
-                (1 / (e["atraso"] + 1)) * 0.3 +
-                float(e["tendencia"]) * 0.2
+                score * 0.5 +
+                (1 / (atraso + 1)) * 0.3 +
+                tendencia * 0.2
             )
-            pool.append((e["numero"], peso))
+
+            pool.append((e["numero"], max(peso, 0.0001)))
+
+        numeros_pool = [n for n, _ in pool]
+        pesos_pool = [p for _, p in pool]
 
         data_ref = date.today().isoformat()
         palpites_gerados = []
 
+        # ==========================
+        # GERAÇÃO DOS PALPITES
+        # ==========================
+
         for indice in range(qtd_palpites):
             tentativas = 0
 
-            while tentativas < 200:
+            while tentativas < 300:
                 numeros = sorted(
-                    random.choices(
-                        [n for n, _ in pool],
-                        weights=[p for _, p in pool],
-                        k=15
+                    set(
+                        random.choices(
+                            numeros_pool,
+                            weights=pesos_pool,
+                            k=20
+                        )
                     )
                 )
-                numeros = sorted(set(numeros))
-                if len(numeros) != 15:
+
+                if len(numeros) < 15:
                     tentativas += 1
                     continue
 
+                numeros = numeros[:15]
                 metricas = _calcular_metricas(numeros)
 
                 if not _palpite_valido(metricas):
@@ -113,16 +139,16 @@ def gerar_palpites_validos(qtd_palpites=7):
                     "impares": metricas["impares"],
                     "qtd_sequencias": metricas["qtd_sequencias"],
                     "metricas": json.dumps({
-                        "score_medio": round(sum(p for _, p in pool) / 25, 4),
-                        "metodo": "probabilistico_v1"
+                        "metodo": "probabilistico_v2",
+                        "peso_medio": round(sum(pesos_pool) / len(pesos_pool), 4)
                     }),
                     "filtros_aplicados": json.dumps([
                         "soma",
                         "pares",
                         "sequencias",
-                        "probabilidade"
+                        "peso_dinamico"
                     ]),
-                    "tipo": "estatistico" if indice > 0 else "fixo",
+                    "tipo": "fixo" if indice == 0 else "estatistico",
                     "origem": "sistema"
                 }
 
@@ -138,4 +164,3 @@ def gerar_palpites_validos(qtd_palpites=7):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
