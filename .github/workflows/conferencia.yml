@@ -2,31 +2,37 @@ name: Conferencia Automatica Lotofacil
 
 on:
   schedule:
-    # Roda de terça a domingo às 00:00 UTC 
-    # (Equivale a segunda a sábado às 21:00 Horário de Brasília)
-    - cron: '0 0 * * 0,2,3,4,5,6'
-  workflow_dispatch: # Permite execução manual para testes
+    - cron: "15 1 * * *" # 22:15 Horário de Brasília (Garante que o processamento diário já terminou)
+  workflow_dispatch:
 
 jobs:
-  conferir:
+  conferir-resultados:
     runs-on: ubuntu-latest
 
+    env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_KEY }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+    
     steps:
-      - name: Checkout do código
+      - name: Checkout do repositorio
         uses: actions/checkout@v4
 
-      - name: Configurar Python 3.10
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
+          cache: 'pip'
 
-      - name: Instalar dependências
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas supabase python-dotenv requests fastapi
 
-      - name: Executar script de conferência
+      - name: Executar Conferencia de Resultados
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PYTHONPATH: .
+        # Ajustei para rodar o main.py na raiz, conforme seu código anterior
+        # Se o main.py estiver em outra pasta, altere para: python pasta/main.py
         run: python main.py
