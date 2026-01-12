@@ -10,6 +10,8 @@ from app.routes.estatisticas import router as estatisticas_router
 from app.routes.palpites import router as palpites_router  # ← ESSA LINHA É ESSENCIAL
 from app.routes.historico import router as historico_router
 from app.routes.resultados import router as resultados_router
+from app.routes.home_desempenho import router as home_desempenho_router
+
 
 app = FastAPI(
     title="Palpiteiro Backend",
@@ -56,6 +58,8 @@ app.include_router(estatisticas_router, tags=["Estatísticas"])
 app.include_router(palpites_router, tags=["Palpites"])  # ← ESSA LINHA ESTAVA FALTANDO OU ERRADA
 app.include_router(historico_router, tags=["Histórico"])
 app.include_router(resultados_router, tags=["Resultados"])
+app.include_router(home_desempenho_router, tags=["Home Desempenho"])
+
 
 @app.on_event("startup")
 def startup_event():
