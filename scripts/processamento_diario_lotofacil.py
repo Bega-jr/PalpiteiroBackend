@@ -2,7 +2,9 @@ import sys
 from pathlib import Path
 import numpy as np
 
+# -----------------------------------
 # Configuração de diretório base
+# -----------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -14,17 +16,16 @@ from app.services.estatisticas_service import (
     carregar_historico
 )
 
-# -----------------------------
+# -----------------------------------
 # Funções auxiliares
-# -----------------------------
+# -----------------------------------
 def normalizar(col):
     return (col - col.min()) / (col.max() - col.min() + 1e-9)
 
 def calcular_tendencia(historico, numero, janela=25):
-    """Calcula tendência simples baseada na frequência móvel"""
     ultimos = historico[-janela:]
     presencas = [1 if numero in h["numeros"] else 0 for h in ultimos]
-    return np.mean(presencas)
+    return float(np.mean(presencas))
 
 def calcular_ciclo_historico_completo(historico):
     todos_25 = set(range(1, 26))
@@ -43,12 +44,12 @@ def calcular_ciclo_historico_completo(historico):
 
     return faltam, numero_do_ciclo
 
-# -----------------------------
+# -----------------------------------
 # Execução principal
-# -----------------------------
+# -----------------------------------
 def main():
     supabase = get_supabase()
-    print("🚀 Processamento Estatístico Avançado iniciado")
+    print("🚀 Processamento Estatístico Probabilístico iniciado")
 
     try:
         # 1. Histórico completo
@@ -68,7 +69,7 @@ def main():
         # 3. Zera atraso dos números sorteados hoje
         df.loc[df["numero"].isin(dezenas_hoje), "atraso"] = 0
 
-        # 4. Tendência por número
+        # 4. Calcula tendência
         df["tendencia"] = df["numero"].apply(
             lambda n: calcular_tendencia(historico, n)
         )
@@ -79,21 +80,19 @@ def main():
         df["tendencia_norm"] = normalizar(df["tendencia"])
         df["score_norm"] = normalizar(df["score"])
 
-        # 6. Score probabilístico final
-        df["score_prob"] = (
-            df["freq_norm"] * 0.30 +
+        # 6. Novo score probabilístico (substitui o score antigo)
+        df["score"] = (
+            df["freq_norm"] * 0.35 +
             df["tendencia_norm"] * 0.30 +
             df["atraso_norm"] * 0.20 +
-            df["score_norm"] * 0.20
+            df["score_norm"] * 0.15
         )
-
-        df["probabilidade"] = df["score_prob"] / df["score_prob"].sum()
 
         # 7. Rankings e ciclo
         listas = obter_top_listas(df)
         numeros_faltantes, ciclo_contagem = calcular_ciclo_historico_completo(historico)
 
-        # 8. Estatísticas globais (diárias)
+        # 8. Estatísticas globais (mantidas)
         payload_diario = {
             "data_referencia": data_atual,
             "concurso": int(concurso_atual),
@@ -113,7 +112,7 @@ def main():
             .delete().eq("data_referencia", data_atual).execute()
         supabase.table("estatisticas_diarias_v2").insert(payload_diario).execute()
 
-        # 9. Estatísticas por número (enriquecidas)
+        # 9. Estatísticas por número (compatível com a tabela atual)
         payload_numeros = [
             {
                 "data_referencia": data_atual,
@@ -121,8 +120,6 @@ def main():
                 "frequencia": int(row["frequencia"]),
                 "atraso": int(row["atraso"]),
                 "score": float(row["score"]),
-                "score_prob": float(row["score_prob"]),
-                "probabilidade": float(row["probabilidade"]),
                 "tendencia": float(row["tendencia"])
             }
             for _, row in df.iterrows()
@@ -132,8 +129,8 @@ def main():
             .delete().eq("data_referencia", data_atual).execute()
         supabase.table("estatisticas_numeros").insert(payload_numeros).execute()
 
-        print("✅ Estatísticas probabilísticas atualizadas com sucesso")
-        print(f"🎯 Ciclo {ciclo_contagem} | Pool preparado para geração")
+        print("✅ Estatísticas atualizadas com score probabilístico")
+        print(f"🎯 Ciclo {ciclo_contagem} | Base pronta para geração")
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
