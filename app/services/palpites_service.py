@@ -14,7 +14,7 @@ def obter_palpite_fixo_publico():
             supabase
             .table("palpites_validos")
             .select("*")
-            .eq("tipo_palpite", "fixo")
+            .eq("tipo", "fixo")
             .order("data_referencia", desc=True)
             .limit(1)
             .execute()
@@ -55,7 +55,7 @@ def obter_palpites_estatisticos_publico():
             supabase
             .table("palpites_validos")
             .select("*")
-            .eq("tipo_palpite", "estatistico")
+            .eq("tipo", "estatistico")
             .order("indice_palpite")
             .execute()
         )
