@@ -21,8 +21,8 @@ def palpite_fixo():
         "soma": registro.get("soma_total"),
         "pares": registro.get("pares"),
         "impares": registro.get("impares"),
-        "score": (registro.get("metricas") or {}).get("score"),
-        "metodo": (registro.get("metricas") or {}).get("metodo"),
+        "score": registro.get("metricas", {}).get("score"),
+        "metodo": registro.get("metricas", {}).get("metodo"),
     }
 
 
@@ -37,15 +37,15 @@ def palpites_estatisticos():
             "soma": r.get("soma"),
             "pares": r.get("pares"),
             "impares": r.get("impares"),
-            "score": (r.get("metricas") or {}).get("score"),
-            "metodo": (r.get("metricas") or {}).get("metodo"),
+            "score": r.get("metricas", {}).get("score"),
+            "metodo": r.get("metricas", {}).get("metodo"),
         }
         for r in dados
     ]
 
     return {
         "status": "ok",
-        "data_referencia": dados[0]["data_referencia"] if dados else None,
+        "data_referencia": dados[0].get("data_referencia") if dados else None,
         "total": len(palpites),
         "palpites": palpites,
     }
