@@ -34,7 +34,7 @@ def palpites_estatisticos():
         {
             "indice": r.get("indice_palpite"),
             "numeros": r.get("numeros"),
-            "soma": r.get("soma_total"),
+            "soma": r.get("soma"),
             "pares": r.get("pares"),
             "impares": r.get("impares"),
             "score": (r.get("metricas") or {}).get("score"),
@@ -49,3 +49,4 @@ def palpites_estatisticos():
         "total": len(palpites),
         "palpites": palpites,
     }
+
