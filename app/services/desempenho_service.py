@@ -7,16 +7,14 @@ def obter_desempenho_gerador(
 ):
     supabase = get_supabase()
 
-    # Define o primeiro concurso de 2026
-    # Se no futuro houver outros anos, basta adicionar ao dicionário
+    # O concurso 3576 marca o início de 2026
     inicio_concurso_ano = {
         2026: 3576
     }
     
     concurso_minimo = inicio_concurso_ano.get(ano, 0)
 
-    # Busca os registros
-    # Filtramos para pegar apenas registros que ocorreram de 3576 para frente
+    # Busca registros que começaram a partir do concurso inicial do ano
     resp = (
         supabase
         .table("backtest_resultados")
@@ -33,7 +31,7 @@ def obter_desempenho_gerador(
     if not resp.data:
         return None
 
-    # Inicializa contadores como inteiros
+    # Acumuladores inteiros para contagem absoluta
     resumo = {
         "11": 0,
         "12": 0,
@@ -41,24 +39,24 @@ def obter_desempenho_gerador(
         "14": 0,
         "15": 0,
     }
-    total_concursos = 0
+    total_concursos_processados = 0
 
     for r in resp.data:
-        # Soma direta dos acertos (sem divisões ou fatores)
-        resumo["11"] += r.get("acertos_11", 0)
-        resumo["12"] += r.get("acertos_12", 0)
-        resumo["13"] += r.get("acertos_13", 0)
-        resumo["14"] += r.get("acertos_14", 0)
-        resumo["15"] += r.get("acertos_15", 0)
+        # Soma os acertos de cada categoria de forma independente
+        resumo["11"] += int(r.get("acertos_11", 0))
+        resumo["12"] += int(r.get("acertos_12", 0))
+        resumo["13"] += int(r.get("acertos_13", 0))
+        resumo["14"] += int(r.get("acertos_14", 0))
+        resumo["15"] += int(r.get("acertos_15", 0))
 
-        # Calcula a quantidade de concursos processados nesta linha
-        c_inicio = r.get("concurso_inicio")
-        c_fim = r.get("concurso_fim")
-        total_concursos += (c_fim - c_inicio + 1)
+        # Calcula a abrangência de concursos deste registro específico
+        c_inicio = r.get("concurso_inicio", 0)
+        c_fim = r.get("concurso_fim", 0)
+        total_concursos_processados += (c_fim - c_inicio + 1)
 
     return {
         "resumo": resumo,
-        "total_concursos": total_concursos,
-        "ano": ano
+        "total_concursos": total_concursos_processados,
+        "ano_referencia": ano
     }
 
