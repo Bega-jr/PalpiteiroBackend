@@ -7,10 +7,11 @@ def obter_desempenho_gerador(
 ):
     supabase = get_supabase()
 
-    # Primeiro concurso do ano de 2026
-    inicio_ano = 3576
+    # Mapeamento de início de concursos por ano
+    # Se ano for 2026, inicia em 3576. Caso contrário, busca do zero ou outra regra.
+    inicio_ano = 3576 if ano == 2026 else 0
 
-    # Busca os registros do backtest
+    # Busca apenas os registros que tenham alguma intersecção com o ano solicitado
     resp = (
         supabase
         .table("backtest_resultados")
@@ -20,44 +21,56 @@ def obter_desempenho_gerador(
         )
         .eq("tipo_palpite", tipo_palpite)
         .eq("versao_gerador", versao_gerador)
+        .gte("concurso_fim", inicio_ano) # Garante que terminou dentro ou após o início do ano
         .execute()
     )
 
     if not resp.data:
         return None
 
-    resumo = {
-        "11": 0,
-        "12": 0,
-        "13": 0,
-        "14": 0,
-        "15": 0,
+    # Usamos floats para o cálculo inicial para não perder precisão com int() precoce
+    resumo_float = {
+        "11": 0.0,
+        "12": 0.0,
+        "13": 0.0,
+        "14": 0.0,
+        "15": 0.0,
     }
 
-    total_concursos = 0
+    total_concursos_acumulado = 0
 
     for r in resp.data:
-        c_inicio = r.get("concurso_inicio")
-        c_fim = r.get("concurso_fim")
-        total = r.get("total_concursos", 0)
-
-        # Determina quantos concursos desse registro entram no ano de 2026
-        concursos_validos = max(0, c_fim - max(c_inicio, inicio_ano) + 1)
-        if concursos_validos <= 0:
+        c_inicio = r.get("concurso_inicio", 0)
+        c_fim = r.get("concurso_fim", 0)
+        
+        # O total_concursos real do registro (baseado nos IDs)
+        # Usamos isso para o fator, caso o campo 'total_concursos' do banco esteja inconsistente
+        total_real_no_registro = (c_fim - c_inicio + 1)
+        
+        # Determina quantos concursos deste registro pertencem ao ano de 2026 em diante
+        # Ex: Se começou em 3570 e o ano inicia em 3576, pega de 3576 até o fim
+        concursos_validos_no_ano = max(0, c_fim - max(c_inicio, inicio_ano) + 1)
+        
+        if concursos_validos_no_ano <= 0:
             continue
 
-        # Ajuste proporcional dos acertos
-        fator = concursos_validos / total if total > 0 else 0
+        # Calcula o fator de proporção: 
+        # (Concursos que pertencem a 2026) / (Total de concursos que o registro abrange)
+        fator = concursos_validos_no_ano / total_real_no_registro if total_real_no_registro > 0 else 0
 
-        resumo["11"] += int(r.get("acertos_11", 0) * fator)
-        resumo["12"] += int(r.get("acertos_12", 0) * fator)
-        resumo["13"] += int(r.get("acertos_13", 0) * fator)
-        resumo["14"] += int(r.get("acertos_14", 0) * fator)
-        resumo["15"] += int(r.get("acertos_15", 0) * fator)
+        # Acumula os valores como float
+        resumo_float["11"] += r.get("acertos_11", 0) * fator
+        resumo_float["12"] += r.get("acertos_12", 0) * fator
+        resumo_float["13"] += r.get("acertos_13", 0) * fator
+        resumo_float["14"] += r.get("acertos_14", 0) * fator
+        resumo_float["15"] += r.get("acertos_15", 0) * fator
 
-        total_concursos += concursos_validos
+        total_concursos_acumulado += concursos_validos_no_ano
 
+    # Retorna os valores arredondados para o inteiro mais próximo
     return {
-        "resumo": resumo,
-        "total_concursos": total_concursos
+        "resumo": {k: round(v) for k, v in resumo_float.items()},
+        "total_concursos": total_concursos_acumulado,
+        "ano_referencia": ano
     }
+
