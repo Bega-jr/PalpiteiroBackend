@@ -1,112 +1,54 @@
 from app.services.supabase_service import get_supabase
 from fastapi import HTTPException
-import random
-import json
-import traceback
 from datetime import date
+import json
 
 # ==========================
-# UTILIDADES
+# PALPITE FIXO (PÚBLICO)
 # ==========================
 
-def _calcular_metricas(numeros):
-    pares = sum(1 for n in numeros if n % 2 == 0)
-    impares = 15 - pares
-    soma = sum(numeros)
+def obter_palpite_fixo_publico():
+    supabase = get_supabase()
 
-    sequencias = 0
-    seq_atual = 1
-    for i in range(1, len(numeros)):
-        if numeros[i] == numeros[i - 1] + 1:
-            seq_atual += 1
-            sequencias = max(sequencias, seq_atual)
-        else:
-            seq_atual = 1
+    res = (
+        supabase
+        .table("palpites_validos")
+        .select("*")
+        .eq("tipo_palpite", "fixo")
+        .order("data_referencia", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if not res.data:
+        return None
+
+    r = res.data[0]
 
     return {
-        "soma_total": soma,
-        "pares": pares,
-        "impares": impares,
-        "qtd_sequencias": sequencias
+        "data_referencia": r.get("data_referencia"),
+        "numeros": r.get("numeros"),
+        "soma_total": r.get("soma"),
+        "pares": r.get("pares"),
+        "impares": r.get("impares"),
+        "metricas": r.get("metricas") or {}
     }
 
 
-def _palpite_valido(metricas):
-    if not (170 <= metricas["soma_total"] <= 210):
-        return False
-    if not (6 <= metricas["pares"] <= 9):
-        return False
-    if metricas["qtd_sequencias"] > 4:
-        return False
-    return True
-
-
 # ==========================
-# ESTATÍSTICAS
+# PALPITES ESTATÍSTICOS (PÚBLICO)
 # ==========================
 
-def _buscar_estatisticas():
+def obter_palpites_estatisticos_publico():
     supabase = get_supabase()
+
     res = (
         supabase
-        .table("estatisticas_numeros")
-        .select("numero, score, atraso, tendencia")
+        .table("palpites_validos")
+        .select("*")
+        .eq("tipo_palpite", "estatistico")
+        .order("indice_palpite")
         .execute()
     )
+
     return res.data or []
-
-
-# ==========================
-# GERADOR EM MEMÓRIA (BACKTEST)
-# ==========================
-
-def gerar_palpites_em_memoria(qtd_palpites=7):
-    estatisticas = _buscar_estatisticas()
-
-    if not estatisticas:
-        raise Exception("Estatísticas não encontradas")
-
-    pool = []
-    for e in estatisticas:
-        score = float(e.get("score") or 0)
-        atraso = int(e.get("atraso") or 0)
-        tendencia = float(e.get("tendencia") or 0)
-
-        peso = (
-            score * 0.5 +
-            (1 / (atraso + 1)) * 0.3 +
-            tendencia * 0.2
-        )
-
-        pool.append((e["numero"], peso))
-
-    palpites = []
-
-    for _ in range(qtd_palpites):
-        tentativas = 0
-
-        while tentativas < 200:
-            numeros = sorted(
-                set(
-                    random.choices(
-                        [n for n, _ in pool],
-                        weights=[p for _, p in pool],
-                        k=15
-                    )
-                )
-            )
-
-            if len(numeros) != 15:
-                tentativas += 1
-                continue
-
-            metricas = _calcular_metricas(numeros)
-
-            if not _palpite_valido(metricas):
-                tentativas += 1
-                continue
-
-            palpites.append(numeros)
-            break
-
-    return palpites
