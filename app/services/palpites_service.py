@@ -24,7 +24,7 @@ def obter_palpite_fixo_publico():
         return None
 
     if not res.data:
-        print("[INFO] Nenhum palpite fixo encontrado no Supabase.")
+        print("[INFO] Nenhum palpite fixo encontrado no Banco de dados.")
         return None
 
     r = res.data[0]
