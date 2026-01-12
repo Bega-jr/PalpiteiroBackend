@@ -1,20 +1,6 @@
 from app.services.supabase_service import get_supabase
-from app.services.palpites_service import gerar_palpites_validos
-from datetime import date
-import json
+from app.services.palpites_service import _gerar_palpites_core
 
-
-# ==========================
-# UTILIDADES
-# ==========================
-
-def _comparar(palpite, resultado):
-    return len(set(palpite) & set(resultado))
-
-
-# ==========================
-# BACKTEST PRINCIPAL
-# ==========================
 
 def executar_backtest(
     concurso_inicio: int,
@@ -37,10 +23,18 @@ def executar_backtest(
     if not concursos:
         raise Exception("Concursos não encontrados")
 
+    estatisticas = (
+        supabase
+        .table("estatisticas_numeros")
+        .select("numero, score, frequencia, atraso, tendencia")
+        .execute()
+        .data
+    )
+
     resumo = {
-        "total_concursos": len(concursos),
-        "melhor_acerto": 0,
+        "total_concursos": 0,
         "media_acertos": 0,
+        "melhor_acerto": 0,
         "acertos_11+": 0,
         "acertos_12+": 0,
         "acertos_13+": 0
@@ -50,23 +44,27 @@ def executar_backtest(
 
     for conc in concursos:
         resultado = conc["numeros"]
-        melhor_do_concurso = 0
 
-        # gera palpites simulados (não salva)
-        simulacao = gerar_palpites_simulados(qtd_palpites)
+        palpites = _gerar_palpites_core(
+            estatisticas=estatisticas,
+            qtd_palpites=qtd_palpites,
+            persistir=False
+        )
 
-        for palpite in simulacao:
-            acertos = _comparar(palpite, resultado)
-            melhor_do_concurso = max(melhor_do_concurso, acertos)
+        melhor = 0
+        for p in palpites:
+            acertos = len(set(p) & set(resultado))
+            melhor = max(melhor, acertos)
 
-        total_acertos += melhor_do_concurso
-        resumo["melhor_acerto"] = max(resumo["melhor_acerto"], melhor_do_concurso)
+        resumo["total_concursos"] += 1
+        total_acertos += melhor
+        resumo["melhor_acerto"] = max(resumo["melhor_acerto"], melhor)
 
-        if melhor_do_concurso >= 11:
+        if melhor >= 11:
             resumo["acertos_11+"] += 1
-        if melhor_do_concurso >= 12:
+        if melhor >= 12:
             resumo["acertos_12+"] += 1
-        if melhor_do_concurso >= 13:
+        if melhor >= 13:
             resumo["acertos_13+"] += 1
 
     resumo["media_acertos"] = round(
@@ -75,49 +73,3 @@ def executar_backtest(
 
     return resumo
 
-
-# ==========================
-# GERADOR SEM PERSISTÊNCIA
-# ==========================
-
-def gerar_palpites_simulados(qtd_palpites=7):
-    """
-    Replica a lógica do gerar_palpites_validos
-    SEM gravar no banco
-    """
-    from app.services.palpites_service import _buscar_estatisticas
-    import random
-
-    estatisticas = _buscar_estatisticas()
-
-    pool = []
-    for e in estatisticas:
-        score = float(e.get("score") or 0)
-        atraso = float(e.get("atraso") or 0)
-        tendencia = float(e.get("tendencia") or 0)
-
-        peso = (
-            score * 0.5 +
-            (1 / (atraso + 1)) * 0.3 +
-            tendencia * 0.2
-        )
-        pool.append((e["numero"], max(peso, 0.01)))
-
-    palpites = []
-
-    for _ in range(qtd_palpites):
-        while True:
-            numeros = sorted(
-                set(
-                    random.choices(
-                        [n for n, _ in pool],
-                        weights=[p for _, p in pool],
-                        k=15
-                    )
-                )
-            )
-            if len(numeros) == 15:
-                palpites.append(numeros)
-                break
-
-    return palpites
