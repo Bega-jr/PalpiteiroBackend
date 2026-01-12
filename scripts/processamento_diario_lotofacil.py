@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import numpy as np
 
 # Configuração de diretório base
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -10,11 +11,22 @@ from app.services.estatisticas_service import (
     calcular_medias_recentes,
     obter_estatisticas_com_score,
     obter_top_listas,
-    carregar_historico  # Certifique-se que esta função no service usa a paginação (while loop)
+    carregar_historico
 )
 
+# -----------------------------
+# Funções auxiliares
+# -----------------------------
+def normalizar(col):
+    return (col - col.min()) / (col.max() - col.min() + 1e-9)
+
+def calcular_tendencia(historico, numero, janela=25):
+    """Calcula tendência simples baseada na frequência móvel"""
+    ultimos = historico[-janela:]
+    presencas = [1 if numero in h["numeros"] else 0 for h in ultimos]
+    return np.mean(presencas)
+
 def calcular_ciclo_historico_completo(historico):
-    """Calcula o ciclo percorrendo do concurso 1 ao atual."""
     todos_25 = set(range(1, 26))
     sorteados_no_ciclo = set()
     numero_do_ciclo = 1
@@ -27,41 +39,61 @@ def calcular_ciclo_historico_completo(historico):
 
     faltam = sorted(todos_25 - sorteados_no_ciclo)
     if not faltam:
-        faltam = sorted(list(range(1, 26)))
-        
+        faltam = list(range(1, 26))
+
     return faltam, numero_do_ciclo
 
+# -----------------------------
+# Execução principal
+# -----------------------------
 def main():
     supabase = get_supabase()
-    print("🚀 Iniciando Processamento Completo 2026")
+    print("🚀 Processamento Estatístico Avançado iniciado")
 
     try:
-        # 1. Carrega histórico TOTAL
+        # 1. Histórico completo
         historico = carregar_historico()
-        ultimo_sorteio = historico[-1] 
-        
-        concurso_atual = ultimo_sorteio["concurso"]
-        data_atual = ultimo_sorteio["data"]
-        dezenas_hoje = set(ultimo_sorteio["numeros"])
+        ultimo = historico[-1]
 
-        print(f"✅ Sucesso ao carregar histórico!")
-        print(f"📌 Concurso Identificado: {concurso_atual}")
-        print(f"📅 Data Identificada: {data_atual}")
-        print(f"🔢 Dezenas Sorteadas: {sorted(list(dezenas_hoje))}")
+        concurso_atual = ultimo["concurso"]
+        data_atual = ultimo["data"]
+        dezenas_hoje = set(ultimo["numeros"])
 
-        # 2. Gera estatísticas baseadas no histórico completo
-        df_scores = obter_estatisticas_com_score()
+        print(f"📌 Concurso {concurso_atual} | Data {data_atual}")
+
+        # 2. Estatísticas base
+        df = obter_estatisticas_com_score()
         medias = calcular_medias_recentes()
 
-        # 3. AJUSTE DE SEGURANÇA: Zera o atraso dos números que saíram hoje (ex: número 25)
-        for num in dezenas_hoje:
-            df_scores.loc[df_scores['numero'] == num, 'atraso'] = 0
-        
-        # 4. Rankings e Ciclo (Calculado com histórico completo)
-        listas = obter_top_listas(df_scores)
+        # 3. Zera atraso dos números sorteados hoje
+        df.loc[df["numero"].isin(dezenas_hoje), "atraso"] = 0
+
+        # 4. Tendência por número
+        df["tendencia"] = df["numero"].apply(
+            lambda n: calcular_tendencia(historico, n)
+        )
+
+        # 5. Normalizações
+        df["freq_norm"] = normalizar(df["frequencia"])
+        df["atraso_norm"] = 1 - normalizar(df["atraso"])
+        df["tendencia_norm"] = normalizar(df["tendencia"])
+        df["score_norm"] = normalizar(df["score"])
+
+        # 6. Score probabilístico final
+        df["score_prob"] = (
+            df["freq_norm"] * 0.30 +
+            df["tendencia_norm"] * 0.30 +
+            df["atraso_norm"] * 0.20 +
+            df["score_norm"] * 0.20
+        )
+
+        df["probabilidade"] = df["score_prob"] / df["score_prob"].sum()
+
+        # 7. Rankings e ciclo
+        listas = obter_top_listas(df)
         numeros_faltantes, ciclo_contagem = calcular_ciclo_historico_completo(historico)
 
-        # 5. Payload para estatisticas_diarias_v2
+        # 8. Estatísticas globais (diárias)
         payload_diario = {
             "data_referencia": data_atual,
             "concurso": int(concurso_atual),
@@ -77,12 +109,11 @@ def main():
             "sequencias_comuns": [3, 4]
         }
 
-        # 6. Salva na Tabela Diária
-        # Limpa registros da mesma data ou concurso para evitar duplicidade
-        supabase.table("estatisticas_diarias_v2").delete().eq("data_referencia", data_atual).execute()
+        supabase.table("estatisticas_diarias_v2") \
+            .delete().eq("data_referencia", data_atual).execute()
         supabase.table("estatisticas_diarias_v2").insert(payload_diario).execute()
 
-        # 7. Salva Estatísticas Individuais (estatisticas_numeros)
+        # 9. Estatísticas por número (enriquecidas)
         payload_numeros = [
             {
                 "data_referencia": data_atual,
@@ -90,18 +121,24 @@ def main():
                 "frequencia": int(row["frequencia"]),
                 "atraso": int(row["atraso"]),
                 "score": float(row["score"]),
+                "score_prob": float(row["score_prob"]),
+                "probabilidade": float(row["probabilidade"]),
+                "tendencia": float(row["tendencia"])
             }
-            for _, row in df_scores.iterrows()
+            for _, row in df.iterrows()
         ]
-        supabase.table("estatisticas_numeros").delete().eq("data_referencia", data_atual).execute()
+
+        supabase.table("estatisticas_numeros") \
+            .delete().eq("data_referencia", data_atual).execute()
         supabase.table("estatisticas_numeros").insert(payload_numeros).execute()
 
-        print(f"🏁 Finalizado com sucesso!")
-        print(f"🎯 Ciclo {ciclo_contagem} | Faltam: {len(numeros_faltantes)} números")
+        print("✅ Estatísticas probabilísticas atualizadas com sucesso")
+        print(f"🎯 Ciclo {ciclo_contagem} | Pool preparado para geração")
 
     except Exception as e:
-        print(f"❌ Erro Crítico: {e}")
+        print(f"❌ Erro crítico: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
+
