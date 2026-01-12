@@ -68,11 +68,16 @@ def gerar_palpites_validos(qtd_palpites=7):
 
         pool = []
         for e in estatisticas:
+           score = float(e.get("score") or 0)
+           atraso = int(e.get("atraso") or 0)
+           tendencia = float(e.get("tendencia") or 0)
+            
             peso = (
-                float(e["score"]) * 0.5 +
-                (1 / (e["atraso"] + 1)) * 0.3 +
-                float(e["tendencia"]) * 0.2
+                score * 0.5 +
+                (1 / (atraso + 1)) * 0.3 +
+                tendencia * 0.2
             )
+
             pool.append((int(e["numero"]), peso))
 
         data_ref = date.today().isoformat()
