@@ -4,14 +4,13 @@ import random
 import json
 import traceback
 from datetime import date
-from typing import Any
 
 
 # ==========================
 # UTILIDADES
 # ==========================
 
-def safe_float(valor: Any, default: float = 0.0) -> float:
+def safe_float(valor, default=0.0):
     try:
         return float(valor)
     except (TypeError, ValueError):
@@ -23,30 +22,41 @@ def _calcular_metricas(numeros):
     impares = 15 - pares
     soma = sum(numeros)
 
-    sequencias = 1
-    max_seq = 1
+    sequencias = 0
+    seq_atual = 1
     for i in range(1, len(numeros)):
         if numeros[i] == numeros[i - 1] + 1:
-            sequencias += 1
-            max_seq = max(max_seq, sequencias)
+            seq_atual += 1
+            sequencias = max(sequencias, seq_atual)
         else:
-            sequencias = 1
+            seq_atual = 1
 
     return {
         "soma_total": soma,
         "pares": pares,
         "impares": impares,
-        "qtd_sequencias": max_seq
+        "qtd_sequencias": sequencias
     }
 
 
-def _palpite_valido(metricas):
-    if not (170 <= metricas["soma_total"] <= 210):
-        return False
-    if not (6 <= metricas["pares"] <= 9):
-        return False
-    if metricas["qtd_sequencias"] > 4:
-        return False
+def _palpite_valido(metricas, nivel=0):
+    # nível 0 = regras completas
+    # nível 1 = regras relaxadas
+    if nivel == 0:
+        if not (170 <= metricas["soma_total"] <= 210):
+            return False
+        if not (6 <= metricas["pares"] <= 9):
+            return False
+        if metricas["qtd_sequencias"] > 4:
+            return False
+    else:
+        if not (165 <= metricas["soma_total"] <= 215):
+            return False
+        if not (5 <= metricas["pares"] <= 10):
+            return False
+        if metricas["qtd_sequencias"] > 5:
+            return False
+
     return True
 
 
@@ -65,22 +75,41 @@ def _buscar_estatisticas():
     return res.data or []
 
 
+def _ja_existe_para_data(data_ref):
+    supabase = get_supabase()
+    res = (
+        supabase
+        .table("palpites_validos")
+        .select("id")
+        .eq("data_referencia", data_ref)
+        .limit(1)
+        .execute()
+    )
+    return bool(res.data)
+
+
 # ==========================
 # GERADOR PRINCIPAL
 # ==========================
 
-def gerar_palpites_validos(qtd_palpites: int = 7):
+def gerar_palpites_validos(qtd_palpites=7):
     try:
         supabase = get_supabase()
-        estatisticas = _buscar_estatisticas()
+        data_ref = date.today().isoformat()
 
+        # 🔒 evita duplicidade diária
+        if _ja_existe_para_data(data_ref):
+            return {
+                "status": "ignorado",
+                "motivo": "palpites já existem para a data",
+                "data": data_ref
+            }
+
+        estatisticas = _buscar_estatisticas()
         if not estatisticas:
             raise Exception("Estatísticas não encontradas")
 
-        # ==========================
-        # NORMALIZAÇÃO DE PESOS
-        # ==========================
-
+        # 🎯 monta pool probabilístico
         pool = []
         for e in estatisticas:
             score = safe_float(e.get("score"))
@@ -93,42 +122,42 @@ def gerar_palpites_validos(qtd_palpites: int = 7):
                 tendencia * 0.2
             )
 
-            pool.append((e["numero"], max(peso, 0.0001)))
+            pool.append((int(e["numero"]), max(peso, 0.01)))
 
-        numeros_pool = [n for n, _ in pool]
-        pesos_pool = [p for _, p in pool]
-
-        data_ref = date.today().isoformat()
         palpites_gerados = []
-
-        # ==========================
-        # GERAÇÃO DOS PALPITES
-        # ==========================
 
         for indice in range(qtd_palpites):
             tentativas = 0
+            nivel = 0
+            filtros_aplicados = ["soma", "pares", "sequencias", "probabilidade"]
 
             while tentativas < 300:
                 numeros = sorted(
-                    set(
-                        random.choices(
-                            numeros_pool,
-                            weights=pesos_pool,
-                            k=20
-                        )
+                    random.choices(
+                        [n for n, _ in pool],
+                        weights=[p for _, p in pool],
+                        k=15
                     )
                 )
 
-                if len(numeros) < 15:
+                numeros = sorted(set(numeros))
+                if len(numeros) != 15:
                     tentativas += 1
                     continue
 
-                numeros = numeros[:15]
                 metricas = _calcular_metricas(numeros)
 
-                if not _palpite_valido(metricas):
+                if not _palpite_valido(metricas, nivel):
                     tentativas += 1
+                    if tentativas == 150:
+                        nivel = 1
+                        filtros_aplicados.append("fallback_relaxado")
                     continue
+
+                pesos_map = {n: p for n, p in pool}
+                score_medio = round(
+                    sum(pesos_map[n] for n in numeros) / 15, 4
+                )
 
                 registro = {
                     "data_referencia": data_ref,
@@ -139,15 +168,11 @@ def gerar_palpites_validos(qtd_palpites: int = 7):
                     "impares": metricas["impares"],
                     "qtd_sequencias": metricas["qtd_sequencias"],
                     "metricas": json.dumps({
-                        "metodo": "probabilistico_v2",
-                        "peso_medio": round(sum(pesos_pool) / len(pesos_pool), 4)
+                        "score_medio": score_medio,
+                        "nivel_regra": nivel,
+                        "metodo": "probabilistico_v2"
                     }),
-                    "filtros_aplicados": json.dumps([
-                        "soma",
-                        "pares",
-                        "sequencias",
-                        "peso_dinamico"
-                    ]),
+                    "filtros_aplicados": json.dumps(filtros_aplicados),
                     "tipo": "fixo" if indice == 0 else "estatistico",
                     "origem": "sistema"
                 }
@@ -158,9 +183,11 @@ def gerar_palpites_validos(qtd_palpites: int = 7):
 
         return {
             "status": "ok",
-            "gerados": len(palpites_gerados)
+            "gerados": len(palpites_gerados),
+            "data": data_ref
         }
 
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
