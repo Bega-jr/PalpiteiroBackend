@@ -34,13 +34,4 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          # Procura o arquivo main.py no repositório para evitar o erro de 'No such file'
-          SCRIPT_PATH=$(find . -name "main.py" -not -path "*/.*" | head -n 1)
-          
-          if [ -z "$SCRIPT_PATH" ]; then
-            echo "ERRO: Arquivo main.py nao encontrado no repositorio!"
-            exit 1
-          fi
-          
-          echo "Executando script encontrado em: $SCRIPT_PATH"
-          python "$SCRIPT_PATH"
+          python scripts/conferir_resultados.py
