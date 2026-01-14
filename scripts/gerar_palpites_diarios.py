@@ -1,8 +1,8 @@
 import sys
 import json
+import random
 from pathlib import Path
 from datetime import datetime
-import random
 
 # -----------------------------------
 # Setup base
@@ -13,72 +13,77 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 # -----------------------------------
-# Parâmetros
+# Configurações
 # -----------------------------------
-QTD_ESTATISTICOS = 26
-VERSAO_GERADOR = "v1.1"
-MAX_TENTATIVAS = 200
+QTD_ESTATISTICOS = 6
+VERSAO_GERADOR = "v1.1-top"
+MAX_TENTATIVAS = 5000
+
+SOMA_MIN = 170
+SOMA_MAX = 210
+PARES_MIN = 6
+PARES_MAX = 9
+SEQ_MAX = 4
 
 # -----------------------------------
-# Funções auxiliares
+# Funções de validação
 # -----------------------------------
-def gerar_palpite_base(numeros_base, qtd=15):
-    return sorted(random.sample(numeros_base, qtd))
-
-
-def calcular_metricas(numeros):
-    pares = sum(1 for n in numeros if n % 2 == 0)
+def calcular_metricas(nums):
+    pares = sum(1 for n in nums if n % 2 == 0)
     impares = 15 - pares
-    soma = sum(numeros)
+    soma = sum(nums)
     return pares, impares, soma
 
-
-def palpite_valido(numeros):
-    pares, impares, soma = calcular_metricas(numeros)
-
-    # Soma
-    if not (170 <= soma <= 210):
-        return False
-
-    # Pares / Ímpares
-    if not (6 <= pares <= 9):
-        return False
-
-    # Sequências consecutivas
-    seq = 1
-    max_seq = 1
-    for i in range(1, len(numeros)):
-        if numeros[i] == numeros[i - 1] + 1:
-            seq += 1
-            max_seq = max(max_seq, seq)
+def max_sequencia(nums):
+    seq = atual = 1
+    for i in range(1, len(nums)):
+        if nums[i] == nums[i-1] + 1:
+            atual += 1
+            seq = max(seq, atual)
         else:
-            seq = 1
+            atual = 1
+    return seq
 
-    if max_seq > 4:
+def linhas_ok(nums):
+    linhas = {
+        1: range(1,6),
+        2: range(6,11),
+        3: range(11,16),
+        4: range(16,21),
+        5: range(21,26)
+    }
+    return all(any(n in r for n in nums) for r in linhas.values())
+
+def finais_ok(nums):
+    finais = {}
+    for n in nums:
+        f = n % 10
+        finais[f] = finais.get(f, 0) + 1
+    return max(finais.values()) <= 3
+
+def validar(nums):
+    pares, _, soma = calcular_metricas(nums)
+    if not (SOMA_MIN <= soma <= SOMA_MAX):
         return False
-
-    # Presença em todas as faixas
-    faixas = [
-        any(1 <= n <= 5 for n in numeros),
-        any(6 <= n <= 10 for n in numeros),
-        any(11 <= n <= 15 for n in numeros),
-        any(16 <= n <= 20 for n in numeros),
-        any(21 <= n <= 25 for n in numeros),
-    ]
-
-    if not all(faixas):
+    if not (PARES_MIN <= pares <= PARES_MAX):
         return False
-
+    if max_sequencia(nums) > SEQ_MAX:
+        return False
+    if not linhas_ok(nums):
+        return False
+    if not finais_ok(nums):
+        return False
     return True
 
-
-def gerar_palpite_validado(base):
+# -----------------------------------
+# Geração controlada
+# -----------------------------------
+def gerar_palpite(pool):
     for _ in range(MAX_TENTATIVAS):
-        numeros = gerar_palpite_base(base)
-        if palpite_valido(numeros):
-            return numeros
+        nums = sorted(random.sample(pool, 15))
+        if validar(nums):
+            return nums
     return None
-
 
 # -----------------------------------
 # Execução principal
@@ -87,109 +92,97 @@ def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
 
-    print(f"🚀 Gerando palpites para {hoje}")
+    print(f"🚀 Gerador TOP iniciado para {hoje}")
 
-    # 1️⃣ Estatísticas diárias
+    # Estatística diária
     estat = (
-        supabase
-        .table("estatisticas_diarias_v2")
+        supabase.table("estatisticas_diarias_v2")
         .select("*")
         .order("data_referencia", desc=True)
         .limit(1)
         .execute()
-    )
+    ).data
 
-    if not estat.data:
-        print("❌ Estatísticas diárias não encontradas.")
+    if not estat:
+        print("❌ Estatísticas diárias não encontradas")
         return
 
-    estat = estat.data[0]
+    data_ref = estat[0]["data_referencia"]
 
-    # 2️⃣ Estatísticas por número
-    numeros_stats = (
-        supabase
-        .table("estatisticas_numeros")
+    # Estatísticas por número
+    numeros = (
+        supabase.table("estatisticas_numeros")
         .select("numero, score")
-        .eq("data_referencia", estat["data_referencia"])
+        .eq("data_referencia", data_ref)
         .order("score", desc=True)
         .execute()
-    )
+    ).data
 
-    if not numeros_stats.data:
-        print("❌ Estatísticas por número não encontradas.")
-        return
+    pool = [n["numero"] for n in numeros][:20]
 
-    numeros_ordenados = [n["numero"] for n in numeros_stats.data]
-
-    # 3️⃣ Limpa palpites do dia
+    # Limpa palpites do dia
     supabase.table("palpites_validos") \
         .delete() \
-        .eq("data_referencia", estat["data_referencia"]) \
+        .eq("data_referencia", data_ref) \
         .execute()
 
-    # ==========================
-    # PALPITE FIXO
-    # ==========================
-    fixo_base = numeros_ordenados[:20]
-    fixo_numeros = gerar_palpite_validado(fixo_base)
+    registros = []
 
-    if not fixo_numeros:
-        print("❌ Falha ao gerar palpite fixo válido.")
+    # ---------------- FIXO ----------------
+    fixo = gerar_palpite(pool)
+    if not fixo:
+        print("❌ Falha ao gerar palpite fixo")
         return
 
-    pares, impares, soma = calcular_metricas(fixo_numeros)
+    pares, impares, soma = calcular_metricas(fixo)
 
-    palpite_fixo = {
-        "data_referencia": estat["data_referencia"],
+    registros.append({
+        "data_referencia": data_ref,
         "tipo": "fixo",
         "indice_palpite": 0,
-        "numeros": json.dumps(fixo_numeros),
+        "numeros": json.dumps(fixo),
         "pares": pares,
         "impares": impares,
+        "soma_total": soma,
         "metricas": json.dumps({
-            "origem": "top_20_score",
-            "soma": soma,
+            "origem": "top_score_filtrado",
             "versao": VERSAO_GERADOR
         })
-    }
+    })
 
-    supabase.table("palpites_validos").insert(palpite_fixo).execute()
-    print("✅ Palpite fixo validado e salvo")
-
-    # ==========================
-    # PALPITES ESTATÍSTICOS
-    # ==========================
-    palpites_est = []
+    # -------------- ESTATÍSTICOS ----------
+    gerados = 0
+    usados = {tuple(fixo)}
 
     for i in range(QTD_ESTATISTICOS):
-        base = numeros_ordenados[:15 + (i % 10)]
-        numeros = gerar_palpite_validado(base)
-
-        if not numeros:
-            print(f"⚠️ Palpite estatístico {i+1} descartado (raro)")
+        palpite = gerar_palpite(pool)
+        if not palpite:
+            break
+        if tuple(palpite) in usados:
             continue
 
-        pares, impares, soma = calcular_metricas(numeros)
+        usados.add(tuple(palpite))
+        pares, impares, soma = calcular_metricas(palpite)
 
-        palpites_est.append({
-            "data_referencia": estat["data_referencia"],
+        registros.append({
+            "data_referencia": data_ref,
             "tipo": "estatistico",
             "indice_palpite": i + 1,
-            "numeros": json.dumps(numeros),
+            "numeros": json.dumps(palpite),
             "pares": pares,
             "impares": impares,
+            "soma_total": soma,
             "metricas": json.dumps({
-                "base": f"top_{len(base)}",
-                "soma": soma,
+                "origem": "estatistico_filtrado",
                 "versao": VERSAO_GERADOR
             })
         })
+        gerados += 1
 
-    if palpites_est:
-        supabase.table("palpites_validos").insert(palpites_est).execute()
+    supabase.table("palpites_validos").insert(registros).execute()
 
-    print(f"✅ {len(palpites_est)} palpites estatísticos válidos salvos")
-    print("🎯 Processo finalizado com segurança")
+    print(f"✅ Gerados {1 + gerados} palpites válidos")
+    print("🎯 Gerador TOP finalizado")
 
 if __name__ == "__main__":
     main()
