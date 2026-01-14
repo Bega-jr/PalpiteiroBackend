@@ -16,7 +16,8 @@ from app.services.supabase_service import get_supabase
 # Parâmetros
 # -----------------------------------
 QTD_ESTATISTICOS = 26
-VERSAO_GERADOR = "v1.0"
+VERSAO_GERADOR = "v1.1"
+MAX_TENTATIVAS = 200
 
 # -----------------------------------
 # Funções auxiliares
@@ -24,11 +25,60 @@ VERSAO_GERADOR = "v1.0"
 def gerar_palpite_base(numeros_base, qtd=15):
     return sorted(random.sample(numeros_base, qtd))
 
+
 def calcular_metricas(numeros):
     pares = sum(1 for n in numeros if n % 2 == 0)
     impares = 15 - pares
     soma = sum(numeros)
     return pares, impares, soma
+
+
+def palpite_valido(numeros):
+    pares, impares, soma = calcular_metricas(numeros)
+
+    # Soma
+    if not (170 <= soma <= 210):
+        return False
+
+    # Pares / Ímpares
+    if not (6 <= pares <= 9):
+        return False
+
+    # Sequências consecutivas
+    seq = 1
+    max_seq = 1
+    for i in range(1, len(numeros)):
+        if numeros[i] == numeros[i - 1] + 1:
+            seq += 1
+            max_seq = max(max_seq, seq)
+        else:
+            seq = 1
+
+    if max_seq > 4:
+        return False
+
+    # Presença em todas as faixas
+    faixas = [
+        any(1 <= n <= 5 for n in numeros),
+        any(6 <= n <= 10 for n in numeros),
+        any(11 <= n <= 15 for n in numeros),
+        any(16 <= n <= 20 for n in numeros),
+        any(21 <= n <= 25 for n in numeros),
+    ]
+
+    if not all(faixas):
+        return False
+
+    return True
+
+
+def gerar_palpite_validado(base):
+    for _ in range(MAX_TENTATIVAS):
+        numeros = gerar_palpite_base(base)
+        if palpite_valido(numeros):
+            return numeros
+    return None
+
 
 # -----------------------------------
 # Execução principal
@@ -39,7 +89,7 @@ def main():
 
     print(f"🚀 Gerando palpites para {hoje}")
 
-    # 1️⃣ Busca estatísticas diárias
+    # 1️⃣ Estatísticas diárias
     estat = (
         supabase
         .table("estatisticas_diarias_v2")
@@ -55,7 +105,7 @@ def main():
 
     estat = estat.data[0]
 
-    # 2️⃣ Busca estatísticas por número (ordenadas por score)
+    # 2️⃣ Estatísticas por número
     numeros_stats = (
         supabase
         .table("estatisticas_numeros")
@@ -71,7 +121,7 @@ def main():
 
     numeros_ordenados = [n["numero"] for n in numeros_stats.data]
 
-    # 3️⃣ Remove palpites existentes do dia
+    # 3️⃣ Limpa palpites do dia
     supabase.table("palpites_validos") \
         .delete() \
         .eq("data_referencia", estat["data_referencia"]) \
@@ -80,7 +130,13 @@ def main():
     # ==========================
     # PALPITE FIXO
     # ==========================
-    fixo_numeros = gerar_palpite_base(numeros_ordenados[:20])
+    fixo_base = numeros_ordenados[:20]
+    fixo_numeros = gerar_palpite_validado(fixo_base)
+
+    if not fixo_numeros:
+        print("❌ Falha ao gerar palpite fixo válido.")
+        return
+
     pares, impares, soma = calcular_metricas(fixo_numeros)
 
     palpite_fixo = {
@@ -92,13 +148,13 @@ def main():
         "impares": impares,
         "metricas": json.dumps({
             "origem": "top_20_score",
+            "soma": soma,
             "versao": VERSAO_GERADOR
         })
     }
 
     supabase.table("palpites_validos").insert(palpite_fixo).execute()
-
-    print("✅ Palpite fixo gerado")
+    print("✅ Palpite fixo validado e salvo")
 
     # ==========================
     # PALPITES ESTATÍSTICOS
@@ -107,7 +163,12 @@ def main():
 
     for i in range(QTD_ESTATISTICOS):
         base = numeros_ordenados[:15 + (i % 10)]
-        numeros = gerar_palpite_base(base)
+        numeros = gerar_palpite_validado(base)
+
+        if not numeros:
+            print(f"⚠️ Palpite estatístico {i+1} descartado (raro)")
+            continue
+
         pares, impares, soma = calcular_metricas(numeros)
 
         palpites_est.append({
@@ -119,14 +180,17 @@ def main():
             "impares": impares,
             "metricas": json.dumps({
                 "base": f"top_{len(base)}",
+                "soma": soma,
                 "versao": VERSAO_GERADOR
             })
         })
 
-    supabase.table("palpites_validos").insert(palpites_est).execute()
+    if palpites_est:
+        supabase.table("palpites_validos").insert(palpites_est).execute()
 
-    print(f"✅ {QTD_ESTATISTICOS} palpites estatísticos gerados")
-    print("🎯 Processo finalizado com sucesso")
+    print(f"✅ {len(palpites_est)} palpites estatísticos válidos salvos")
+    print("🎯 Processo finalizado com segurança")
 
 if __name__ == "__main__":
     main()
+
