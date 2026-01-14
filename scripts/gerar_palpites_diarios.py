@@ -90,7 +90,6 @@ def main():
         "numeros": json.dumps(fixo_numeros),
         "pares": pares,
         "impares": impares,
-        "soma": soma,
         "metricas": json.dumps({
             "origem": "top_20_score",
             "versao": VERSAO_GERADOR
@@ -118,7 +117,6 @@ def main():
             "numeros": json.dumps(numeros),
             "pares": pares,
             "impares": impares,
-            "soma": soma,
             "metricas": json.dumps({
                 "base": f"top_{len(base)}",
                 "versao": VERSAO_GERADOR
