@@ -1,5 +1,5 @@
 from app.services.supabase_service import get_supabase
-from typing import Optional, Dict
+from typing import Dict
 
 
 def _resumo_base() -> Dict[str, int]:
@@ -12,73 +12,43 @@ def _resumo_base() -> Dict[str, int]:
     }
 
 
-def obter_desempenho_gerador(
-    ano: int,
-    tipo_palpite: Optional[str] = None,
-    versao_gerador: Optional[str] = None,
-):
+def obter_desempenho_gerador(ano: int):
     """
-    Retorna desempenho NORMALIZADO do gerador.
-    Sempre no formato esperado pelo frontend.
+    Retorna desempenho NORMALIZADO do gerador
+    usando EXCLUSIVAMENTE a view vw_desempenho_gerador.
+
+    Fonte única = Supabase
     """
 
     supabase = get_supabase()
 
-    data_inicio = f"{ano}-01-01"
-    data_fim = f"{ano}-12-31"
-
-    query = (
+    resp = (
         supabase
-        .table("palpites_resultados_reais")
-        .select(
-            """
-            concurso_inicio,
-            concurso_fim,
-            acertos_11,
-            acertos_12,
-            acertos_13,
-            acertos_14,
-            acertos_15
-            """
-        )
-        .gte("data_referencia", data_inicio)
-        .lte("data_referencia", data_fim)
+        .table("vw_desempenho_gerador")
+        .select("*")
+        .eq("ano", ano)
+        .single()
+        .execute()
     )
-
-    # filtros opcionais (somente se informados)
-    if tipo_palpite:
-        query = query.eq("tipo_palpite", tipo_palpite)
-
-    if versao_gerador:
-        query = query.eq("versao_gerador", versao_gerador)
-
-    resp = query.execute()
-
-    resumo = _resumo_base()
-    total_concursos = 0
 
     if not resp.data:
         return {
-            "resumo": resumo,
+            "resumo": _resumo_base(),
             "total_concursos": 0,
             "ano_referencia": ano,
         }
 
-    for r in resp.data:
-        resumo["11"] += int(r.get("acertos_11") or 0)
-        resumo["12"] += int(r.get("acertos_12") or 0)
-        resumo["13"] += int(r.get("acertos_13") or 0)
-        resumo["14"] += int(r.get("acertos_14") or 0)
-        resumo["15"] += int(r.get("acertos_15") or 0)
-
-        inicio = r.get("concurso_inicio")
-        fim = r.get("concurso_fim")
-
-        if isinstance(inicio, int) and isinstance(fim, int) and fim >= inicio:
-            total_concursos += (fim - inicio + 1)
+    resumo = {
+        "11": int(resp.data.get("11", 0)),
+        "12": int(resp.data.get("12", 0)),
+        "13": int(resp.data.get("13", 0)),
+        "14": int(resp.data.get("14", 0)),
+        "15": int(resp.data.get("15", 0)),
+    }
 
     return {
         "resumo": resumo,
-        "total_concursos": total_concursos,
+        "total_concursos": None,
         "ano_referencia": ano,
     }
+
