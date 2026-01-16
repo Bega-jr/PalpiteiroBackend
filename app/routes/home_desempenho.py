@@ -20,9 +20,7 @@ def desempenho_gerador(
         return {
             "status": "error",
             "message": str(e),
-            "ano": ano,
-            "tipo_palpite": tipo_palpite,
-            "versao_gerador": versao_gerador,
+            "ano": ano
         }
 
     return {
