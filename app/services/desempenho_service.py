@@ -1,11 +1,27 @@
 from app.services.supabase_service import get_supabase
-from typing import Optional
+from typing import Optional, Dict
+
+
+def _resumo_base() -> Dict[str, int]:
+    return {
+        "11": 0,
+        "12": 0,
+        "13": 0,
+        "14": 0,
+        "15": 0,
+    }
+
 
 def obter_desempenho_gerador(
     ano: int,
     tipo_palpite: Optional[str] = None,
-    versao_gerador: Optional[str] = None
+    versao_gerador: Optional[str] = None,
 ):
+    """
+    Retorna desempenho NORMALIZADO do gerador.
+    Sempre no formato esperado pelo frontend.
+    """
+
     supabase = get_supabase()
 
     data_inicio = f"{ano}-01-01"
@@ -15,14 +31,21 @@ def obter_desempenho_gerador(
         supabase
         .table("palpites_resultados_reais")
         .select(
-            "concurso_inicio, concurso_fim, "
-            "acertos_11, acertos_12, acertos_13, acertos_14, acertos_15"
+            """
+            concurso_inicio,
+            concurso_fim,
+            acertos_11,
+            acertos_12,
+            acertos_13,
+            acertos_14,
+            acertos_15
+            """
         )
         .gte("data_referencia", data_inicio)
         .lte("data_referencia", data_fim)
     )
 
-    # filtros opcionais
+    # filtros opcionais (somente se informados)
     if tipo_palpite:
         query = query.eq("tipo_palpite", tipo_palpite)
 
@@ -31,14 +54,14 @@ def obter_desempenho_gerador(
 
     resp = query.execute()
 
-    resumo = {"11": 0, "12": 0, "13": 0, "14": 0, "15": 0}
+    resumo = _resumo_base()
     total_concursos = 0
 
     if not resp.data:
         return {
             "resumo": resumo,
             "total_concursos": 0,
-            "ano_referencia": ano
+            "ano_referencia": ano,
         }
 
     for r in resp.data:
@@ -57,5 +80,5 @@ def obter_desempenho_gerador(
     return {
         "resumo": resumo,
         "total_concursos": total_concursos,
-        "ano_referencia": ano
+        "ano_referencia": ano,
     }
