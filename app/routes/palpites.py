@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from app.services.palpites_service import (
     obter_palpite_fixo_publico,
-    obter_palpites_estatisticos_publico
+    obter_palpites_estatisticos_publico,
 )
 
 router = APIRouter(prefix="/palpites", tags=["Palpites"])
@@ -16,13 +16,13 @@ def palpite_fixo():
 
     return {
         "status": "ok",
-        "data_referencia": registro.get("data_referencia"),
-        "numeros": registro.get("numeros"),
-        "soma": registro.get("soma_total"),
-        "pares": registro.get("pares"),
-        "impares": registro.get("impares"),
-        "score": registro.get("metricas", {}).get("score"),
-        "metodo": registro.get("metricas", {}).get("metodo"),
+        "data_referencia": registro["data_referencia"],
+        "numeros": registro["numeros"],
+        "soma": registro["soma"],
+        "pares": registro["pares"],
+        "impares": registro["impares"],
+        "score": registro["metricas"].get("score"),
+        "metodo": registro["metricas"].get("metodo"),
     }
 
 
@@ -30,23 +30,20 @@ def palpite_fixo():
 def palpites_estatisticos():
     dados = obter_palpites_estatisticos_publico()
 
-    palpites = [
-        {
-            "indice": r.get("indice_palpite"),
-            "numeros": r.get("numeros"),
-            "soma": r.get("soma"),
-            "pares": r.get("pares"),
-            "impares": r.get("impares"),
-            "score": r.get("metricas", {}).get("score"),
-            "metodo": r.get("metricas", {}).get("metodo"),
-        }
-        for r in dados
-    ]
-
     return {
         "status": "ok",
-        "data_referencia": dados[0].get("data_referencia") if dados else None,
-        "total": len(palpites),
-        "palpites": palpites,
+        "data_referencia": dados[0]["data_referencia"] if dados else None,
+        "total": len(dados),
+        "palpites": [
+            {
+                "indice": r["indice_palpite"],
+                "numeros": r["numeros"],
+                "soma": r["soma"],
+                "pares": r["pares"],
+                "impares": r["impares"],
+                "score": r["metricas"].get("score"),
+                "metodo": r["metricas"].get("metodo"),
+            }
+            for r in dados
+        ],
     }
-
