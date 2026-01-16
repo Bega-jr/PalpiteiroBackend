@@ -3,14 +3,12 @@ from fastapi import HTTPException
 import json
 from datetime import date
 
-# ==========================
-# CONFIGURAÇÕES
-# ==========================
-SCORE_MINIMO_BACKTEST = 0.8  # baseline mínimo aceitável
+SCORE_MINIMO_BACKTEST = 0.8
 VERSAO_GERADOR_PADRAO = "v1.0"
 
+
 # ==========================
-# BACKTEST SCORE
+# BACKTEST
 # ==========================
 def calcular_score_backtest(reg):
     total = reg["total_concursos"] * reg["qtd_palpites"]
@@ -27,6 +25,7 @@ def calcular_score_backtest(reg):
 
     return round(score, 2)
 
+
 def versao_valida_por_backtest(supabase, tipo):
     res = (
         supabase
@@ -40,13 +39,15 @@ def versao_valida_por_backtest(supabase, tipo):
     )
 
     if not res.data:
-        return False
+        # 🔓 fallback: libera enquanto não há histórico suficiente
+        return True
 
     score = calcular_score_backtest(res.data[0])
     return score >= SCORE_MINIMO_BACKTEST
 
+
 # ==========================
-# PALPITE FIXO (PÚBLICO)
+# PALPITE FIXO
 # ==========================
 def obter_palpite_fixo_publico():
     supabase = get_supabase()
@@ -72,7 +73,6 @@ def obter_palpite_fixo_publico():
     numeros = json.loads(r["numeros"]) if isinstance(r["numeros"], str) else r["numeros"]
     metricas = json.loads(r["metricas"]) if isinstance(r["metricas"], str) else {}
 
-    # 🔒 Filtro raro
     soma = sum(numeros)
     if not (170 <= soma <= 210):
         return None
@@ -80,13 +80,15 @@ def obter_palpite_fixo_publico():
     return {
         "data_referencia": r["data_referencia"],
         "numeros": numeros,
+        "soma": soma,
         "pares": r["pares"],
         "impares": r["impares"],
-        "metricas": metricas
+        "metricas": metricas,
     }
 
+
 # ==========================
-# PALPITES ESTATÍSTICOS (PÚBLICO)
+# PALPITES ESTATÍSTICOS
 # ==========================
 def obter_palpites_estatisticos_publico():
     supabase = get_supabase()
@@ -100,7 +102,6 @@ def obter_palpites_estatisticos_publico():
         .table("palpites_validos")
         .select("*")
         .eq("tipo", "estatistico")
-        .eq("data_referencia", hoje)
         .order("indice_palpite")
         .execute()
     )
@@ -111,21 +112,23 @@ def obter_palpites_estatisticos_publico():
         numeros = json.loads(r["numeros"]) if isinstance(r["numeros"], str) else r["numeros"]
         metricas = json.loads(r["metricas"]) if isinstance(r["metricas"], str) else {}
 
-        pares = r["pares"]
         soma = sum(numeros)
+        pares = r["pares"]
 
-        # 🔒 FILTROS ANTI-RARIDADE
         if pares < 6 or pares > 9:
             continue
         if soma < 170 or soma > 210:
             continue
 
         dados_validos.append({
+            "data_referencia": r["data_referencia"],
             "indice_palpite": r["indice_palpite"],
             "numeros": numeros,
+            "soma": soma,
             "pares": r["pares"],
             "impares": r["impares"],
-            "metricas": metricas
+            "metricas": metricas,
         })
 
     return dados_validos
+
