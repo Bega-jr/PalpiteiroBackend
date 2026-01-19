@@ -1,14 +1,11 @@
 from app.services.supabase_service import get_supabase
-from fastapi import HTTPException
 import json
-from datetime import date
 
-SCORE_MINIMO_BACKTEST = 0.8
-VERSAO_GERADOR_PADRAO = "v1.0"
+VERSAO_GERADOR_ATUAL = "v1.2-top-auto"
 
 
 # ==========================
-# BACKTEST
+# BACKTEST (NÃO BLOQUEANTE)
 # ==========================
 def calcular_score_backtest(reg):
     total = reg["total_concursos"] * reg["qtd_palpites"]
@@ -26,24 +23,22 @@ def calcular_score_backtest(reg):
     return round(score, 2)
 
 
-def versao_valida_por_backtest(supabase, tipo):
+def obter_score_backtest(supabase, tipo):
     res = (
         supabase
         .table("palpites_resultados_reais")
         .select("*")
         .eq("tipo_palpite", tipo)
-        .eq("versao_gerador", VERSAO_GERADOR_PADRAO)
+        .eq("versao_gerador", VERSAO_GERADOR_ATUAL)
         .order("data_referencia", desc=True)
         .limit(1)
         .execute()
     )
 
     if not res.data:
-        # 🔓 fallback: libera enquanto não há histórico suficiente
-        return True
+        return None
 
-    score = calcular_score_backtest(res.data[0])
-    return score >= SCORE_MINIMO_BACKTEST
+    return calcular_score_backtest(res.data[0])
 
 
 # ==========================
@@ -51,9 +46,6 @@ def versao_valida_por_backtest(supabase, tipo):
 # ==========================
 def obter_palpite_fixo_publico():
     supabase = get_supabase()
-
-    if not versao_valida_por_backtest(supabase, "fixo"):
-        return None
 
     res = (
         supabase
@@ -73,17 +65,14 @@ def obter_palpite_fixo_publico():
     numeros = json.loads(r["numeros"]) if isinstance(r["numeros"], str) else r["numeros"]
     metricas = json.loads(r["metricas"]) if isinstance(r["metricas"], str) else {}
 
-    soma = sum(numeros)
-    if not (170 <= soma <= 210):
-        return None
-
     return {
         "data_referencia": r["data_referencia"],
         "numeros": numeros,
-        "soma": soma,
+        "soma": r["soma_total"],
         "pares": r["pares"],
         "impares": r["impares"],
         "metricas": metricas,
+        "score_backtest": obter_score_backtest(supabase, "fixo"),
     }
 
 
@@ -92,10 +81,6 @@ def obter_palpite_fixo_publico():
 # ==========================
 def obter_palpites_estatisticos_publico():
     supabase = get_supabase()
-    hoje = date.today().isoformat()
-
-    if not versao_valida_por_backtest(supabase, "estatistico"):
-        return []
 
     res = (
         supabase
@@ -106,29 +91,23 @@ def obter_palpites_estatisticos_publico():
         .execute()
     )
 
-    dados_validos = []
+    score_backtest = obter_score_backtest(supabase, "estatistico")
+
+    palpites = []
 
     for r in res.data or []:
         numeros = json.loads(r["numeros"]) if isinstance(r["numeros"], str) else r["numeros"]
         metricas = json.loads(r["metricas"]) if isinstance(r["metricas"], str) else {}
 
-        soma = sum(numeros)
-        pares = r["pares"]
-
-        if pares < 6 or pares > 9:
-            continue
-        if soma < 170 or soma > 210:
-            continue
-
-        dados_validos.append({
+        palpites.append({
             "data_referencia": r["data_referencia"],
             "indice_palpite": r["indice_palpite"],
             "numeros": numeros,
-            "soma": soma,
+            "soma": r["soma_total"],
             "pares": r["pares"],
             "impares": r["impares"],
             "metricas": metricas,
+            "score_backtest": score_backtest,
         })
 
-    return dados_validos
-
+    return palpites
