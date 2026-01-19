@@ -4,36 +4,44 @@ import random
 from pathlib import Path
 from datetime import datetime
 
+# -----------------------------------
+# Setup base
+# -----------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.aprendizado_service_v2 import obter_penalidades_por_numero
+from app.services.aprendizado_service import obter_penalidades_por_numero
+from app.services.estatisticas_combinacao_v2 import (
+    calcular_score_combinacoes,
+    extrair_metricas_jogo
+)
 
 # -----------------------------------
 # Configurações
 # -----------------------------------
 QTD_ESTATISTICOS = 6
-VERSAO_GERADOR = "v2.0-top-historico"
-MAX_TENTATIVAS = 7000
+VERSAO_GERADOR = "v2.0-score-combinacao"
+MAX_TENTATIVAS = 6000
 
 SOMA_MIN = 170
 SOMA_MAX = 210
 PARES_MIN = 6
 PARES_MAX = 9
 SEQ_MAX = 4
+SCORE_COMBINACAO_MIN = 0.35
 
 # -----------------------------------
-# Métricas
+# Funções básicas
 # -----------------------------------
 def calcular_metricas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
+    impares = 15 - pares
     soma = sum(nums)
-    return pares, soma
-
+    return pares, impares, soma
 
 def max_sequencia(nums):
-    seq = atual = 1
+    atual = seq = 1
     for i in range(1, len(nums)):
         if nums[i] == nums[i - 1] + 1:
             atual += 1
@@ -41,7 +49,6 @@ def max_sequencia(nums):
         else:
             atual = 1
     return seq
-
 
 def linhas_ok(nums):
     linhas = [
@@ -53,7 +60,6 @@ def linhas_ok(nums):
     ]
     return all(any(n in linha for n in nums) for linha in linhas)
 
-
 def finais_ok(nums):
     finais = {}
     for n in nums:
@@ -61,9 +67,11 @@ def finais_ok(nums):
         finais[f] = finais.get(f, 0) + 1
     return max(finais.values()) <= 3
 
-
-def validar(nums):
-    pares, soma = calcular_metricas(nums)
+# -----------------------------------
+# Validação com SCORE HISTÓRICO
+# -----------------------------------
+def validar(nums, scores_combinacao):
+    pares, _, soma = calcular_metricas(nums)
 
     if not (SOMA_MIN <= soma <= SOMA_MAX):
         return False
@@ -76,27 +84,45 @@ def validar(nums):
     if not finais_ok(nums):
         return False
 
+    # 🔥 Score por combinação histórica
+    m = extrair_metricas_jogo(nums)
+
+    chave = (
+        round(m["soma"] / 10) * 10,
+        m["pares"],
+        m["primos"],
+        m["linhas"]
+    )
+
+    score = scores_combinacao.get(chave, 0)
+
+    if score < SCORE_COMBINACAO_MIN:
+        return False
+
     return True
 
 # -----------------------------------
-# Geração
+# Geração controlada
 # -----------------------------------
-def gerar_palpite(pool):
+def gerar_palpite(pool, scores_combinacao):
     for _ in range(MAX_TENTATIVAS):
         nums = sorted(random.sample(pool, 15))
-        if validar(nums):
+        if validar(nums, scores_combinacao):
             return nums
     return None
 
 # -----------------------------------
-# Execução
+# Execução principal
 # -----------------------------------
 def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
 
-    print(f"🚀 Gerador V2 iniciado — {hoje}")
+    print(f"🚀 Gerador V2 iniciado para {hoje}")
 
+    # -----------------------------------
+    # Estatísticas diárias
+    # -----------------------------------
     estat = (
         supabase.table("estatisticas_diarias_v2")
         .select("*")
@@ -111,6 +137,9 @@ def main():
 
     data_ref = estat[0]["data_referencia"]
 
+    # -----------------------------------
+    # Estatísticas por número
+    # -----------------------------------
     numeros = (
         supabase.table("estatisticas_numeros")
         .select("numero, score")
@@ -122,23 +151,32 @@ def main():
         print("❌ Estatísticas por número não encontradas")
         return
 
+    # -----------------------------------
+    # Penalidades por aprendizado
+    # -----------------------------------
     penalidades = obter_penalidades_por_numero(ano=2026)
 
-    # Score composto
-    ranking = []
+    numeros_ajustados = []
     for n in numeros:
         fator = penalidades.get(n["numero"], 1.0)
-        score_final = n["score"] * fator
-        ranking.append({
+        numeros_ajustados.append({
             "numero": n["numero"],
-            "score": score_final
+            "score": n["score"] * fator
         })
 
-    ranking.sort(key=lambda x: x["score"], reverse=True)
+    numeros_ajustados.sort(key=lambda x: x["score"], reverse=True)
 
-    # Pool mais forte e limpo
-    pool = [n["numero"] for n in ranking[:18]]
+    # Pool TOP 20
+    pool = [n["numero"] for n in numeros_ajustados[:20]]
 
+    # -----------------------------------
+    # Score histórico por combinação
+    # -----------------------------------
+    scores_combinacao = calcular_score_combinacoes()
+
+    # -----------------------------------
+    # Limpa palpites do dia
+    # -----------------------------------
     supabase.table("palpites_validos") \
         .delete() \
         .eq("data_referencia", data_ref) \
@@ -147,10 +185,16 @@ def main():
     registros = []
     usados = set()
 
+    # -----------------------------------
     # FIXO
-    fixo = gerar_palpite(pool)
+    # -----------------------------------
+    fixo = gerar_palpite(pool, scores_combinacao)
+    if not fixo:
+        print("❌ Falha ao gerar palpite fixo")
+        return
+
     usados.add(tuple(fixo))
-    pares, soma = calcular_metricas(fixo)
+    pares, impares, soma = calcular_metricas(fixo)
 
     registros.append({
         "data_referencia": data_ref,
@@ -158,22 +202,29 @@ def main():
         "indice_palpite": 0,
         "numeros": json.dumps(fixo),
         "pares": pares,
+        "impares": impares,
         "soma_total": soma,
         "metricas": json.dumps({
-            "versao": VERSAO_GERADOR,
-            "origem": "top_historico"
+            "origem": "score_combinacao",
+            "versao": VERSAO_GERADOR
         })
     })
 
+    # -----------------------------------
     # ESTATÍSTICOS
+    # -----------------------------------
     gerados = 0
+
     while gerados < QTD_ESTATISTICOS:
-        palpite = gerar_palpite(pool)
-        if not palpite or tuple(palpite) in usados:
+        palpite = gerar_palpite(pool, scores_combinacao)
+        if not palpite:
+            break
+
+        if tuple(palpite) in usados:
             continue
 
         usados.add(tuple(palpite))
-        pares, soma = calcular_metricas(palpite)
+        pares, impares, soma = calcular_metricas(palpite)
 
         registros.append({
             "data_referencia": data_ref,
@@ -181,20 +232,24 @@ def main():
             "indice_palpite": gerados + 1,
             "numeros": json.dumps(palpite),
             "pares": pares,
+            "impares": impares,
             "soma_total": soma,
             "metricas": json.dumps({
-                "versao": VERSAO_GERADOR,
-                "origem": "estatistico_historico"
+                "origem": "score_combinacao",
+                "versao": VERSAO_GERADOR
             })
         })
 
         gerados += 1
 
+    # -----------------------------------
+    # Persistência
+    # -----------------------------------
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("✅ Palpites gerados com filtro histórico real")
-    print("🧠 Aprendizado aplicado")
-    print("🎯 V2 finalizada")
+    print(f"✅ Gerados {1 + gerados} palpites válidos")
+    print("🧠 Score histórico aplicado")
+    print("🎯 Gerador V2 finalizado")
 
 if __name__ == "__main__":
     main()
