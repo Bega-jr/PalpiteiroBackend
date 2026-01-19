@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.aprendizado_service import obter_penalidades_por_numero
+from app.services.aprendizado_service_v2 import obter_penalidades_por_numero
 from app.services.estatisticas_combinacao_v2 import (
     calcular_score_combinacoes,
     extrair_metricas_jogo
@@ -40,6 +40,7 @@ def calcular_metricas(nums):
     soma = sum(nums)
     return pares, impares, soma
 
+
 def max_sequencia(nums):
     atual = seq = 1
     for i in range(1, len(nums)):
@@ -49,6 +50,7 @@ def max_sequencia(nums):
         else:
             atual = 1
     return seq
+
 
 def linhas_ok(nums):
     linhas = [
@@ -60,6 +62,7 @@ def linhas_ok(nums):
     ]
     return all(any(n in linha for n in nums) for linha in linhas)
 
+
 def finais_ok(nums):
     finais = {}
     for n in nums:
@@ -68,7 +71,7 @@ def finais_ok(nums):
     return max(finais.values()) <= 3
 
 # -----------------------------------
-# Validação com SCORE HISTÓRICO
+# Validação com SCORE HISTÓRICO REAL
 # -----------------------------------
 def validar(nums, scores_combinacao):
     pares, _, soma = calcular_metricas(nums)
@@ -84,7 +87,7 @@ def validar(nums, scores_combinacao):
     if not finais_ok(nums):
         return False
 
-    # 🔥 Score por combinação histórica
+    # 🔥 Score histórico por combinação real
     m = extrair_metricas_jogo(nums)
 
     chave = (
@@ -152,7 +155,7 @@ def main():
         return
 
     # -----------------------------------
-    # Penalidades por aprendizado
+    # Penalidades por aprendizado V2
     # -----------------------------------
     penalidades = obter_penalidades_por_numero(ano=2026)
 
@@ -248,7 +251,7 @@ def main():
     supabase.table("palpites_validos").insert(registros).execute()
 
     print(f"✅ Gerados {1 + gerados} palpites válidos")
-    print("🧠 Score histórico aplicado")
+    print("🧠 Score histórico real aplicado")
     print("🎯 Gerador V2 finalizado")
 
 if __name__ == "__main__":
