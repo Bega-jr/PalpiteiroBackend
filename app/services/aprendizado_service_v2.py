@@ -5,35 +5,14 @@ PENALIDADE_MAX = 0.30  # até -30% no score
 FATOR_MINIMO = 0.70   # nunca penaliza além disso
 
 
-def obter_penalidades_por_numero(ano: int = 2026) -> Dict[int, float]:
+def obter_penalidades_por_numero(ano: int = 2026):
     """
-    Penaliza números que aparecem em palpites
-    com baixo desempenho histórico.
-    Retorna: {numero: fator}
+    V2 (SAFE MODE)
+    Penalidade desativada temporariamente.
+    Retorna fator neutro para todos os números.
     """
+    return {}
 
-    supabase = get_supabase()
-
-    dados = (
-        supabase
-        .table("palpites_resultados_reais")
-        .select(
-            """
-            numeros,
-            acertos_11,
-            acertos_12,
-            acertos_13,
-            acertos_14,
-            acertos_15,
-            total_concursos
-            """
-        )
-        .gte("ano", ano)
-        .execute()
-    ).data or []
-
-    if not dados:
-        return {}
 
     falhas_por_numero = {n: 0 for n in range(1, 26)}
 
