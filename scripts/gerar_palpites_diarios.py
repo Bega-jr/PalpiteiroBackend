@@ -4,21 +4,18 @@ import random
 from pathlib import Path
 from datetime import datetime
 
-# -----------------------------------
-# Setup base
-# -----------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.aprendizado_service import obter_penalidades_por_numero
+from app.services.aprendizado_service_v2 import obter_penalidades_por_numero
 
 # -----------------------------------
 # Configurações
 # -----------------------------------
 QTD_ESTATISTICOS = 6
-VERSAO_GERADOR = "v1.2-top-auto"
-MAX_TENTATIVAS = 5000
+VERSAO_GERADOR = "v2.0-top-historico"
+MAX_TENTATIVAS = 7000
 
 SOMA_MIN = 170
 SOMA_MAX = 210
@@ -27,16 +24,16 @@ PARES_MAX = 9
 SEQ_MAX = 4
 
 # -----------------------------------
-# Funções de validação
+# Métricas
 # -----------------------------------
 def calcular_metricas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
-    impares = 15 - pares
     soma = sum(nums)
-    return pares, impares, soma
+    return pares, soma
+
 
 def max_sequencia(nums):
-    atual = seq = 1
+    seq = atual = 1
     for i in range(1, len(nums)):
         if nums[i] == nums[i - 1] + 1:
             atual += 1
@@ -44,6 +41,7 @@ def max_sequencia(nums):
         else:
             atual = 1
     return seq
+
 
 def linhas_ok(nums):
     linhas = [
@@ -55,6 +53,7 @@ def linhas_ok(nums):
     ]
     return all(any(n in linha for n in nums) for linha in linhas)
 
+
 def finais_ok(nums):
     finais = {}
     for n in nums:
@@ -62,8 +61,9 @@ def finais_ok(nums):
         finais[f] = finais.get(f, 0) + 1
     return max(finais.values()) <= 3
 
+
 def validar(nums):
-    pares, _, soma = calcular_metricas(nums)
+    pares, soma = calcular_metricas(nums)
 
     if not (SOMA_MIN <= soma <= SOMA_MAX):
         return False
@@ -79,7 +79,7 @@ def validar(nums):
     return True
 
 # -----------------------------------
-# Geração controlada
+# Geração
 # -----------------------------------
 def gerar_palpite(pool):
     for _ in range(MAX_TENTATIVAS):
@@ -89,15 +89,14 @@ def gerar_palpite(pool):
     return None
 
 # -----------------------------------
-# Execução principal
+# Execução
 # -----------------------------------
 def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
 
-    print(f"🚀 Gerador TOP v1.2 iniciado para {hoje}")
+    print(f"🚀 Gerador V2 iniciado — {hoje}")
 
-    # Estatística diária
     estat = (
         supabase.table("estatisticas_diarias_v2")
         .select("*")
@@ -112,7 +111,6 @@ def main():
 
     data_ref = estat[0]["data_referencia"]
 
-    # Estatísticas por número
     numeros = (
         supabase.table("estatisticas_numeros")
         .select("numero, score")
@@ -124,28 +122,23 @@ def main():
         print("❌ Estatísticas por número não encontradas")
         return
 
-    # -----------------------------------
-    # Auto-aprendizado (penalidades)
-    # -----------------------------------
     penalidades = obter_penalidades_por_numero(ano=2026)
 
-    numeros_ajustados = []
+    # Score composto
+    ranking = []
     for n in numeros:
         fator = penalidades.get(n["numero"], 1.0)
-        score_ajustado = n["score"] * fator
-        numeros_ajustados.append({
+        score_final = n["score"] * fator
+        ranking.append({
             "numero": n["numero"],
-            "score": score_ajustado
+            "score": score_final
         })
 
-    numeros_ajustados.sort(key=lambda x: x["score"], reverse=True)
+    ranking.sort(key=lambda x: x["score"], reverse=True)
 
-    # Pool TOP 20 ajustado por aprendizado
-    pool = [n["numero"] for n in numeros_ajustados[:20]]
+    # Pool mais forte e limpo
+    pool = [n["numero"] for n in ranking[:18]]
 
-    # -----------------------------------
-    # Limpa palpites do dia
-    # -----------------------------------
     supabase.table("palpites_validos") \
         .delete() \
         .eq("data_referencia", data_ref) \
@@ -154,16 +147,10 @@ def main():
     registros = []
     usados = set()
 
-    # -----------------------------------
     # FIXO
-    # -----------------------------------
     fixo = gerar_palpite(pool)
-    if not fixo:
-        print("❌ Falha ao gerar palpite fixo")
-        return
-
     usados.add(tuple(fixo))
-    pares, impares, soma = calcular_metricas(fixo)
+    pares, soma = calcular_metricas(fixo)
 
     registros.append({
         "data_referencia": data_ref,
@@ -171,29 +158,22 @@ def main():
         "indice_palpite": 0,
         "numeros": json.dumps(fixo),
         "pares": pares,
-        "impares": impares,
         "soma_total": soma,
         "metricas": json.dumps({
-            "origem": "top_score_auto",
-            "versao": VERSAO_GERADOR
+            "versao": VERSAO_GERADOR,
+            "origem": "top_historico"
         })
     })
 
-    # -----------------------------------
     # ESTATÍSTICOS
-    # -----------------------------------
     gerados = 0
-
     while gerados < QTD_ESTATISTICOS:
         palpite = gerar_palpite(pool)
-        if not palpite:
-            break
-
-        if tuple(palpite) in usados:
+        if not palpite or tuple(palpite) in usados:
             continue
 
         usados.add(tuple(palpite))
-        pares, impares, soma = calcular_metricas(palpite)
+        pares, soma = calcular_metricas(palpite)
 
         registros.append({
             "data_referencia": data_ref,
@@ -201,24 +181,20 @@ def main():
             "indice_palpite": gerados + 1,
             "numeros": json.dumps(palpite),
             "pares": pares,
-            "impares": impares,
             "soma_total": soma,
             "metricas": json.dumps({
-                "origem": "estatistico_auto",
-                "versao": VERSAO_GERADOR
+                "versao": VERSAO_GERADOR,
+                "origem": "estatistico_historico"
             })
         })
 
         gerados += 1
 
-    # -----------------------------------
-    # Persistência
-    # -----------------------------------
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print(f"✅ Gerados {1 + gerados} palpites válidos")
-    print("🧠 Auto-aprendizado aplicado")
-    print("🎯 Gerador TOP finalizado")
+    print("✅ Palpites gerados com filtro histórico real")
+    print("🧠 Aprendizado aplicado")
+    print("🎯 V2 finalizada")
 
 if __name__ == "__main__":
     main()
