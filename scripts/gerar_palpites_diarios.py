@@ -35,7 +35,7 @@ PARES_MAX = 10 # Era 9
 
 SEQ_MAX = 5 # Era 4
 
-PERCENTIL_MIN = 0.50 # Era 0.65 (Aceita scores um pouco menores se necessário)
+PERCENTIL_MIN = 0.30 # Era 0.65 (Aceita scores um pouco menores se necessário)
 REPET_MIN = 7 # Era 8
 REPET_MAX = 12 # Era 11
 
