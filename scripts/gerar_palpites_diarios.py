@@ -21,26 +21,27 @@ from app.services.estatisticas_combinacao_v3 import (
 )
 
 # ======================================================
-# Configurações
+# Configurações Sugeridas (Mais flexíveis)
 # ======================================================
 QTD_ESTATISTICOS = 6
 VERSAO_GERADOR = "v3-score-real-historico"
-MAX_TENTATIVAS = 9000
+MAX_TENTATIVAS = 15000 # Aumentado para dar mais chance
 
-SOMA_MIN = 170
-SOMA_MAX = 210
+SOMA_MIN = 155 # Era 170
+SOMA_MAX = 225 # Era 210
 
-PARES_MIN = 6
-PARES_MAX = 9
+PARES_MIN = 5 # Era 6
+PARES_MAX = 10 # Era 9
 
-SEQ_MAX = 4
+SEQ_MAX = 5 # Era 4
 
-PERCENTIL_MIN = 0.65
-REPET_MIN = 8
-REPET_MAX = 11
+PERCENTIL_MIN = 0.50 # Era 0.65 (Aceita scores um pouco menores se necessário)
+REPET_MIN = 7 # Era 8
+REPET_MAX = 12 # Era 11
 
-LINHA_MIN = 2
-LINHA_MAX = 4
+LINHA_MIN = 1 # Era 2 (Muito restritivo)
+LINHA_MAX = 5 # Era 4
+
 
 # ======================================================
 # Funções auxiliares
