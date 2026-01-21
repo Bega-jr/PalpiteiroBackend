@@ -82,4 +82,3 @@ def aplicar_fator_aprendizado(score: float, fator: float) -> float:
     Aplicação segura do aprendizado
     """
     return round(score * fator, 6)
-
