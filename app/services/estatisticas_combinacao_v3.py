@@ -1,6 +1,7 @@
 from app.services.supabase_service import get_supabase
 from collections import defaultdict
 from typing import Dict, Tuple
+import json
 
 
 # ======================================================
@@ -14,10 +15,10 @@ PESO_15 = 1.00
 
 
 # ======================================================
-# Métricas estruturais (USADAS PELO GERADOR)
+# Métricas estruturais
 # ======================================================
 def extrair_metricas_jogo(nums):
-    soma_total = sum(nums)
+    soma = sum(nums)
     pares = sum(1 for n in nums if n % 2 == 0)
     primos = sum(1 for n in nums if n in {2, 3, 5, 7, 11, 13, 17, 19, 23})
 
@@ -30,7 +31,7 @@ def extrair_metricas_jogo(nums):
     )
 
     return {
-        "soma": soma_total,
+        "soma": soma,
         "pares": pares,
         "primos": primos,
         "linhas": linhas
@@ -38,32 +39,25 @@ def extrair_metricas_jogo(nums):
 
 
 # ======================================================
-# Score REAL por combinação estrutural
+# Score REAL por combinação estrutural (CORRETO)
 # ======================================================
 def calcular_score_combinacoes_reais(
     ano: int = 2026
 ) -> Dict[Tuple, float]:
     """
-    Score histórico REAL baseado em resultados consolidados
-    (estrutura 100% compatível com o schema atual do banco)
+    Aprende score estrutural REAL a partir de palpites
+    já conferidos individualmente
     """
 
     supabase = get_supabase()
 
     res = (
         supabase
-        .table("palpites_resultados_reais")
+        .table("palpites_validos")
         .select(
             """
-            soma_total,
-            pares,
-            primos,
-            linhas,
-            acertos_11,
-            acertos_12,
-            acertos_13,
-            acertos_14,
-            acertos_15
+            numeros,
+            acertos
             """
         )
         .gte("data_referencia", f"{ano}-01-01")
@@ -78,22 +72,25 @@ def calcular_score_combinacoes_reais(
     ocorrencias = defaultdict(int)
 
     for r in res.data:
+        if r["acertos"] < 11:
+            continue
+
+        nums = json.loads(r["numeros"])
+        m = extrair_metricas_jogo(nums)
+
         impacto = (
-            r["acertos_11"] * PESO_11 +
-            r["acertos_12"] * PESO_12 +
-            r["acertos_13"] * PESO_13 +
-            r["acertos_14"] * PESO_14 +
-            r["acertos_15"] * PESO_15
+            (1 if r["acertos"] == 11 else 0) * PESO_11 +
+            (1 if r["acertos"] == 12 else 0) * PESO_12 +
+            (1 if r["acertos"] == 13 else 0) * PESO_13 +
+            (1 if r["acertos"] == 14 else 0) * PESO_14 +
+            (1 if r["acertos"] == 15 else 0) * PESO_15
         )
 
-        # linhas vem do banco como array/list
-        linhas = tuple(r["linhas"]) if r["linhas"] else (0, 0, 0, 0, 0)
-
         chave = (
-            round(r["soma_total"] / 10) * 10,
-            r["pares"],
-            r["primos"],
-            linhas
+            round(m["soma"] / 10) * 10,
+            m["pares"],
+            m["primos"],
+            m["linhas"]
         )
 
         scores[chave] += impacto
