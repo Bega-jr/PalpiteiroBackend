@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 
 
 # ======================================================
-# Configurações
+# Pesos por faixa de acerto
 # ======================================================
 PESO_11 = 0.03
 PESO_12 = 0.10
@@ -14,44 +14,37 @@ PESO_15 = 1.00
 
 
 # ======================================================
-# Métricas estruturais do jogo
+# Métricas estruturais
 # ======================================================
 def extrair_metricas_jogo(nums):
-    """
-    Extrai métricas estruturais de um jogo Lotofácil
-    """
     soma = sum(nums)
     pares = sum(1 for n in nums if n % 2 == 0)
     primos = sum(1 for n in nums if n in {2, 3, 5, 7, 11, 13, 17, 19, 23})
 
-    linhas = [
+    linhas = (
         sum(1 for n in nums if 1 <= n <= 5),
         sum(1 for n in nums if 6 <= n <= 10),
         sum(1 for n in nums if 11 <= n <= 15),
         sum(1 for n in nums if 16 <= n <= 20),
         sum(1 for n in nums if 21 <= n <= 25),
-    ]
+    )
 
     return {
         "soma": soma,
         "pares": pares,
         "primos": primos,
-        "linhas": tuple(linhas)
+        "linhas": linhas
     }
 
 
 # ======================================================
-# Score histórico por combinação estrutural
+# Score REAL por combinação estrutural
 # ======================================================
-def calcular_score_combinacoes(
+def calcular_score_combinacoes_reais(
     ano: int = 2026
 ) -> Dict[Tuple, float]:
     """
-    Calcula score histórico REAL das combinações estruturais
-    usando palpites_resultados_reais
-
-    Chave:
-    (soma_aproximada, pares, primos, linhas)
+    Score histórico REAL baseado em resultados consolidados
     """
 
     supabase = get_supabase()
@@ -102,10 +95,16 @@ def calcular_score_combinacoes(
         scores[chave] += impacto
         ocorrencias[chave] += 1
 
-    # Normalização segura
-    score_final = {}
-    for k in scores:
-        score_final[k] = round(scores[k] / ocorrencias[k], 6)
+    return {
+        k: round(scores[k] / ocorrencias[k], 6)
+        for k in scores
+    }
 
-    return score_final
+
+# ======================================================
+# BACKWARD COMPATIBILITY
+# ======================================================
+# Se algum módulo antigo ainda chamar esse nome
+calcular_score_combinacoes = calcular_score_combinacoes_reais
+
 
