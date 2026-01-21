@@ -14,10 +14,10 @@ PESO_15 = 1.00
 
 
 # ======================================================
-# Métricas estruturais
+# Métricas estruturais (USADAS PELO GERADOR)
 # ======================================================
 def extrair_metricas_jogo(nums):
-    soma = sum(nums)
+    soma_total = sum(nums)
     pares = sum(1 for n in nums if n % 2 == 0)
     primos = sum(1 for n in nums if n in {2, 3, 5, 7, 11, 13, 17, 19, 23})
 
@@ -30,7 +30,7 @@ def extrair_metricas_jogo(nums):
     )
 
     return {
-        "soma": soma,
+        "soma": soma_total,
         "pares": pares,
         "primos": primos,
         "linhas": linhas
@@ -45,6 +45,7 @@ def calcular_score_combinacoes_reais(
 ) -> Dict[Tuple, float]:
     """
     Score histórico REAL baseado em resultados consolidados
+    (estrutura 100% compatível com o schema atual do banco)
     """
 
     supabase = get_supabase()
@@ -54,7 +55,7 @@ def calcular_score_combinacoes_reais(
         .table("palpites_resultados_reais")
         .select(
             """
-            soma,
+            soma_total,
             pares,
             primos,
             linhas,
@@ -70,11 +71,11 @@ def calcular_score_combinacoes_reais(
         .execute()
     )
 
-    scores = defaultdict(float)
-    ocorrencias = defaultdict(int)
-
     if not res.data:
         return {}
+
+    scores = defaultdict(float)
+    ocorrencias = defaultdict(int)
 
     for r in res.data:
         impacto = (
@@ -85,11 +86,14 @@ def calcular_score_combinacoes_reais(
             r["acertos_15"] * PESO_15
         )
 
+        # linhas vem do banco como array/list
+        linhas = tuple(r["linhas"]) if r["linhas"] else (0, 0, 0, 0, 0)
+
         chave = (
-            round(r["soma"] / 10) * 10,
+            round(r["soma_total"] / 10) * 10,
             r["pares"],
             r["primos"],
-            tuple(r["linhas"])
+            linhas
         )
 
         scores[chave] += impacto
@@ -104,7 +108,5 @@ def calcular_score_combinacoes_reais(
 # ======================================================
 # BACKWARD COMPATIBILITY
 # ======================================================
-# Se algum módulo antigo ainda chamar esse nome
 calcular_score_combinacoes = calcular_score_combinacoes_reais
-
 
