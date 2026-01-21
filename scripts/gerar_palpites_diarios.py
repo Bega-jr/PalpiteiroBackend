@@ -32,14 +32,10 @@ PARES_MAX = 9
 
 SEQ_MAX = 4
 
-# Score histórico (percentil)
-PERCENTIL_MIN = 0.60  # aceita apenas top 40% histórico
-
-# Repetição com concursos recentes
+PERCENTIL_MIN = 0.60
 REPET_MIN = 8
 REPET_MAX = 11
 
-# Distribuição espacial por linha (1–5, 6–10, etc)
 LINHA_MIN = 2
 LINHA_MAX = 4
 
@@ -63,21 +59,17 @@ def max_sequencia(nums):
     return seq
 
 def distribuicao_linhas(nums):
-    linhas = {
-        1: range(1, 6),
-        2: range(6, 11),
-        3: range(11, 16),
-        4: range(16, 21),
-        5: range(21, 26),
-    }
-    contagem = []
-    for r in linhas.values():
-        contagem.append(sum(1 for n in nums if n in r))
-    return contagem
+    linhas = [
+        range(1, 6),
+        range(6, 11),
+        range(11, 16),
+        range(16, 21),
+        range(21, 26),
+    ]
+    return [sum(1 for n in nums if n in r) for r in linhas]
 
 def linhas_ok(nums):
-    dist = distribuicao_linhas(nums)
-    return all(LINHA_MIN <= x <= LINHA_MAX for x in dist)
+    return all(LINHA_MIN <= x <= LINHA_MAX for x in distribuicao_linhas(nums))
 
 def finais_ok(nums):
     finais = {}
@@ -109,7 +101,6 @@ def validar(nums, scores_combinacao, score_min, ultimos):
     if not repeticao_ok(nums, ultimos):
         return False
 
-    # Score histórico por combinação
     m = extrair_metricas_jogo(nums)
     chave = (
         round(m["soma"] / 10) * 10,
@@ -118,8 +109,7 @@ def validar(nums, scores_combinacao, score_min, ultimos):
         m["linhas"]
     )
 
-    score = scores_combinacao.get(chave, 0)
-    return score >= score_min
+    return scores_combinacao.get(chave, 0) >= score_min
 
 # -----------------------------------
 # Geração controlada
@@ -141,17 +131,18 @@ def main():
     print(f"🚀 Gerador V2.1 iniciado para {hoje}")
 
     # -----------------------------------
-    # Último concurso (repetição)
+    # Concurso de referência (OFICIAL)
     # -----------------------------------
-    ultimo = (
+    ultimo_concurso = (
         supabase.table("lotofacil_concursos")
-        .select("dezenas")
+        .select("concurso, dezenas")
         .order("concurso", desc=True)
         .limit(1)
         .execute()
     ).data
 
-    ultimos_numeros = [int(n) for n in ultimo[0]["dezenas"]]
+    concurso_referencia = ultimo_concurso[0]["concurso"]
+    ultimos_numeros = list(map(int, ultimo_concurso[0]["dezenas"]))
 
     # -----------------------------------
     # Estatísticas diárias
@@ -189,20 +180,22 @@ def main():
     # -----------------------------------
     penalidades = obter_penalidades_por_numero(ano=2026)
 
-    numeros_ajustados = [
-        {
-            "numero": n["numero"],
-            "score": n["score"] * penalidades.get(n["numero"], 1.0)
-        }
-        for n in numeros
-    ]
-
-    numeros_ajustados.sort(key=lambda x: x["score"], reverse=True)
+    numeros_ajustados = sorted(
+        [
+            {
+                "numero": n["numero"],
+                "score": n["score"] * penalidades.get(n["numero"], 1.0)
+            }
+            for n in numeros
+        ],
+        key=lambda x: x["score"],
+        reverse=True
+    )
 
     pool = [n["numero"] for n in numeros_ajustados[:20]]
 
     # -----------------------------------
-    # Score histórico por combinação
+    # Score histórico
     # -----------------------------------
     scores_combinacao = calcular_score_combinacoes()
     scores_validos = sorted(scores_combinacao.values(), reverse=True)
@@ -210,14 +203,14 @@ def main():
     idx = int(len(scores_validos) * PERCENTIL_MIN)
     score_min = scores_validos[idx]
 
-    print(f"📊 Score mínimo por percentil: {score_min}")
+    print(f"📊 Score mínimo aplicado: {score_min}")
 
     # -----------------------------------
-    # Limpa palpites do dia
+    # Limpeza do dia
     # -----------------------------------
     supabase.table("palpites_validos") \
         .delete() \
-        .eq("data_referencia", data_ref) \
+        .eq("concurso_referencia", concurso_referencia) \
         .execute()
 
     registros = []
@@ -236,6 +229,7 @@ def main():
 
     registros.append({
         "data_referencia": data_ref,
+        "concurso_referencia": concurso_referencia,
         "tipo": "fixo",
         "indice_palpite": 0,
         "numeros": json.dumps(fixo),
@@ -251,13 +245,9 @@ def main():
     # -----------------------------------
     # ESTATÍSTICOS
     # -----------------------------------
-    gerados = 0
-
-    while gerados < QTD_ESTATISTICOS:
+    for i in range(QTD_ESTATISTICOS):
         palpite = gerar_palpite(pool, scores_combinacao, score_min, ultimos_numeros)
-        if not palpite:
-            break
-        if tuple(palpite) in usados:
+        if not palpite or tuple(palpite) in usados:
             continue
 
         usados.add(tuple(palpite))
@@ -265,8 +255,9 @@ def main():
 
         registros.append({
             "data_referencia": data_ref,
+            "concurso_referencia": concurso_referencia,
             "tipo": "estatistico",
-            "indice_palpite": gerados + 1,
+            "indice_palpite": i + 1,
             "numeros": json.dumps(palpite),
             "pares": pares,
             "impares": impares,
@@ -277,16 +268,15 @@ def main():
             })
         })
 
-        gerados += 1
-
     # -----------------------------------
     # Persistência
     # -----------------------------------
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print(f"✅ Gerados {1 + gerados} palpites válidos")
-    print("📈 Consistência histórica aplicada")
-    print("🎯 Gerador V2.1 finalizado")
+    print(f"✅ Gerados {len(registros)} palpites válidos")
+    print("🎯 Gerador V2.1 finalizado com fonte correta")
 
+# -----------------------------------
 if __name__ == "__main__":
     main()
+
