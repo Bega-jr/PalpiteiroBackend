@@ -21,27 +21,26 @@ from app.services.estatisticas_combinacao_v3 import (
 )
 
 # ======================================================
-# Configurações Sugeridas (Mais flexíveis)
+# Configurações
 # ======================================================
 QTD_ESTATISTICOS = 6
 VERSAO_GERADOR = "v3-score-real-historico"
-MAX_TENTATIVAS = 15000 # Aumentado para dar mais chance
+MAX_TENTATIVAS = 15000
 
-SOMA_MIN = 155 # Era 170
-SOMA_MAX = 225 # Era 210
+SOMA_MIN = 155
+SOMA_MAX = 225
 
-PARES_MIN = 5 # Era 6
-PARES_MAX = 10 # Era 9
+PARES_MIN = 5
+PARES_MAX = 10
 
-SEQ_MAX = 5 # Era 4
+SEQ_MAX = 5
 
-PERCENTIL_MIN = 0.30 # Era 0.65 (Aceita scores um pouco menores se necessário)
-REPET_MIN = 7 # Era 8
-REPET_MAX = 12 # Era 11
+PERCENTIL_MIN = 0.30
+REPET_MIN = 7
+REPET_MAX = 12
 
-LINHA_MIN = 1 # Era 2 (Muito restritivo)
-LINHA_MAX = 5 # Era 4
-
+LINHA_MIN = 1
+LINHA_MAX = 5
 
 # ======================================================
 # Funções auxiliares
@@ -91,7 +90,6 @@ def repeticao_ok(nums, ultimos):
     repetidos = len(set(nums) & set(ultimos))
     return REPET_MIN <= repetidos <= REPET_MAX
 
-
 # ======================================================
 # Validação principal
 # ======================================================
@@ -120,11 +118,10 @@ def validar(nums, scores_combinacao, score_min, ultimos, fator_aprendizado):
         tuple(m["linhas"])
     )
 
-    score_base = scores_combinacao.get(chave, 0)
+    score_base = scores_combinacao.get(chave, score_min * 0.9)
     score_final = aplicar_fator_aprendizado(score_base, fator_aprendizado)
 
     return score_final >= score_min
-
 
 # ======================================================
 # Geração controlada
@@ -136,7 +133,6 @@ def gerar_palpite(pool, scores_combinacao, score_min, ultimos, fator_aprendizado
             return nums
     return None
 
-
 # ======================================================
 # Execução principal
 # ======================================================
@@ -146,9 +142,6 @@ def main():
 
     print(f"🚀 Gerador {VERSAO_GERADOR} iniciado em {hoje}")
 
-    # --------------------------------------------------
-    # Concurso oficial
-    # --------------------------------------------------
     ultimo_concurso = (
         supabase.table("lotofacil_concursos")
         .select("concurso, dezenas")
@@ -160,9 +153,6 @@ def main():
     concurso_ref = ultimo_concurso[0]["concurso"]
     ultimos_numeros = list(map(int, ultimo_concurso[0]["dezenas"]))
 
-    # --------------------------------------------------
-    # Estatísticas por número (SOMENTE PARA POOL)
-    # --------------------------------------------------
     estat_numeros = (
         supabase.table("estatisticas_numeros")
         .select("numero, score")
@@ -174,30 +164,19 @@ def main():
         print("❌ Estatísticas de números não encontradas")
         return
 
-    pool = [n["numero"] for n in estat_numeros[:20]]
+    pool = [n["numero"] for n in estat_numeros[:22]]
 
-    # --------------------------------------------------
-    # Aprendizado V3 (GLOBAL)
-    # --------------------------------------------------
     aprendizado = obter_fator_aprendizado_global()
     fator_aprendizado = aprendizado["fator"]
-
     print(f"🧠 Fator de aprendizado global: {fator_aprendizado}")
 
-    # --------------------------------------------------
-    # Score real por combinação histórica
-    # --------------------------------------------------
     scores_combinacao = calcular_score_combinacoes_reais()
     valores = sorted(scores_combinacao.values(), reverse=True)
 
     corte = int(len(valores) * PERCENTIL_MIN)
-    score_min = valores[corte]
-
+    score_min = max(0.1, valores[corte])
     print(f"📊 Score mínimo real aplicado: {score_min}")
 
-    # --------------------------------------------------
-    # Limpeza do concurso
-    # --------------------------------------------------
     supabase.table("palpites_validos") \
         .delete() \
         .eq("concurso_referencia", concurso_ref) \
@@ -206,19 +185,20 @@ def main():
     registros = []
     usados = set()
 
-    # --------------------------------------------------
-    # Palpite fixo
-    # --------------------------------------------------
-    fixo = gerar_palpite(
-        pool,
-        scores_combinacao,
-        score_min,
-        ultimos_numeros,
-        fator_aprendizado
-    )
+    fixo = gerar_palpite(pool, scores_combinacao, score_min, ultimos_numeros, fator_aprendizado)
 
     if not fixo:
-        print("❌ Falha ao gerar palpite fixo")
+        print("⚠️ Fallback ativado: score mínimo relaxado")
+        fixo = gerar_palpite(
+            pool,
+            scores_combinacao,
+            score_min * 0.8,
+            ultimos_numeros,
+            fator_aprendizado
+        )
+
+    if not fixo:
+        print("❌ Falha crítica: nenhum palpite viável")
         return
 
     usados.add(tuple(fixo))
@@ -240,17 +220,8 @@ def main():
         })
     })
 
-    # --------------------------------------------------
-    # Palpites estatísticos
-    # --------------------------------------------------
     for i in range(QTD_ESTATISTICOS):
-        palpite = gerar_palpite(
-            pool,
-            scores_combinacao,
-            score_min,
-            ultimos_numeros,
-            fator_aprendizado
-        )
+        palpite = gerar_palpite(pool, scores_combinacao, score_min, ultimos_numeros, fator_aprendizado)
 
         if not palpite or tuple(palpite) in usados:
             continue
@@ -274,9 +245,6 @@ def main():
             })
         })
 
-    # --------------------------------------------------
-    # Persistência
-    # --------------------------------------------------
     supabase.table("palpites_validos").insert(registros).execute()
 
     print(f"✅ {len(registros)} palpites gerados com score real")
@@ -285,4 +253,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
