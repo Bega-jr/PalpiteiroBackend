@@ -3,6 +3,7 @@ import json
 import random
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
 
 # ======================================================
 # Setup base
@@ -18,26 +19,24 @@ from app.services.estatisticas_combinacao_v3 import (
 )
 
 # ======================================================
-# Configurações Gerais
+# Configurações
 # ======================================================
-VERSAO_GERADOR = "v3.2-score-real-estavel"
+VERSAO_GERADOR = "v3.3-debug-diagnostico"
 QTD_ESTATISTICOS = 6
 MAX_TENTATIVAS = 20000
 
-# Regras numéricas (flexíveis e reais)
 SOMA_MIN, SOMA_MAX = 150, 230
 PARES_MIN, PARES_MAX = 5, 10
-SEQ_MAX_GLOBAL = 6     # sequência total
-SEQ_MAX_LINHA = 5      # sequência dentro da mesma linha
+SEQ_MAX_GLOBAL = 6
+SEQ_MAX_LINHA = 5
 REPET_MIN, REPET_MAX = 7, 12
 LINHA_MIN, LINHA_MAX = 1, 5
 
-# Score
 PERCENTIL_INICIAL = 0.20
-SCORE_NEUTRO = 0.05    # quando não existe histórico
+SCORE_NEUTRO = 0.05
 
 # ======================================================
-# Funções auxiliares
+# Métricas
 # ======================================================
 def calcular_metricas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
@@ -64,12 +63,7 @@ def sequencia_por_linha(nums):
         4: [n for n in nums if 16 <= n <= 20],
         5: [n for n in nums if 21 <= n <= 25],
     }
-
-    maior = 1
-    for l in linhas.values():
-        l = sorted(l)
-        maior = max(maior, max_sequencia(l) if l else 1)
-    return maior
+    return max(max_sequencia(sorted(v)) if v else 1 for v in linhas.values())
 
 
 def linhas_ok(nums):
@@ -84,41 +78,45 @@ def linhas_ok(nums):
 
 
 def finais_ok(nums):
-    finais = {}
+    finais = defaultdict(int)
     for n in nums:
-        f = n % 10
-        finais[f] = finais.get(f, 0) + 1
+        finais[n % 10] += 1
     return max(finais.values()) <= 3
 
 
 def repeticao_ok(nums, ultimos):
-    repetidos = len(set(nums) & set(ultimos))
-    return REPET_MIN <= repetidos <= REPET_MAX
+    return REPET_MIN <= len(set(nums) & set(ultimos)) <= REPET_MAX
 
 
 # ======================================================
-# Validação principal
+# Validação com DEBUG
 # ======================================================
-def validar(nums, scores, score_min, ultimos, fator):
+def validar(nums, scores, score_min, ultimos, fator, debug):
+    falhas = []
+
     pares, soma = calcular_metricas(nums)
-
     if not (SOMA_MIN <= soma <= SOMA_MAX):
-        return False
+        falhas.append("soma")
+
     if not (PARES_MIN <= pares <= PARES_MAX):
-        return False
+        falhas.append("pares")
+
     if max_sequencia(nums) > SEQ_MAX_GLOBAL:
-        return False
+        falhas.append("sequencia_global")
+
     if sequencia_por_linha(nums) > SEQ_MAX_LINHA:
-        return False
+        falhas.append("sequencia_linha")
+
     if not linhas_ok(nums):
-        return False
+        falhas.append("linhas")
+
     if not finais_ok(nums):
-        return False
+        falhas.append("finais")
+
     if not repeticao_ok(nums, ultimos):
-        return False
+        falhas.append("repeticao")
 
     m = extrair_metricas_jogo(nums)
-
     chave = (
         round(m["soma"] / 10) * 10,
         m["pares"],
@@ -129,16 +127,23 @@ def validar(nums, scores, score_min, ultimos, fator):
     base = scores.get(chave)
     score_final = (base if base is not None else SCORE_NEUTRO) * fator
 
-    return score_final >= score_min
+    if score_final < score_min:
+        falhas.append("score")
+
+    # DEBUG sempre registra TODAS as falhas
+    for f in falhas:
+        debug[f] += 1
+
+    return len(falhas) == 0
 
 
 # ======================================================
-# Geração controlada
+# Geração
 # ======================================================
-def gerar_palpite(pool, scores, score_min, ultimos, fator):
+def gerar_palpite(pool, scores, score_min, ultimos, fator, debug):
     for _ in range(MAX_TENTATIVAS):
         nums = sorted(random.sample(pool, 15))
-        if validar(nums, scores, score_min, ultimos, fator):
+        if validar(nums, scores, score_min, ultimos, fator, debug):
             return nums
     return None
 
@@ -150,9 +155,8 @@ def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
 
-    print(f"🚀 Gerador {VERSAO_GERADOR} iniciado em {hoje}")
+    print(f"\n🚀 Gerador {VERSAO_GERADOR} iniciado em {hoje}")
 
-    # Último concurso
     concurso = (
         supabase.table("lotofacil_concursos")
         .select("concurso, dezenas")
@@ -161,85 +165,47 @@ def main():
         .execute()
     ).data[0]
 
-    concurso_ref = concurso["concurso"]
     ultimos = list(map(int, concurso["dezenas"]))
+    concurso_ref = concurso["concurso"]
 
-    # Pool ampliado
-    estat = (
+    pool = [
+        n["numero"] for n in
         supabase.table("estatisticas_numeros")
         .select("numero")
         .order("score", desc=True)
         .limit(30)
-        .execute()
-    ).data
+        .execute().data
+    ]
 
-    pool = [n["numero"] for n in estat]
-
-    # Aprendizado global
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator de aprendizado global: {fator}")
 
-    # Scores reais
     scores = calcular_score_combinacoes_reais()
     valores = sorted(scores.values(), reverse=True)
-
     score_min = valores[int(len(valores) * PERCENTIL_INICIAL)] if valores else 0.03
+
     print(f"📊 Score mínimo aplicado: {round(score_min,4)}")
 
-    supabase.table("palpites_validos") \
-        .delete() \
-        .eq("concurso_referencia", concurso_ref) \
-        .execute()
+    debug = defaultdict(int)
 
-    registros = []
-    usados = set()
+    fixo = gerar_palpite(pool, scores, score_min, ultimos, fator, debug)
 
-    # Palpite fixo
-    fixo = gerar_palpite(pool, scores, score_min, ultimos, fator)
     if not fixo:
-        print("❌ Falha crítica evitada: nenhuma validação passou, mas sistema não travou")
+        print("\n❌ NENHUM PALPITE GERADO")
+        print("\n📉 RELATÓRIO DE BLOQUEIO POR REGRA:")
+        total = sum(debug.values())
+        for k, v in sorted(debug.items(), key=lambda x: -x[1]):
+            pct = (v / total * 100) if total else 0
+            print(f" - {k:20}: {v:6} ({pct:.1f}%)")
+        print("\n⚠️ Ajuste recomendado: regra com maior percentual")
         return
 
-    usados.add(tuple(fixo))
-    pares, soma = calcular_metricas(fixo)
-
-    registros.append({
-        "data_referencia": hoje,
-        "concurso_referencia": concurso_ref,
-        "tipo": "fixo",
-        "indice_palpite": 0,
-        "numeros": json.dumps(fixo),
-        "pares": pares,
-        "impares": 15 - pares,
-        "soma_total": soma,
-        "metricas": json.dumps({"versao": VERSAO_GERADOR})
-    })
-
-    # Estatísticos
-    for i in range(QTD_ESTATISTICOS):
-        p = gerar_palpite(pool, scores, score_min, ultimos, fator)
-        if not p or tuple(p) in usados:
-            continue
-        usados.add(tuple(p))
-        pares, soma = calcular_metricas(p)
-
-        registros.append({
-            "data_referencia": hoje,
-            "concurso_referencia": concurso_ref,
-            "tipo": "estatistico",
-            "indice_palpite": i + 1,
-            "numeros": json.dumps(p),
-            "pares": pares,
-            "impares": 15 - pares,
-            "soma_total": soma,
-            "metricas": json.dumps({"versao": VERSAO_GERADOR})
-        })
-
-    supabase.table("palpites_validos").insert(registros).execute()
-    print(f"✅ {len(registros)} palpites gerados com sucesso")
+    print("✅ Palpite fixo gerado com sucesso")
+    print(fixo)
 
 
 if __name__ == "__main__":
     main()
+
 
 
