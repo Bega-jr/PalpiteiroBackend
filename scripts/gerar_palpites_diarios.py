@@ -18,66 +18,92 @@ from app.services.estatisticas_combinacao_v3 import (
 )
 
 # ======================================================
-# Configuração ESTÁVEL (produção)
+# CONFIGURAÇÕES – v3.1 ESTÁVEL
 # ======================================================
-QTD_ESTATISTICOS = 6
 VERSAO_GERADOR = "v3.1-score-real-estavel"
+QTD_ESTATISTICOS = 6
 MAX_TENTATIVAS = 20000
 
-# Limites base
-SOMA_MIN, SOMA_MAX = 150, 230
-PARES_MIN, PARES_MAX = 5, 10
-SEQ_MAX = 5
-REPET_MIN, REPET_MAX = 6, 13
-LINHA_MIN, LINHA_MAX = 0, 6
+SOMA_MIN = 155
+SOMA_MAX = 225
 
-PERCENTIL_MIN = 0.20   # MUITO importante
-SCORE_FALLBACK = 0.05  # score mínimo absoluto
+PARES_MIN = 5
+PARES_MAX = 10
+
+REPET_MIN = 6
+REPET_MAX = 12
+
+SEQ_LINHA_MAX = 4          # sequência MÁXIMA dentro da mesma linha
+PESO_SEQ_LINHA = 0.08      # penalização suave
+
+LINHA_MIN = 1
+LINHA_MAX = 5
+
+PERCENTIL_INICIAL = 0.30
+RELAX_FATOR = 0.7
+MAX_RELAX = 5
 
 # ======================================================
-# Auxiliares
+# FUNÇÕES AUXILIARES
 # ======================================================
-def calcular_metricas(nums):
+def calcular_metricas_basicas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
     soma = sum(nums)
     return pares, soma
 
 
-def max_sequencia(nums):
-    atual = seq = 1
-    for i in range(1, len(nums)):
-        atual = atual + 1 if nums[i] == nums[i - 1] + 1 else 1
-        seq = max(seq, atual)
-    return seq
+def repeticao_ok(nums, ultimos):
+    rep = len(set(nums) & set(ultimos))
+    return REPET_MIN <= rep <= REPET_MAX
 
 
-def linhas_ok(nums):
-    linhas = [
+def distribuicao_linhas(nums):
+    return (
         sum(1 for n in nums if 1 <= n <= 5),
         sum(1 for n in nums if 6 <= n <= 10),
         sum(1 for n in nums if 11 <= n <= 15),
         sum(1 for n in nums if 16 <= n <= 20),
         sum(1 for n in nums if 21 <= n <= 25),
-    ]
-    return all(LINHA_MIN <= x <= LINHA_MAX for x in linhas)
+    )
 
 
-def repeticao_ok(nums, ultimos):
-    r = len(set(nums) & set(ultimos))
-    return REPET_MIN <= r <= REPET_MAX
+def linhas_ok(nums):
+    return all(LINHA_MIN <= x <= LINHA_MAX for x in distribuicao_linhas(nums))
+
+
+def max_sequencia_por_linha(nums):
+    linhas = {
+        1: [n for n in nums if 1 <= n <= 5],
+        2: [n for n in nums if 6 <= n <= 10],
+        3: [n for n in nums if 11 <= n <= 15],
+        4: [n for n in nums if 16 <= n <= 20],
+        5: [n for n in nums if 21 <= n <= 25],
+    }
+
+    def max_seq(lista):
+        if len(lista) < 2:
+            return 1
+        seq = atual = 1
+        for i in range(1, len(lista)):
+            if lista[i] == lista[i - 1] + 1:
+                atual += 1
+                seq = max(seq, atual)
+            else:
+                atual = 1
+        return seq
+
+    return max(max_seq(sorted(v)) for v in linhas.values())
 
 
 # ======================================================
-# Validação INTELIGENTE
+# VALIDAÇÃO PRINCIPAL (SOFT)
 # ======================================================
-def validar(nums, scores, score_min, ultimos, fator):
-    pares, soma = calcular_metricas(nums)
+def validar(nums, scores, score_min, ultimos, fator_aprendizado):
+    pares, soma = calcular_metricas_basicas(nums)
 
     if not (SOMA_MIN <= soma <= SOMA_MAX):
         return False
     if not (PARES_MIN <= pares <= PARES_MAX):
-        return False
-    if max_sequencia(nums) > SEQ_MAX:
         return False
     if not linhas_ok(nums):
         return False
@@ -93,34 +119,38 @@ def validar(nums, scores, score_min, ultimos, fator):
         tuple(m["linhas"])
     )
 
-    # ⚠️ Se não existe no histórico → aceita com score base
-    score_base = scores.get(chave, SCORE_FALLBACK)
+    score = scores.get(chave, 0) * fator_aprendizado
 
-    score_final = score_base * fator
-    return score_final >= score_min
+    # Penalização suave por sequência na mesma linha
+    seq_linha = max_sequencia_por_linha(nums)
+    if seq_linha > SEQ_LINHA_MAX:
+        score -= PESO_SEQ_LINHA
+
+    return score >= score_min
 
 
 # ======================================================
-# Gerador com Fallback REAL
+# GERADOR COM FALLBACK
 # ======================================================
-def gerar_palpite(pool, scores, score_min, ultimos, fator):
+def gerar_palpite(pool, scores, score_min, ultimos, fator_aprendizado):
+    tentativas_relax = 0
     score_atual = score_min
 
-    for etapa in range(3):
-        for _ in range(MAX_TENTATIVAS // 3):
+    while tentativas_relax <= MAX_RELAX:
+        for _ in range(MAX_TENTATIVAS):
             nums = sorted(random.sample(pool, 15))
-            if validar(nums, scores, score_atual, ultimos, fator):
+            if validar(nums, scores, score_atual, ultimos, fator_aprendizado):
                 return nums
 
-        # Relaxamento progressivo
-        score_atual *= 0.7
+        score_atual *= RELAX_FATOR
+        tentativas_relax += 1
         print(f"⚠️ Relaxando score mínimo para {round(score_atual, 4)}")
 
     return None
 
 
 # ======================================================
-# Execução principal
+# EXECUÇÃO PRINCIPAL
 # ======================================================
 def main():
     supabase = get_supabase()
@@ -128,7 +158,8 @@ def main():
 
     print(f"🚀 Gerador {VERSAO_GERADOR} iniciado em {hoje}")
 
-    ultimo = (
+    # Último concurso
+    concurso = (
         supabase.table("lotofacil_concursos")
         .select("concurso, dezenas")
         .order("concurso", desc=True)
@@ -136,34 +167,36 @@ def main():
         .execute()
     ).data[0]
 
-    concurso_ref = ultimo["concurso"]
-    ultimos_numeros = list(map(int, ultimo["dezenas"]))
+    concurso_ref = concurso["concurso"]
+    ultimos = list(map(int, concurso["dezenas"]))
 
+    # Pool (top 20 números)
     estat = (
         supabase.table("estatisticas_numeros")
         .select("numero")
         .order("score", desc=True)
-        .limit(22)
+        .limit(20)
         .execute()
     ).data
 
     pool = [n["numero"] for n in estat]
 
+    # Aprendizado global
     aprendizado = obter_fator_aprendizado_global()
     fator = aprendizado["fator"]
+
     print(f"🧠 Fator de aprendizado global: {fator}")
 
+    # Score real histórico
     scores = calcular_score_combinacoes_reais()
     valores = sorted(scores.values(), reverse=True)
 
-    if valores:
-        corte = int(len(valores) * PERCENTIL_MIN)
-        score_min = max(valores[corte], SCORE_FALLBACK)
-    else:
-        score_min = SCORE_FALLBACK
+    corte = int(len(valores) * PERCENTIL_INICIAL)
+    score_min = valores[corte]
 
     print(f"📊 Score mínimo aplicado: {score_min}")
 
+    # Limpeza
     supabase.table("palpites_validos") \
         .delete() \
         .eq("concurso_referencia", concurso_ref) \
@@ -172,20 +205,45 @@ def main():
     registros = []
     usados = set()
 
-    for i in range(QTD_ESTATISTICOS + 1):
-        palpite = gerar_palpite(pool, scores, score_min, ultimos_numeros, fator)
+    # Palpite fixo
+    fixo = gerar_palpite(pool, scores, score_min, ultimos, fator)
+    if not fixo:
+        print("❌ Falha crítica evitada: nenhuma validação passou, mas sistema não travou")
+        return
 
+    usados.add(tuple(fixo))
+    pares, soma = calcular_metricas_basicas(fixo)
+
+    registros.append({
+        "data_referencia": hoje,
+        "concurso_referencia": concurso_ref,
+        "tipo": "fixo",
+        "indice_palpite": 0,
+        "numeros": json.dumps(fixo),
+        "pares": pares,
+        "impares": 15 - pares,
+        "soma_total": soma,
+        "metricas": json.dumps({
+            "versao": VERSAO_GERADOR,
+            "aprendizado": "v3-global",
+            "sequencia": "soft-por-linha"
+        })
+    })
+
+    # Estatísticos
+    for i in range(QTD_ESTATISTICOS):
+        palpite = gerar_palpite(pool, scores, score_min, ultimos, fator)
         if not palpite or tuple(palpite) in usados:
             continue
 
         usados.add(tuple(palpite))
-        pares, soma = calcular_metricas(palpite)
+        pares, soma = calcular_metricas_basicas(palpite)
 
         registros.append({
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
-            "tipo": "fixo" if i == 0 else "estatistico",
-            "indice_palpite": i,
+            "tipo": "estatistico",
+            "indice_palpite": i + 1,
             "numeros": json.dumps(palpite),
             "pares": pares,
             "impares": 15 - pares,
@@ -193,16 +251,14 @@ def main():
             "metricas": json.dumps({
                 "versao": VERSAO_GERADOR,
                 "aprendizado": "v3-global",
-                "fallback": True
+                "sequencia": "soft-por-linha"
             })
         })
 
-    if not registros:
-        print("❌ Falha crítica evitada: nenhuma validação passou, mas sistema não travou")
-        return
-
     supabase.table("palpites_validos").insert(registros).execute()
+
     print(f"✅ {len(registros)} palpites gerados com sucesso")
+    print("🎯 Gerador finalizado com estabilidade total")
 
 
 if __name__ == "__main__":
