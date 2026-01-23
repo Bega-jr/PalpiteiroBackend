@@ -1,19 +1,19 @@
-name: Atualizar Estatisticas Diarias + Gerar Palpites
+name: Pipeline Lotofácil 2026 - Estatísticas, Conferência e Geração
 
 on:
   schedule:
-    - cron: "45 0 * * *" # 21:45 Horário de Brasília
-  workflow_dispatch:
+    # 21:45 Horário de Brasília (00:45 UTC do dia seguinte)
+    - cron: "45 0 * * *" 
+  workflow_dispatch: # Permite rodar manualmente a qualquer momento
 
 jobs:
-  atualizar-supabase:
+  pipeline-lotofacil:
     runs-on: ubuntu-latest
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_KEY }}
-      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+      # Garante que o Python encontre os módulos na raiz do projeto
       PYTHONPATH: .
 
     steps:
@@ -29,19 +29,30 @@ jobs:
       - name: 📦 Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          pip install pandas supabase python-dotenv requests numpy fastapi
+          pip install pandas supabase python-dotenv requests numpy
 
-      # ----------------------------
-      # 1️⃣ PROCESSAMENTO ESTATÍSTICO
-      # ----------------------------
-      - name: 📊 Processar Estatísticas Diárias
+      # ------------------------------------------------------------
+      # 1️⃣ PASSO: Atualiza o banco com o sorteio oficial que acabou de sair
+      # ------------------------------------------------------------
+      - name: 📊 Processar Resultados e Estatísticas
         run: |
           python scripts/processamento_diario_lotofacil.py
 
-      # ----------------------------
-      # 2️⃣ GERAÇÃO DE PALPITES
-      # ----------------------------
-      - name: 🎯 Gerar Palpites do Dia
+      # ------------------------------------------------------------
+      # 2️⃣ PASSO: Confere os acertos dos palpites de ontem (FEEDBACK LOOP)
+      # Este passo preenche a coluna 'acertos' para o gerador aprender.
+      # ------------------------------------------------------------
+      - name: 🏁 Conferir Acertos (Feedback Loop)
+        run: |
+          python scripts/conferir_resultados.py
+
+      # ------------------------------------------------------------
+      # 3️⃣ PASSO: Gera os palpites para o próximo concurso
+      # Agora o gerador já sabe o que funcionou no passo anterior.
+      # ------------------------------------------------------------
+      - name: 🎯 Gerar Novos Palpites (v7.3)
         run: |
           python scripts/gerar_palpites_diarios.py
 
+      - name: ✅ Finalização
+        run: echo "Pipeline finalizado com sucesso para o ciclo de 2026."
