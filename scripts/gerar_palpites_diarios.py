@@ -16,7 +16,7 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 
 # Configurações para 2026
 QTD_PALPITES = 7
-VERSAO_GERADOR = "v7.0-elite-cascade-2026"
+VERSAO_GERADOR = "v7.1-elite-fixed-2026"
 
 def obter_metricas_completas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
@@ -36,38 +36,45 @@ def main():
         concurso_ref = res_con.data[0]["concurso"]
         ultimos = list(map(int, res_con.data[0]["dezenas"]))
         
-        # Pool Completo de 25 dezenas para permitir que os padrões de elite sejam encontrados
-        res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(25).execute()
-        pool = [r["numero"] for r in res_pool.data]
+        # BUSCA DE POOL COM LIMPEZA DE DUPLICADOS (Crucial para evitar números repetidos)
+        res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(40).execute()
+        # O set() garante números únicos; list() permite o random.sample
+        pool = sorted(list(set([int(r["numero"]) for r in res_pool.data])))
+        
+        if len(pool) < 15:
+            logging.error(f"Erro: Pool insuficiente ({len(pool)} números). Verifique a tabela estatisticas_numeros.")
+            return
+            
     except Exception as e:
         logging.error(f"Erro ao carregar dados: {e}")
         return
 
     fator = obter_fator_aprendizado_global().get("fator", 1.0)
-    # Carrega os scores baseados nos últimos 1000 concursos reais
+    # Aprende com os últimos 1000 resultados reais
     scores_db = calcular_score_combinacoes_reais(1000)
 
-    print(f"🚀 Iniciando Geração Adaptativa v7.0 [Concurso {concurso_ref}]")
+    print(f"🚀 Iniciando Geração Adaptativa v7.1 [Ref: {concurso_ref} em 2026]")
+    print(f"🎱 Pool de Dezenas Únicas: {pool}")
 
     candidatos = []
     usados = set()
 
-    # Nível 5: MODO ELITE (Apenas padrões de alta frequência do histórico)
-    # Nível 4 ao 1: Filtros Adaptativos
-    # Nível 0: Segurança Total
+    # Hierarquia de 5 a 0
     for nivel in range(5, -1, -1):
         if len(candidatos) >= QTD_PALPITES: break
         
         print(f"  🔍 Tentando Nível de Rigidez {nivel}...")
         
-        # Aumentamos as tentativas para o Nível Elite para dar tempo de encontrar as chaves
-        tentativas = 30000 if nivel == 5 else 15000
+        # Mais tentativas para níveis de elite
+        tentativas = 40000 if nivel == 5 else 20000
         
         for _ in range(tentativas):
             if len(candidatos) >= QTD_PALPITES: break
             
+            # Gera 15 números ÚNICOS do pool
             nums = sorted(random.sample(pool, 15))
-            if tuple(nums) in usados: continue
+            t_nums = tuple(nums)
+            if t_nums in usados: continue
             
             m = obter_metricas_completas(nums)
             metr_adv = extrair_metricas_jogo(nums)
@@ -78,29 +85,29 @@ def main():
             
             valido = True
             
-            # --- HIERARQUIA DE REGRAS ---
+            # --- REGRAS POR NÍVEL ---
             if nivel == 5:
-                # NÍVEL ELITE: Só aceita padrões que se repetiram no histórico real (score > 0)
-                # E que atendam aos requisitos básicos de linha
+                # ELITE: O padrão DEVE existir no histórico (score > 0) e ter linhas equilibradas
                 if score_base == 0: valido = False
                 if valido and not all(1 <= x <= 5 for x in m["linhas"]): valido = False
-                if valido and score_final < 0.1: valido = False # Exige um score mínimo de relevância
+                if valido and score_final < 0.05: valido = False
 
-            if valido and nivel >= 4:
+            elif nivel >= 4:
                 if not all(1 <= x <= 5 for x in m["linhas"]): valido = False
+                if valido and not (155 <= m["soma"] <= 225): valido = False
             
-            if valido and nivel >= 3:
-                if not (155 <= m["soma"] <= 225) or not (5 <= m["pares"] <= 10): valido = False
+            elif nivel >= 3:
+                if not (160 <= m["soma"] <= 220) or not (6 <= m["pares"] <= 9): valido = False
                 
-            if valido and nivel >= 2:
+            elif nivel >= 2:
                 rep = len(set(nums) & set(ultimos))
-                if not (7 <= rep <= 12): valido = False
+                if not (8 <= rep <= 11): valido = False
                 
-            if valido and nivel >= 1:
-                if score_final < 0.005: valido = False
+            elif nivel >= 1:
+                if score_final < 0.001: valido = False
 
             if valido:
-                # Filtro de similaridade (Máximo 13 números repetidos entre os palpites gerados)
+                # Filtro de similaridade entre os próprios palpites
                 if any(len(set(nums) & set(ex["nums"])) > 13 for ex in candidatos): 
                     continue
                 
@@ -110,20 +117,19 @@ def main():
                     "m": m, 
                     "nivel": nivel
                 })
-                usados.add(tuple(nums))
+                usados.add(t_nums)
 
-    # 3. PERSISTÊNCIA E RANKING
     if not candidatos:
-        logging.error("Falha crítica: Nenhuma combinação gerada.")
+        logging.error("Falha crítica: Nenhuma combinação válida gerada.")
         return
 
-    # Ordena pelo Score Final para garantir que os jogos de 'Elite' fiquem no topo
+    # Ranking final ordenado por score
     ranking = sorted(candidatos, key=lambda x: x["score"], reverse=True)[:QTD_PALPITES]
     registros = []
     
-    print("\n🏆 PALPITES SELECIONADOS PARA 2026:")
+    print("\n🏆 RANKING FINAL DE PALPITES (2026):")
     for idx, r in enumerate(ranking, 1):
-        print(f"Palpite {idx} | Nível: {r['nivel']} | Score: {round(r['score'], 5)} | {r['nums']}")
+        print(f"{idx}º | Nível {r['nivel']} | Score {round(r['score'], 5)} | {r['nums']}")
         
         registros.append({
             "data_referencia": hoje,
@@ -136,15 +142,19 @@ def main():
             "soma_total": r["m"]["soma"],
             "metricas": json.dumps({
                 "v": VERSAO_GERADOR,
-                "nivel_origem": r["nivel"],
-                "score_final": r["score"]
+                "nivel": r["nivel"],
+                "score_final": r["score"],
+                "data_geracao": str(datetime.now())
             })
         })
 
-    # Limpeza e Upload
-    supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso_ref).execute()
-    supabase.table("palpites_validos").insert(registros).execute()
-    print(f"\n✅ Finalizado: {len(registros)} palpites persistidos com sucesso.")
+    # Persistência no Supabase
+    try:
+        supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso_ref).execute()
+        supabase.table("palpites_validos").insert(registros).execute()
+        print(f"\n✅ Sucesso: {len(registros)} palpites salvos para o concurso {concurso_ref}.")
+    except Exception as e:
+        logging.error(f"Erro ao salvar no banco: {e}")
 
 if __name__ == "__main__":
     main()
