@@ -24,7 +24,7 @@ from app.services.estatisticas_combinacao_v3 import (
 # Configurações
 # ======================================================
 QTD_ESTATISTICOS = 6
-VERSAO_GERADOR = "v3.6-score-real-ranking"
+VERSAO_GERADOR = "v3.7-score-real-ranking-safe"
 MAX_TENTATIVAS = 15000
 
 SOMA_MIN = 155
@@ -37,6 +37,8 @@ REPET_MIN = 7
 REPET_MAX = 12
 LINHA_MIN = 1
 LINHA_MAX = 5
+
+RELAXACOES_SCORE = [1.0, 0.7, 0.5, 0.3, 0.1]
 
 # ======================================================
 # Auxiliares
@@ -108,6 +110,10 @@ def gerar_palpite(pool, scores, score_min, ultimos, fator):
     return None
 
 
+def gerar_palpite_livre(pool):
+    return sorted(random.sample(pool, 15))
+
+
 def calcular_score_palpite(nums, scores, fator):
     m = extrair_metricas_jogo(nums)
     chave = (
@@ -145,16 +151,14 @@ def main():
         .limit(20).execute().data
     ]
 
-    aprendizado = obter_fator_aprendizado_global()
-    fator = aprendizado["fator"]
-
+    fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
     scores = calcular_score_combinacoes_reais()
     valores = sorted(scores.values(), reverse=True)
-    score_min = valores[int(len(valores) * PERCENTIL_MIN)]
+    score_base = valores[int(len(valores) * PERCENTIL_MIN)]
 
-    print(f"📊 Score mínimo: {score_min}")
+    print(f"📊 Score base: {score_base}")
 
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
@@ -162,15 +166,33 @@ def main():
     palpites = []
     usados = set()
 
-    # FIXO
-    fixo = gerar_palpite(pool, scores, score_min, ultimos, fator)
+    # ==================================================
+    # FIXO COM FALLBACK
+    # ==================================================
+    fixo = None
+    for fator_relax in RELAXACOES_SCORE:
+        score_min = score_base * fator_relax
+        fixo = gerar_palpite(pool, scores, score_min, ultimos, fator)
+        if fixo:
+            print(f"🎯 Fixo gerado | score_min={round(score_min,6)}")
+            break
+
+    if not fixo:
+        print("⚠️ Fixo fallback livre aplicado")
+        fixo = gerar_palpite_livre(pool)
+
     usados.add(tuple(fixo))
     palpites.append(("fixo", fixo))
 
+    # ==================================================
     # ESTATÍSTICOS
+    # ==================================================
     while len(palpites) < QTD_ESTATISTICOS + 1:
-        p = gerar_palpite(pool, scores, score_min, ultimos, fator)
-        if p and tuple(p) not in usados:
+        p = gerar_palpite(pool, scores, score_base * 0.3, ultimos, fator)
+        if not p:
+            p = gerar_palpite_livre(pool)
+
+        if tuple(p) not in usados:
             usados.add(tuple(p))
             palpites.append(("estatistico", p))
 
@@ -215,12 +237,11 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Gerador finalizado com ranking por score\n")
+    print("\n✅ Gerador finalizado com segurança total\n")
 
 
 if __name__ == "__main__":
     main()
-
 
 
 
