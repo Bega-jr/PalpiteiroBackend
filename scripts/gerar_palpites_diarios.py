@@ -36,7 +36,7 @@ def main():
         ultimos = list(map(int, res_con.data[0]["dezenas"]))
         
         # Aumentamos para 23 dezenas para maior diversidade estatística
-        res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(23).execute()
+        res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(25).execute()
         pool = [r["numero"] for r in res_pool.data]
     except Exception as e:
         logging.error(f"Erro ao carregar dados: {e}")
