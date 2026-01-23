@@ -29,13 +29,13 @@ except ImportError as e:
     sys.exit(1)
 
 # ======================================================
-# Configurações Otimizadas
+# Configurações Otimizadas (Dados para 2026)
 # ======================================================
 QTD_PALPITES = 7
-VERSAO_GERADOR = "v3.9-pro-diversity"
+VERSAO_GERADOR = "v3.9.1-pro-diversity"
 MAX_TENTATIVAS_PALPITE = 15000
 MAX_CICLOS_GERACAO = 50000
-SIMILARIDADE_MAXIMA = 12  # Evita jogos com mais de 12 números repetidos entre si
+SIMILARIDADE_MAXIMA = 12 
 
 SOMA_MIN, SOMA_MAX = 155, 225
 PARES_MIN, PARES_MAX = 5, 10
@@ -63,7 +63,6 @@ def validar_sequencia_rapida(nums):
     return True
 
 def validar_linhas_rapido(nums):
-    # Dicionário de faixas otimizado
     contagem = [0, 0, 0, 0, 0]
     for n in nums:
         idx = (n - 1) // 5
@@ -75,27 +74,31 @@ def validar_linhas_rapido(nums):
     return True
 
 def validar_completo(nums, scores, score_min, ultimos, fator):
-    # 1. Filtros Matemáticos Rápidos (Short-circuit)
+    """
+    Retorna (bool, float): (Status da validade, Score final)
+    Importante: Sempre retorna dois valores para evitar erro de desempacotamento.
+    """
+    # 1. Filtros Matemáticos Rápidos
     pares, _, soma = calcular_metricas_base(nums)
-    if not (SOMA_MIN <= soma <= SOMA_MAX): return False
-    if not (PARES_MIN <= pares <= PARES_MAX): return False
+    if not (SOMA_MIN <= soma <= SOMA_MAX): return False, 0.0
+    if not (PARES_MIN <= pares <= PARES_MAX): return False, 0.0
     
-    # 2. Filtros de Padrão (Sequência e Linhas)
-    if not validar_sequencia_rapida(nums): return False
-    if not validar_linhas_rapido(nums): return False
+    # 2. Filtros de Padrão
+    if not validar_sequencia_rapida(nums): return False, 0.0
+    if not validar_linhas_rapido(nums): return False, 0.0
 
     # 3. Filtro de Repetição do Último Concurso
     repetidos = len(set(nums) & set(ultimos))
-    if not (REPET_MIN <= repetidos <= REPET_MAX): return False
+    if not (REPET_MIN <= repetidos <= REPET_MAX): return False, 0.0
 
-    # 4. Cálculo de Score (Custo Computacional maior, fica por último)
+    # 4. Cálculo de Score
     m = extrair_metricas_jogo(nums)
     chave = (round(m["soma"] / 10) * 10, m["pares"], m["primos"], tuple(m["linhas"]))
     
     score_base = scores.get(chave, 0)
     score_final = aplicar_fator_aprendizado(score_base, fator)
 
-    return score_final >= score_min, score_final
+    return (score_final >= score_min), score_final
 
 # ======================================================
 # Lógica Principal
@@ -104,22 +107,21 @@ def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
 
-    print(f"\n🚀 Gerador {VERSAO_GERADOR} iniciado")
+    print(f"\n🚀 Gerador {VERSAO_GERADOR} iniciado em 2026")
 
-    # Busca segura de dados
     try:
         res_concurso = supabase.table("lotofacil_concursos").select("concurso, dezenas").order("concurso", desc=True).limit(1).execute()
-        if not res_concurso.data: raise ValueError("Nenhum concurso encontrado no banco.")
+        if not res_concurso.data: raise ValueError("Banco de dados vazio.")
         
         concurso_ref = res_concurso.data[0]["concurso"]
         ultimos = list(map(int, res_concurso.data[0]["dezenas"]))
 
-        # Aumento do Pool para 22 números (Melhor diversidade)
+        # Pool expandido para 22 para maior diversidade
         res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(22).execute()
         pool = [r["numero"] for r in res_pool.data]
         
     except Exception as e:
-        logging.error(f"Erro ao buscar dados iniciais: {e}")
+        logging.error(f"Erro nos dados: {e}")
         return
 
     fator = obter_fator_aprendizado_global().get("fator", 1.0)
@@ -127,7 +129,7 @@ def main():
     
     print(f"🧠 Fator: {fator} | 🎱 Pool: {len(pool)} dezenas | 📊 Ref: Concurso {concurso_ref}")
 
-    # Limpeza de palpites do dia/concurso para evitar duplicidade no banco
+    # Limpeza de palpites prévios do mesmo concurso
     supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso_ref).execute()
 
     candidatos = []
@@ -141,33 +143,33 @@ def main():
 
         if t_nums in usados: continue
 
+        # Agora desempacota corretamente os 2 valores
         e_valido, s_final = validar_completo(nums, scores, SCORE_MIN_BASE, ultimos, fator)
         
         if e_valido:
-            # Checagem de Diversidade: Evita que os palpites sejam quase iguais entre si
-            if any(len(set(nums) & set(existente["numeros"])) > SIMILARIDADE_MAXIMA for existente in candidatos):
+            # Filtro de similaridade entre os palpites gerados
+            if any(len(set(nums) & set(ex["numeros"])) > SIMILARIDADE_MAXIMA for ex in candidatos):
                 continue
 
             usados.add(t_nums)
             candidatos.append({"numeros": nums, "score": s_final})
 
         if ciclos % 10000 == 0:
-            print(f"⏳ Ciclo {ciclos}... Gerados: {len(candidatos)}")
+            print(f"⏳ Tentativas: {ciclos} | Sucessos: {len(candidatos)}")
 
     if not candidatos:
-        print("❌ Falha: Nenhum palpite atendeu aos critérios.")
+        print("❌ Nenhum palpite gerado com os critérios atuais.")
         return
 
-    # Ordenação por Score
+    # Ordenação por Score decrescente
     ranking = sorted(candidatos, key=lambda x: x["score"], reverse=True)
 
-    print("\n🏆 RANKING FINAL (DIVERSIFICADO):")
+    print("\n🏆 RANKING FINAL:")
     registros = []
     for i, r in enumerate(ranking, 1):
         nums = r["numeros"]
         p, imp, soma = calcular_metricas_base(nums)
-        
-        print(f"{i}º | score={round(r['score'],6)} | {nums} | Soma: {soma}")
+        print(f"{i}º | score={round(r['score'],6)} | {nums}")
 
         registros.append({
             "data_referencia": hoje,
@@ -181,16 +183,15 @@ def main():
             "metricas": json.dumps({
                 "versao": VERSAO_GERADOR,
                 "score_final": r["score"],
-                "repetidos_anterior": len(set(nums) & set(ultimos))
+                "ciclos": ciclos
             })
         })
 
-    # Persistência
     try:
         supabase.table("palpites_validos").insert(registros).execute()
-        print(f"\n✅ Sucesso: {len(registros)} palpites salvos no Supabase.\n")
+        print(f"\n✅ Processo concluído. {len(registros)} palpites salvos.")
     except Exception as e:
-        logging.error(f"Erro ao salvar no banco: {e}")
+        logging.error(f"Erro ao salvar: {e}")
 
 if __name__ == "__main__":
     main()
