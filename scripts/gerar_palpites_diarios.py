@@ -16,7 +16,7 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 
 # Configurações para 2026
 QTD_PALPITES = 7
-VERSAO_GERADOR = "v7.1-elite-fixed-2026"
+VERSAO_GERADOR = "v7.2-resilient-pool-2026"
 
 def obter_metricas_completas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
@@ -32,46 +32,57 @@ def main():
     
     # 1. SETUP DE DADOS
     try:
+        # Busca último concurso para regra de repetição
         res_con = supabase.table("lotofacil_concursos").select("concurso, dezenas").order("concurso", desc=True).limit(1).execute()
         concurso_ref = res_con.data[0]["concurso"]
         ultimos = list(map(int, res_con.data[0]["dezenas"]))
         
-        # BUSCA DE POOL COM LIMPEZA DE DUPLICADOS (Crucial para evitar números repetidos)
-        res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(40).execute()
-        # O set() garante números únicos; list() permite o random.sample
-        pool = sorted(list(set([int(r["numero"]) for r in res_pool.data])))
+        # BUSCA DE POOL (Tratamento para View com múltiplos registros)
+        # Buscamos um limite alto para garantir que pegamos todos os números cadastrados
+        res_pool = supabase.table("estatisticas_numeros").select("numero, score").execute()
+        
+        # Deduplicação: Garante apenas 1 registro por número (o de maior score)
+        dict_pool = {}
+        for r in res_pool.data:
+            num = int(r["numero"])
+            score = float(r["score"])
+            if num not in dict_pool or score > dict_pool[num]:
+                dict_pool[num] = score
+        
+        # Ordena e pega os 25 melhores números únicos
+        sorted_pool = sorted(dict_pool.items(), key=lambda x: x[1], reverse=True)
+        pool = sorted([item[0] for item in sorted_pool[:25]])
         
         if len(pool) < 15:
-            logging.error(f"Erro: Pool insuficiente ({len(pool)} números). Verifique a tabela estatisticas_numeros.")
+            logging.error(f"❌ Erro Crítico: Apenas {len(pool)} dezenas únicas encontradas. Verifique a tabela estatisticas_numeros.")
             return
             
+        print(f"🎱 Pool Processado em 2026: {len(pool)} dezenas únicas prontas.")
+            
     except Exception as e:
-        logging.error(f"Erro ao carregar dados: {e}")
+        logging.error(f"❌ Erro ao carregar dados do Supabase: {e}")
         return
 
     fator = obter_fator_aprendizado_global().get("fator", 1.0)
-    # Aprende com os últimos 1000 resultados reais
+    # Aprende com os últimos 1000 resultados oficiais (Base Estatística Sólida)
     scores_db = calcular_score_combinacoes_reais(1000)
 
-    print(f"🚀 Iniciando Geração Adaptativa v7.1 [Ref: {concurso_ref} em 2026]")
-    print(f"🎱 Pool de Dezenas Únicas: {pool}")
+    print(f"🚀 Iniciando Geração Adaptativa v7.2 [Concurso Ref: {concurso_ref}]")
 
     candidatos = []
     usados = set()
 
-    # Hierarquia de 5 a 0
+    # Hierarquia de 5 a 0 (Prioridade para Padrões de Elite do Histórico)
     for nivel in range(5, -1, -1):
         if len(candidatos) >= QTD_PALPITES: break
         
-        print(f"  🔍 Tentando Nível de Rigidez {nivel}...")
-        
-        # Mais tentativas para níveis de elite
+        print(f"  🔍 Tentando Nível {nivel}...")
         tentativas = 40000 if nivel == 5 else 20000
         
         for _ in range(tentativas):
             if len(candidatos) >= QTD_PALPITES: break
             
-            # Gera 15 números ÚNICOS do pool
+            # Garante 15 números únicos do pool limpo
             nums = sorted(random.sample(pool, 15))
             t_nums = tuple(nums)
             if t_nums in usados: continue
@@ -87,7 +98,7 @@ def main():
             
             # --- REGRAS POR NÍVEL ---
             if nivel == 5:
-                # ELITE: O padrão DEVE existir no histórico (score > 0) e ter linhas equilibradas
+                # MODO ELITE: Padrão deve ter ocorrido no histórico real
                 if score_base == 0: valido = False
                 if valido and not all(1 <= x <= 5 for x in m["linhas"]): valido = False
                 if valido and score_final < 0.05: valido = False
@@ -107,7 +118,7 @@ def main():
                 if score_final < 0.001: valido = False
 
             if valido:
-                # Filtro de similaridade entre os próprios palpites
+                # Evita jogos muito similares entre os palpites do dia
                 if any(len(set(nums) & set(ex["nums"])) > 13 for ex in candidatos): 
                     continue
                 
@@ -120,14 +131,14 @@ def main():
                 usados.add(t_nums)
 
     if not candidatos:
-        logging.error("Falha crítica: Nenhuma combinação válida gerada.")
+        logging.error("❌ Falha crítica: Nenhuma combinação gerada.")
         return
 
-    # Ranking final ordenado por score
+    # Ranking final por Score
     ranking = sorted(candidatos, key=lambda x: x["score"], reverse=True)[:QTD_PALPITES]
     registros = []
     
-    print("\n🏆 RANKING FINAL DE PALPITES (2026):")
+    print("\n🏆 RANKING FINAL (Geração 2026):")
     for idx, r in enumerate(ranking, 1):
         print(f"{idx}º | Nível {r['nivel']} | Score {round(r['score'], 5)} | {r['nums']}")
         
@@ -142,24 +153,22 @@ def main():
             "soma_total": r["m"]["soma"],
             "metricas": json.dumps({
                 "v": VERSAO_GERADOR,
-                "nivel": r["nivel"],
-                "score_final": r["score"],
-                "data_geracao": str(datetime.now())
+                "origem": f"Nivel {r['nivel']}",
+                "score": r["score"]
             })
         })
 
     # Persistência no Supabase
     try:
         supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso_ref).execute()
-        supabase.table("palpites_validos").insert(registros).execute()
-        print(f"\n✅ Sucesso: {len(registros)} palpites salvos para o concurso {concurso_ref}.")
+        if registros:
+            supabase.table("palpites_validos").insert(registros).execute()
+            print(f"\n✅ Sucesso: {len(registros)} palpites salvos no Supabase.")
     except Exception as e:
-        logging.error(f"Erro ao salvar no banco: {e}")
+        logging.error(f"❌ Erro ao persistir dados: {e}")
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
