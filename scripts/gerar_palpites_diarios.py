@@ -15,109 +15,124 @@ from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global, 
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais, extrair_metricas_jogo
 
 # ======================================================
-# Configurações de 2026
+# CONFIGURAÇÕES DE PRIORIDADE (2026)
 # ======================================================
 QTD_PALPITES = 7
-VERSAO_GERADOR = "v4.0-resilient-2026"
-MAX_CICLOS_GERACAO = 80000 
-SIMILARIDADE_MAXIMA = 13 
+VERSAO_GERADOR = "v5.0-priority-cascade"
 
-def calcular_metricas_base(nums):
+def obter_metricas_completas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
-    return pares, 15 - pares, sum(nums)
-
-def validar_dinamico(nums, scores, config, ultimos, fator):
-    pares, _, soma = calcular_metricas_base(nums)
-    
-    # Filtros com base na configuração atual (que relaxa com o tempo)
-    if not (config['soma_min'] <= soma <= config['soma_max']): return False, 0.0
-    if not (config['pares_min'] <= pares <= config['pares_max']): return False, 0.0
-    
-    repetidos = len(set(nums) & set(ultimos))
-    if not (config['rep_min'] <= repetidos <= config['rep_max']): return False, 0.0
-
-    # Score e Métricas Avançadas
-    m = extrair_metricas_jogo(nums)
-    chave = (round(m["soma"] / 10) * 10, m["pares"], m["primos"], tuple(m["linhas"]))
-    score_final = aplicar_fator_aprendizado(scores.get(chave, 0), fator)
-
-    return (score_final >= config['score_min']), score_final
+    soma = sum(nums)
+    # Distribuição por linhas
+    linhas = [0] * 5
+    for n in nums:
+        linhas[(n - 1) // 5] += 1
+    return {"pares": pares, "soma": soma, "linhas": linhas}
 
 def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
     
-    # 1. Setup de Dados (Janeiro 2026)
+    # 1. SETUP DE DADOS
     res_con = supabase.table("lotofacil_concursos").select("concurso, dezenas").order("concurso", desc=True).limit(1).execute()
     concurso_ref = res_con.data[0]["concurso"]
     ultimos = list(map(int, res_con.data[0]["dezenas"]))
     
-    # Pool de 23 dezenas (essencial para diversidade)
     res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(23).execute()
     pool = [r["numero"] for r in res_pool.data]
     
     fator = obter_fator_aprendizado_global().get("fator", 1.0)
-    scores = calcular_score_combinacoes_reais()
+    scores_db = calcular_score_combinacoes_reais()
 
-    # 2. Configuração de Relaxamento Progressivo
-    config = {
-        'soma_min': 155, 'soma_max': 225,
-        'pares_min': 5, 'pares_max': 10,
-        'rep_min': 8, 'rep_max': 11,
-        'score_min': 0.08
-    }
+    # 2. DEFINIÇÃO DE REGRAS POR PRIORIDADE
+    # Se não houver sucesso, removeremos a última regra da lista sucessivamente
+    regras_prioridade = [
+        {"id": "linhas", "desc": "Distribuição por Linhas (1-5)"},
+        {"id": "soma", "desc": "Soma entre 155-225"},
+        {"id": "pares", "desc": "Pares entre 5-10"},
+        {"id": "repeticao", "desc": "Repetidos do anterior (7-12)"},
+        {"id": "score", "desc": "Score Mínimo Evolutivo (>0.01)"}
+    ]
 
     candidatos = []
-    usados = set()
+    tentativas_por_estagio = 15000
 
-    print(f"🚀 Iniciando Gerador {VERSAO_GERADOR} [Ref: {concurso_ref}]")
+    print(f"🚀 Iniciando Cascata de Prioridade [Concurso {concurso_ref}]")
 
-    for ciclo in range(MAX_CICLOS_GERACAO):
-        # Relaxamento Automático a cada 10k tentativas
-        if ciclo > 0 and ciclo % 10000 == 0:
-            config['score_min'] *= 0.4
-            config['soma_min'] -= 5
-            config['soma_max'] += 5
-            config['pares_min'] = max(3, config['pares_min'] - 1)
-            config['pares_max'] = min(12, config['pares_max'] + 1)
-            config['rep_min'] = max(7, config['rep_min'] - 1)
-            config['rep_max'] = min(13, config['rep_max'] + 1)
-            print(f"🔄 Filtros relaxados (Ciclo {ciclo}): Score Min {config['score_min']:.4f}")
-
-        nums = sorted(random.sample(pool, 15))
-        if tuple(nums) in usados: continue
-
-        valido, s_final = validar_dinamico(nums, scores, config, ultimos, fator)
+    # Loop de relaxamento: começa com todas as regras, e vai removendo a menos importante
+    for i in range(len(regras_prioridade), 0, -1):
+        regras_ativas = [r["id"] for r in regras_prioridade[:i]]
+        print(f"  🔍 Testando com {i} regras ativas: {regras_ativas}")
         
-        if valido:
-            if any(len(set(nums) & set(ex["numeros"])) > SIMILARIDADE_MAXIMA for ex in candidatos):
-                continue
-            usados.add(tuple(nums))
-            candidatos.append({"numeros": nums, "score": s_final})
+        candidatos = []
+        usados = set()
+        
+        for _ in range(tentativas_por_estagio):
+            nums = sorted(random.sample(pool, 15))
+            t_nums = tuple(nums)
+            if t_nums in usados: continue
+            
+            m = obter_metricas_completas(nums)
+            valido = True
+            
+            # Execução das validações baseada na prioridade ativa
+            if "linhas" in regras_ativas:
+                if not all(1 <= x <= 5 for x in m["linhas"]): valido = False
+            if valido and "soma" in regras_ativas:
+                if not (155 <= m["soma"] <= 225): valido = False
+            if valido and "pares" in regras_ativas:
+                if not (5 <= m["pares"] <= 10): valido = False
+            if valido and "repeticao" in regras_ativas:
+                rep = len(set(nums) & set(ultimos))
+                if not (7 <= rep <= 12): valido = False
+            if valido and "score" in regras_ativas:
+                metr_adv = extrair_metricas_jogo(nums)
+                chave = (round(metr_adv["soma"] / 10) * 10, metr_adv["pares"], metr_adv["primos"], tuple(metr_adv["linhas"]))
+                score = aplicar_fator_aprendizado(scores_db.get(chave, 0), fator)
+                if score < 0.01: valido = False
+            else:
+                score = 0.0001 # Fallback para ordenação se o filtro de score estiver desativado
 
-        if len(candidatos) >= QTD_PALPITES: break
+            if valido:
+                # Diversidade (Sempre ativa para evitar jogos iguais)
+                if any(len(set(nums) & set(ex["nums"])) > 13 for ex in candidatos): continue
+                candidatos.append({"nums": nums, "score": score, "metricas": m})
+                usados.add(t_nums)
+            
+            if len(candidatos) >= QTD_PALPITES: break
+        
+        if len(candidatos) >= QTD_PALPITES:
+            print(f"  ✅ Sucesso no nível {i}!")
+            break
 
-    # 3. Finalização e Persistência
+    # 3. PERSISTÊNCIA DOS DADOS
+    if not candidatos:
+        print("❌ Erro fatal: impossível gerar palpites mesmo sem regras.")
+        return
+
     ranking = sorted(candidatos, key=lambda x: x["score"], reverse=True)
     registros = []
-    
-    for i, r in enumerate(ranking, 1):
-        p, imp, soma = calcular_metricas_base(r["numeros"])
+    for idx, r in enumerate(ranking, 1):
         registros.append({
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
-            "indice_palpite": i,
+            "indice_palpite": idx,
             "tipo": "estatistico",
-            "numeros": json.dumps(r["numeros"]),
-            "pares": p, "impares": imp, "soma_total": soma,
-            "metricas": json.dumps({"v": VERSAO_GERADOR, "score": r["score"], "ciclos": ciclo})
+            "numeros": json.dumps(r["nums"]),
+            "pares": r["metricas"]["pares"],
+            "impares": 15 - r["metricas"]["pares"],
+            "soma_total": r["metricas"]["soma"],
+            "metricas": json.dumps({"v": VERSAO_GERADOR, "rules_level": i, "score": r["score"]})
         })
 
+    # Limpeza e Insert Seguro
     supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso_ref).execute()
-    supabase.table("palpites_validos").insert(registros).execute()
-    print(f"✅ Finalizado: {len(registros)} palpites salvos no concurso {concurso_ref}.")
+    if registros:
+        supabase.table("palpites_validos").insert(registros).execute()
+        print(f"🏆 {len(registros)} palpites salvos com sucesso.")
 
 if __name__ == "__main__":
     main()
+
 
 
