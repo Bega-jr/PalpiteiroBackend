@@ -4,115 +4,90 @@ from typing import Dict, Tuple
 import json
 
 # ======================================================
-# Pesos por faixa de acerto
+# Configurações de Pesos (Baseado em Lógica de Frequência)
 # ======================================================
-PESO_11 = 0.03
-PESO_12 = 0.10
-PESO_13 = 0.30
-PESO_14 = 0.60
-PESO_15 = 1.00
 
-# ======================================================
-# Métricas estruturais
-# ======================================================
 def extrair_metricas_jogo(nums):
+    """Extrai o DNA estrutural de uma combinação de 15 números."""
     soma = sum(nums)
     pares = sum(1 for n in nums if n % 2 == 0)
     primos = sum(1 for n in nums if n in {2, 3, 5, 7, 11, 13, 17, 19, 23})
 
-    linhas = (
-        sum(1 for n in nums if 1 <= n <= 5),
-        sum(1 for n in nums if 6 <= n <= 10),
-        sum(1 for n in nums if 11 <= n <= 15),
-        sum(1 for n in nums if 16 <= n <= 20),
-        sum(1 for n in nums if 21 <= n <= 25),
-    )
+    linhas = [0, 0, 0, 0, 0]
+    for n in nums:
+        idx = (n - 1) // 5
+        linhas[idx] += 1
 
     return {
         "soma": soma,
         "pares": pares,
         "primos": primos,
-        "linhas": linhas
+        "linhas": tuple(linhas)
     }
 
 # ======================================================
-# Score REAL por combinação estrutural
+# Aprendizado Dinâmico via Histórico Real (Gabarito)
 # ======================================================
-def calcular_score_combinacoes_reais(
-    ano: int = 2026
-) -> Dict[Tuple, float]:
+def calcular_score_combinacoes_reais(limite_concursos: int = 100) -> Dict[Tuple, float]:
     """
-    Aprende score estrutural REAL a partir de palpites
-    já conferidos individualmente na tabela palpites_validos.
+    Analisa os últimos 100 resultados REAIS da Lotofácil para definir
+    o score das combinações estruturais. Ideal para início do zero.
     """
-
     supabase = get_supabase()
 
-    # Tenta buscar os dados. A coluna 'acertos' deve existir no banco.
+    # 1. Busca os últimos resultados oficiais da Caixa
+    print(f"📊 Analisando os últimos {limite_concursos} resultados oficiais para aprendizado...")
     res = (
         supabase
-        .table("palpites_validos")
-        .select("numeros, acertos")
-        .gte("data_referencia", f"{ano}-01-01")
-        .lte("data_referencia", f"{ano}-12-31")
+        .table("lotofacil_concursos")
+        .select("dezenas")
+        .order("concurso", desc=True)
+        .limit(limite_concursos)
         .execute()
     )
 
     if not res.data:
-        print(f"⚠️ Nenhuns dados encontrados para o ano {ano}")
+        print("⚠️ Histórico real não encontrado. Usando fallback teórico.")
+        return {(180, 8, 5, (3, 3, 3, 3, 3)): 1.0}
+
+    frequencia_padroes = defaultdict(int)
+    
+    # 2. Mapeia a recorrência de cada padrão estrutural
+    for r in res.data:
+        try:
+            # Garante que dezenas sejam uma lista de inteiros
+            nums = r["dezenas"]
+            if isinstance(nums, str):
+                nums = json.loads(nums)
+            nums = [int(n) for n in nums]
+            
+            m = extrair_metricas_jogo(nums)
+            
+            # Chave: (Soma arredondada, Pares, Primos, Distribuição de Linhas)
+            chave = (
+                round(m["soma"] / 10) * 10,
+                m["pares"],
+                m["primos"],
+                m["linhas"]
+            )
+            frequencia_padroes[chave] += 1
+        except Exception as e:
+            continue
+
+    # 3. Normaliza os scores (0.0 a 1.0) baseados na frequência
+    if not frequencia_padroes:
         return {}
 
-    scores = defaultdict(float)
-    ocorrencias = defaultdict(int)
-
-    for r in res.data:
-        # Pula palpites sem acertos registrados ou abaixo do prêmio mínimo
-        acertos = r.get("acertos")
-        if acertos is None or acertos < 11:
-            continue
-
-        # Tratamento para o formato do campo 'numeros' (remove aspas extras se existirem)
-        try:
-            raw_nums = r["numeros"]
-            if isinstance(raw_nums, str):
-                # Remove aspas duplas escapadas se houver ex: "\" [1,2] \"" -> [1,2]
-                nums = json.loads(raw_nums.strip('"'))
-            else:
-                nums = raw_nums
-        except Exception as e:
-            print(f"❌ Erro ao decodificar números: {e}")
-            continue
-
-        m = extrair_metricas_jogo(nums)
-
-        # Cálculo do impacto baseado no peso da faixa de acerto
-        impacto = (
-            (1 if acertos == 11 else 0) * PESO_11 +
-            (1 if acertos == 12 else 0) * PESO_12 +
-            (1 if acertos == 13 else 0) * PESO_13 +
-            (1 if acertos == 14 else 0) * PESO_14 +
-            (1 if acertos == 15 else 0) * PESO_15
-        )
-
-        # A chave agrupa jogos com características similares (Soma arredondada, Pares, Primos, Distribuição)
-        chave = (
-            round(m["soma"] / 10) * 10,
-            m["pares"],
-            m["primos"],
-            tuple(m["linhas"])  # Convertido para tuple para ser hashable no dict
-        )
-
-        scores[chave] += impacto
-        ocorrencias[chave] += 1
-
-    # Retorna a média de impacto por tipo de combinação
-    return {
-        k: round(scores[k] / ocorrencias[k], 6)
-        for k in scores
+    max_ocorrencias = max(frequencia_padroes.values())
+    
+    scores_finais = {
+        k: round(v / max_ocorrencias, 6)
+        for k, v in frequencia_padroes.items()
     }
 
-# ======================================================
-# BACKWARD COMPATIBILITY
-# ======================================================
+    print(f"✅ Aprendizado concluído: {len(scores_finais)} padrões identificados.")
+    return scores_finais
+
+# Compatibilidade com o script de geração
 calcular_score_combinacoes = calcular_score_combinacoes_reais
 
