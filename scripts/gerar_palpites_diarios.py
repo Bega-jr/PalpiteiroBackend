@@ -24,8 +24,9 @@ from app.services.estatisticas_combinacao_v3 import (
 # Configurações
 # ======================================================
 QTD_PALPITES = 7
-VERSAO_GERADOR = "v3.7-score-real-ranking-safe"
-MAX_TENTATIVAS = 20000
+VERSAO_GERADOR = "v3.8-score-real-ranking-safe"
+MAX_TENTATIVAS_PALPITE = 15000
+MAX_CICLOS_GERACAO = 50000
 
 SOMA_MIN = 155
 SOMA_MAX = 225
@@ -104,7 +105,7 @@ def validar(nums, scores, score_min, ultimos, fator):
 
 
 def gerar_palpite(pool, scores, score_min, ultimos, fator):
-    for _ in range(MAX_TENTATIVAS):
+    for _ in range(MAX_TENTATIVAS_PALPITE):
         nums = sorted(random.sample(pool, 15))
         if validar(nums, scores, score_min, ultimos, fator):
             return nums
@@ -158,12 +159,31 @@ def main():
 
     candidatos = []
     usados = set()
+    ciclos = 0
 
-    while len(candidatos) < QTD_PALPITES:
+    while len(candidatos) < QTD_PALPITES and ciclos < MAX_CICLOS_GERACAO:
+        ciclos += 1
+
         p = gerar_palpite(pool, scores, score_min, ultimos, fator)
-        if p and tuple(p) not in usados:
-            usados.add(tuple(p))
-            candidatos.append(p)
+        if not p:
+            continue
+
+        t = tuple(p)
+        if t in usados:
+            continue
+
+        usados.add(t)
+        candidatos.append(p)
+
+        if ciclos % 5000 == 0:
+            print(f"⏳ Tentativas: {ciclos} | Gerados: {len(candidatos)}")
+
+    if not candidatos:
+        print("❌ Falha crítica: nenhum palpite viável gerado")
+        return
+
+    if len(candidatos) < QTD_PALPITES:
+        print(f"⚠️ Apenas {len(candidatos)} palpites válidos gerados")
 
     ranking = [
         {
