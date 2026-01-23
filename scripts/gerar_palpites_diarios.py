@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-# Configuração de Logs
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -16,87 +15,79 @@ from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global, 
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais, extrair_metricas_jogo
 
 # ======================================================
-# Configurações Flexíveis
+# Configurações de 2026
 # ======================================================
 QTD_PALPITES = 7
-VERSAO_GERADOR = "v3.9.2-auto-adjust"
-MAX_CICLOS_GERACAO = 60000 
+VERSAO_GERADOR = "v4.0-resilient-2026"
+MAX_CICLOS_GERACAO = 80000 
 SIMILARIDADE_MAXIMA = 13 
-
-# Parâmetros Base
-SOMA_MIN, SOMA_MAX = 150, 230 # Levemente expandido
-PARES_MIN, PARES_MAX = 4, 11  # Levemente expandido
-SEQ_MAX_BASE = 5
-SCORE_MIN_BASE = 0.05 # Reduzido para aumentar vazão inicial
 
 def calcular_metricas_base(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
     return pares, 15 - pares, sum(nums)
 
-def validar_completo(nums, scores, score_min, ultimos, fator, seq_max_tol):
-    # 1. Filtros Matemáticos
+def validar_dinamico(nums, scores, config, ultimos, fator):
     pares, _, soma = calcular_metricas_base(nums)
-    if not (SOMA_MIN <= soma <= SOMA_MAX): return False, 0.0
-    if not (PARES_MIN <= pares <= PARES_MAX): return False, 0.0
     
-    # 2. Sequência (Usando tolerância dinâmica)
-    atual = seq = 1
-    for i in range(1, 15):
-        if nums[i] == nums[i - 1] + 1:
-            atual += 1
-            seq = max(seq, atual)
-        else:
-            atual = 1
-    if seq > seq_max_tol: return False, 0.0
-
-    # 3. Repetição
+    # Filtros com base na configuração atual (que relaxa com o tempo)
+    if not (config['soma_min'] <= soma <= config['soma_max']): return False, 0.0
+    if not (config['pares_min'] <= pares <= config['pares_max']): return False, 0.0
+    
     repetidos = len(set(nums) & set(ultimos))
-    if not (7 <= repetidos <= 12): return False, 0.0
+    if not (config['rep_min'] <= repetidos <= config['rep_max']): return False, 0.0
 
-    # 4. Score
+    # Score e Métricas Avançadas
     m = extrair_metricas_jogo(nums)
     chave = (round(m["soma"] / 10) * 10, m["pares"], m["primos"], tuple(m["linhas"]))
     score_final = aplicar_fator_aprendizado(scores.get(chave, 0), fator)
 
-    return (score_final >= score_min), score_final
+    return (score_final >= config['score_min']), score_final
 
 def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
     
-    try:
-        res_con = supabase.table("lotofacil_concursos").select("concurso, dezenas").order("concurso", desc=True).limit(1).execute()
-        concurso_ref = res_con.data[0]["concurso"]
-        ultimos = list(map(int, res_con.data[0]["dezenas"]))
-        
-        # Aumentamos para 23 dezenas para dar mais "espaço" ao algoritmo
-        res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(23).execute()
-        pool = [r["numero"] for r in res_pool.data]
-    except: return
-
+    # 1. Setup de Dados (Janeiro 2026)
+    res_con = supabase.table("lotofacil_concursos").select("concurso, dezenas").order("concurso", desc=True).limit(1).execute()
+    concurso_ref = res_con.data[0]["concurso"]
+    ultimos = list(map(int, res_con.data[0]["dezenas"]))
+    
+    # Pool de 23 dezenas (essencial para diversidade)
+    res_pool = supabase.table("estatisticas_numeros").select("numero").order("score", desc=True).limit(23).execute()
+    pool = [r["numero"] for r in res_pool.data]
+    
     fator = obter_fator_aprendizado_global().get("fator", 1.0)
     scores = calcular_score_combinacoes_reais()
-    
+
+    # 2. Configuração de Relaxamento Progressivo
+    config = {
+        'soma_min': 155, 'soma_max': 225,
+        'pares_min': 5, 'pares_max': 10,
+        'rep_min': 8, 'rep_max': 11,
+        'score_min': 0.08
+    }
+
     candidatos = []
     usados = set()
-    
-    # Parâmetros de ajuste dinâmico
-    current_score_min = SCORE_MIN_BASE
-    current_seq_max = SEQ_MAX_BASE
 
-    print(f"🚀 Iniciando busca (Pool: 23, Fator: {fator})")
+    print(f"🚀 Iniciando Gerador {VERSAO_GERADOR} [Ref: {concurso_ref}]")
 
     for ciclo in range(MAX_CICLOS_GERACAO):
-        # A cada 15k tentativas sem sucesso, relaxa os filtros
-        if ciclo > 0 and ciclo % 15000 == 0 and len(candidatos) < QTD_PALPITES:
-            current_score_min *= 0.5
-            current_seq_max += 1
-            print(f"⚠️ Relaxando filtros: Score Min > {current_score_min:.4f}, Seq Max > {current_seq_max}")
+        # Relaxamento Automático a cada 10k tentativas
+        if ciclo > 0 and ciclo % 10000 == 0:
+            config['score_min'] *= 0.4
+            config['soma_min'] -= 5
+            config['soma_max'] += 5
+            config['pares_min'] = max(3, config['pares_min'] - 1)
+            config['pares_max'] = min(12, config['pares_max'] + 1)
+            config['rep_min'] = max(7, config['rep_min'] - 1)
+            config['rep_max'] = min(13, config['rep_max'] + 1)
+            print(f"🔄 Filtros relaxados (Ciclo {ciclo}): Score Min {config['score_min']:.4f}")
 
         nums = sorted(random.sample(pool, 15))
         if tuple(nums) in usados: continue
 
-        valido, s_final = validar_completo(nums, scores, current_score_min, ultimos, fator, current_seq_max)
+        valido, s_final = validar_dinamico(nums, scores, config, ultimos, fator)
         
         if valido:
             if any(len(set(nums) & set(ex["numeros"])) > SIMILARIDADE_MAXIMA for ex in candidatos):
@@ -106,14 +97,9 @@ def main():
 
         if len(candidatos) >= QTD_PALPITES: break
 
-    if not candidatos:
-        print("❌ Critérios restritivos demais mesmo após relaxamento.")
-        return
-
+    # 3. Finalização e Persistência
     ranking = sorted(candidatos, key=lambda x: x["score"], reverse=True)
     registros = []
-    
-    print(f"\n✅ Sucesso: {len(ranking)} palpites gerados em {ciclo} ciclos.")
     
     for i, r in enumerate(ranking, 1):
         p, imp, soma = calcular_metricas_base(r["numeros"])
@@ -124,12 +110,14 @@ def main():
             "tipo": "estatistico",
             "numeros": json.dumps(r["numeros"]),
             "pares": p, "impares": imp, "soma_total": soma,
-            "metricas": json.dumps({"versao": VERSAO_GERADOR, "score": r["score"]})
+            "metricas": json.dumps({"v": VERSAO_GERADOR, "score": r["score"], "ciclos": ciclo})
         })
 
     supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso_ref).execute()
     supabase.table("palpites_validos").insert(registros).execute()
+    print(f"✅ Finalizado: {len(registros)} palpites salvos no concurso {concurso_ref}.")
 
 if __name__ == "__main__":
     main()
+
 
