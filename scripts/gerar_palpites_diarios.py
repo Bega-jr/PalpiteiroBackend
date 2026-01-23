@@ -23,22 +23,20 @@ from app.services.estatisticas_combinacao_v3 import (
 # ======================================================
 # Configurações
 # ======================================================
-QTD_ESTATISTICOS = 6
+QTD_PALPITES = 7
 VERSAO_GERADOR = "v3.7-score-real-ranking-safe"
-MAX_TENTATIVAS = 15000
+MAX_TENTATIVAS = 20000
 
 SOMA_MIN = 155
 SOMA_MAX = 225
 PARES_MIN = 5
 PARES_MAX = 10
 SEQ_MAX = 5
-PERCENTIL_MIN = 0.30
 REPET_MIN = 7
 REPET_MAX = 12
 LINHA_MIN = 1
 LINHA_MAX = 5
-
-RELAXACOES_SCORE = [1.0, 0.7, 0.5, 0.3, 0.1]
+SCORE_MIN_BASE = 0.1
 
 # ======================================================
 # Auxiliares
@@ -73,6 +71,9 @@ def distribuicao_linhas(nums):
 
 
 def validar(nums, scores, score_min, ultimos, fator):
+    if len(set(nums)) != 15:
+        return False
+
     pares, _, soma = calcular_metricas(nums)
 
     if not (SOMA_MIN <= soma <= SOMA_MAX):
@@ -110,11 +111,7 @@ def gerar_palpite(pool, scores, score_min, ultimos, fator):
     return None
 
 
-def gerar_palpite_livre(pool):
-    return sorted(random.sample(pool, 15))
-
-
-def calcular_score_palpite(nums, scores, fator):
+def score_palpite(nums, scores, fator):
     m = extrair_metricas_jogo(nums)
     chave = (
         round(m["soma"] / 10) * 10,
@@ -122,9 +119,7 @@ def calcular_score_palpite(nums, scores, fator):
         m["primos"],
         tuple(m["linhas"])
     )
-    base = scores.get(chave, 0)
-    return aplicar_fator_aprendizado(base, fator)
-
+    return aplicar_fator_aprendizado(scores.get(chave, 0), fator)
 
 # ======================================================
 # Main
@@ -155,58 +150,28 @@ def main():
     print(f"🧠 Fator aprendizado: {fator}")
 
     scores = calcular_score_combinacoes_reais()
-    valores = sorted(scores.values(), reverse=True)
-    score_base = valores[int(len(valores) * PERCENTIL_MIN)]
-
-    print(f"📊 Score base: {score_base}")
+    score_min = SCORE_MIN_BASE
+    print(f"📊 Score mínimo: {score_min}")
 
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
-    palpites = []
+    candidatos = []
     usados = set()
 
-    # ==================================================
-    # FIXO COM FALLBACK
-    # ==================================================
-    fixo = None
-    for fator_relax in RELAXACOES_SCORE:
-        score_min = score_base * fator_relax
-        fixo = gerar_palpite(pool, scores, score_min, ultimos, fator)
-        if fixo:
-            print(f"🎯 Fixo gerado | score_min={round(score_min,6)}")
-            break
-
-    if not fixo:
-        print("⚠️ Fixo fallback livre aplicado")
-        fixo = gerar_palpite_livre(pool)
-
-    usados.add(tuple(fixo))
-    palpites.append(("fixo", fixo))
-
-    # ==================================================
-    # ESTATÍSTICOS
-    # ==================================================
-    while len(palpites) < QTD_ESTATISTICOS + 1:
-        p = gerar_palpite(pool, scores, score_base * 0.3, ultimos, fator)
-        if not p:
-            p = gerar_palpite_livre(pool)
-
-        if tuple(p) not in usados:
+    while len(candidatos) < QTD_PALPITES:
+        p = gerar_palpite(pool, scores, score_min, ultimos, fator)
+        if p and tuple(p) not in usados:
             usados.add(tuple(p))
-            palpites.append(("estatistico", p))
+            candidatos.append(p)
 
-    # ==================================================
-    # RANKING
-    # ==================================================
-    ranking = []
-    for tipo, nums in palpites:
-        score = calcular_score_palpite(nums, scores, fator)
-        ranking.append({
-            "tipo": tipo,
+    ranking = [
+        {
             "numeros": nums,
-            "score": score
-        })
+            "score": score_palpite(nums, scores, fator)
+        }
+        for nums in candidatos
+    ]
 
     ranking.sort(key=lambda x: x["score"], reverse=True)
 
@@ -214,34 +179,32 @@ def main():
     for i, r in enumerate(ranking, 1):
         print(f"{i}º | score={round(r['score'],6)} | {r['numeros']}")
 
-    # Persistência
     registros = []
     for i, r in enumerate(ranking, 1):
         pares, impares, soma = calcular_metricas(r["numeros"])
         registros.append({
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
-            "tipo": r["tipo"],
             "indice_palpite": i,
-            "ranking": i,
-            "score_final": r["score"],
+            "tipo": "fixo" if i == 1 else "estatistico",
             "numeros": json.dumps(r["numeros"]),
             "pares": pares,
             "impares": impares,
             "soma_total": soma,
             "metricas": json.dumps({
                 "versao": VERSAO_GERADOR,
-                "aprendizado": "v3-global"
+                "aprendizado": "v3-global",
+                "score_final": r["score"],
+                "ranking": i
             })
         })
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Gerador finalizado com segurança total\n")
+    print("\n✅ Gerador finalizado com ranking persistido corretamente\n")
 
 
 if __name__ == "__main__":
     main()
-
 
 
