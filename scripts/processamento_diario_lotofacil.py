@@ -1,11 +1,7 @@
 import sys
 from pathlib import Path
 import numpy as np
-import pandas as pd
 
-# -----------------------------------
-# Configuração base
-# -----------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -17,145 +13,199 @@ from app.services.estatisticas_service import (
     carregar_historico
 )
 
-# -----------------------------------
-# Utilidades
-# -----------------------------------
+# ---------------------------------------------------
+# FUNÇÕES AUXILIARES
+# ---------------------------------------------------
+
 def normalizar(col):
-    min_val = col.min()
-    max_val = col.max()
-
-    if max_val - min_val == 0:
-        return pd.Series([0.5] * len(col))
-
-    return (col - min_val) / (max_val - min_val)
+    return (col - col.min()) / (col.max() - col.min() + 1e-9)
 
 
-def calcular_tendencia_vetorizado(historico, janela=25):
-    """
-    Calcula tendência de forma vetorizada (mais rápido).
-    """
+def calcular_tendencia(historico, numero, janela=25):
     ultimos = historico[-janela:]
-    contador = {n: 0 for n in range(1, 26)}
-
-    for conc in ultimos:
-        for n in conc["numeros"]:
-            contador[n] += 1
-
-    return {n: contador[n] / janela for n in range(1, 26)}
+    presencas = [1 if numero in h["numeros"] else 0 for h in ultimos]
+    return float(np.mean(presencas))
 
 
 def calcular_ciclo_historico_completo(historico):
-    todos = set(range(1, 26))
-    sorteados = set()
-    ciclo = 1
+    todos_25 = set(range(1, 26))
+    sorteados_no_ciclo = set()
+    numero_do_ciclo = 1
 
     for conc in historico:
-        sorteados.update(conc["numeros"])
-        if sorteados == todos:
-            sorteados = set()
-            ciclo += 1
+        sorteados_no_ciclo.update(conc["numeros"])
+        if sorteados_no_ciclo == todos_25:
+            sorteados_no_ciclo = set()
+            numero_do_ciclo += 1
 
-    faltam = sorted(todos - sorteados)
+    faltam = sorted(todos_25 - sorteados_no_ciclo)
     if not faltam:
         faltam = list(range(1, 26))
 
-    return faltam, ciclo
+    return faltam, numero_do_ciclo
 
 
-# -----------------------------------
-# Execução principal
-# -----------------------------------
+# ---------------------------------------------------
+# CLASSIFICAÇÃO DE CENÁRIO
+# ---------------------------------------------------
+
+def classificar_cenario(df, medias):
+    top_quentes = df.sort_values("score", ascending=False).head(5)
+    top_atrasados = df.sort_values("atraso", ascending=False).head(5)
+
+    media_score_top = top_quentes["score"].mean()
+    media_atraso_top = top_atrasados["atraso"].mean()
+
+    media_pares = medias.get("pares_media", 0)
+
+    if media_score_top > 0.75:
+        return "EXPANSAO_QUENTES"
+
+    if media_atraso_top > 8:
+        return "RECUPERACAO_ATRASADOS"
+
+    if media_pares >= 9:
+        return "DOMINANCIA_PARES"
+
+    if abs(medias.get("soma_media", 0) - 195) < 5:
+        return "EQUILIBRIO_TOTAL"
+
+    return "ALTA_VARIANCIA"
+
+
+# ---------------------------------------------------
+# OBTÉM CENÁRIO DOMINANTE
+# ---------------------------------------------------
+
+def obter_cenario_dominante(supabase, limite=10):
+    res = (
+        supabase
+        .table("memoria_cenarios")
+        .select("tipo_cenario")
+        .order("created_at", desc=True)
+        .limit(limite)
+        .execute()
+    )
+
+    if not res.data:
+        return None  # fallback automático
+
+    tipos = [r["tipo_cenario"] for r in res.data]
+
+    return max(set(tipos), key=tipos.count)
+
+
+# ---------------------------------------------------
+# AJUSTE DE PESOS POR CENÁRIO
+# ---------------------------------------------------
+
+def ajustar_pesos_por_cenario(df, cenario):
+    if not cenario:
+        return df  # primeira execução
+
+    if cenario == "EXPANSAO_QUENTES":
+        df["score"] = (
+            df["freq_norm"] * 0.45 +
+            df["tendencia_norm"] * 0.35 +
+            df["atraso_norm"] * 0.10 +
+            df["score_norm"] * 0.10
+        )
+
+    elif cenario == "RECUPERACAO_ATRASADOS":
+        df["score"] = (
+            df["atraso_norm"] * 0.40 +
+            df["tendencia_norm"] * 0.25 +
+            df["freq_norm"] * 0.20 +
+            df["score_norm"] * 0.15
+        )
+
+    elif cenario == "DOMINANCIA_PARES":
+        df["score"] = df["score"] * 1.05
+
+    elif cenario == "EQUILIBRIO_TOTAL":
+        df["score"] = (
+            df["freq_norm"] * 0.30 +
+            df["tendencia_norm"] * 0.30 +
+            df["atraso_norm"] * 0.20 +
+            df["score_norm"] * 0.20
+        )
+
+    return df
+
+
+# ---------------------------------------------------
+# MAIN
+# ---------------------------------------------------
+
 def main():
     supabase = get_supabase()
-    print("🚀 Processamento Estatístico Probabilístico iniciado")
+    print("🚀 Processamento Estatístico Inteligente iniciado")
 
     try:
-        # 1️⃣ Histórico
         historico = carregar_historico()
-
-        if not historico:
-            raise Exception("Histórico vazio.")
-
         ultimo = historico[-1]
+
         concurso_atual = ultimo["concurso"]
         data_atual = ultimo["data"]
         dezenas_hoje = set(ultimo["numeros"])
 
         print(f"📌 Concurso {concurso_atual} | Data {data_atual}")
 
-        # 2️⃣ Estatísticas base
         df = obter_estatisticas_com_score()
         medias = calcular_medias_recentes()
 
-        # 3️⃣ Ajusta atraso (zera sorteados hoje)
         df.loc[df["numero"].isin(dezenas_hoje), "atraso"] = 0
 
-        # 4️⃣ Tendência vetorizada
-        tendencias = calcular_tendencia_vetorizado(historico, janela=25)
-        df["tendencia"] = df["numero"].map(tendencias)
+        df["tendencia"] = df["numero"].apply(
+            lambda n: calcular_tendencia(historico, n)
+        )
 
-        # 5️⃣ Normalizações
         df["freq_norm"] = normalizar(df["frequencia"])
         df["atraso_norm"] = 1 - normalizar(df["atraso"])
         df["tendencia_norm"] = normalizar(df["tendencia"])
-        df["score_antigo_norm"] = normalizar(df["score"])
+        df["score_norm"] = normalizar(df["score"])
 
-        # 6️⃣ Novo score ponderado real
+        # 🔥 Base inicial neutra
         df["score"] = (
             df["freq_norm"] * 0.35 +
             df["tendencia_norm"] * 0.30 +
             df["atraso_norm"] * 0.20 +
-            df["score_antigo_norm"] * 0.15
-        ).round(6)
+            df["score_norm"] * 0.15
+        )
 
-        # 7️⃣ Rankings
+        # 🧠 Buscar cenário dominante
+        cenario_dominante = obter_cenario_dominante(supabase)
+
+        if cenario_dominante:
+            print(f"🧠 Cenário dominante identificado: {cenario_dominante}")
+        else:
+            print("🧠 Primeira execução - sem histórico de cenário")
+
+        # 🔄 Ajustar pesos conforme cenário dominante
+        df = ajustar_pesos_por_cenario(df, cenario_dominante)
+
         listas = obter_top_listas(df)
         numeros_faltantes, ciclo_contagem = calcular_ciclo_historico_completo(historico)
 
-        # 8️⃣ Payload diário
-        payload_diario = {
+        # 🔥 Classifica cenário atual
+        tipo_cenario_atual = classificar_cenario(df, medias)
+
+        payload_memoria = {
             "data_referencia": data_atual,
             "concurso": int(concurso_atual),
             "numero_ciclo": int(ciclo_contagem),
+            "tipo_cenario": tipo_cenario_atual,
+            "score_global": float(df["score"].mean()),
             "numeros_quentes": listas["numeros_quentes"],
             "numeros_frios": listas["numeros_frios"],
             "numeros_atrasados": numeros_faltantes,
-            "atrasados_ranking": listas["atrasados_ranking"],
             "media_soma": float(medias.get("soma_media", 0)),
-            "media_pares": float(medias.get("pares_media", 0)),
-            "media_impares": float(medias.get("impares_media", 0)),
-            "media_primos": float(medias.get("primos_media", 0)),
-            "sequencias_comuns": [3, 4]
+            "media_pares": float(medias.get("pares_media", 0))
         }
 
-        # 9️⃣ Salva estatística diária
-        supabase.table("estatisticas_diarias_v2") \
-            .delete().eq("data_referencia", data_atual).execute()
+        supabase.table("memoria_cenarios").insert(payload_memoria).execute()
 
-        supabase.table("estatisticas_diarias_v2") \
-            .insert(payload_diario).execute()
-
-        # 🔟 Salva estatísticas por número
-        payload_numeros = [
-            {
-                "data_referencia": data_atual,
-                "numero": int(row.numero),
-                "frequencia": int(row.frequencia),
-                "atraso": int(row.atraso),
-                "score": float(row.score),
-                "tendencia": float(row.tendencia)
-            }
-            for row in df.itertuples()
-        ]
-
-        supabase.table("estatisticas_numeros") \
-            .delete().eq("data_referencia", data_atual).execute()
-
-        supabase.table("estatisticas_numeros") \
-            .insert(payload_numeros).execute()
-
-        print("✅ Estatísticas atualizadas com score probabilístico real")
-        print(f"🎯 Ciclo {ciclo_contagem} | Base pronta para geração")
+        print(f"✅ Cenário atual salvo: {tipo_cenario_atual}")
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
