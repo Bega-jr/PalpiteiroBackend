@@ -1,26 +1,27 @@
 from app.services.supabase_service import get_supabase
 import json
 
-VERSAO_GERADOR_ATUAL = "v1.2-top-auto"
+VERSAO_GERADOR_ATUAL = "v4-memoria-estrategica"
 
 
-# ==========================
+# ==========================================================
 # BACKTEST (NÃO BLOQUEANTE)
-# ==========================
+# ==========================================================
 def calcular_score_backtest(reg):
-    total = reg["total_concursos"] * reg["qtd_palpites"]
+    total = reg.get("total_concursos", 0) * reg.get("qtd_palpites", 0)
+
     if total == 0:
         return 0
 
     score = (
-        reg["acertos_11"] * 1 +
-        reg["acertos_12"] * 2 +
-        reg["acertos_13"] * 5 +
-        reg["acertos_14"] * 20 +
-        reg["acertos_15"] * 100
+        reg.get("acertos_11", 0) * 1 +
+        reg.get("acertos_12", 0) * 2 +
+        reg.get("acertos_13", 0) * 5 +
+        reg.get("acertos_14", 0) * 20 +
+        reg.get("acertos_15", 0) * 100
     ) / total
 
-    return round(score, 2)
+    return round(score, 4)
 
 
 def obter_score_backtest(supabase, tipo):
@@ -41,9 +42,21 @@ def obter_score_backtest(supabase, tipo):
     return calcular_score_backtest(res.data[0])
 
 
-# ==========================
+# ==========================================================
+# UTIL JSON SAFE
+# ==========================================================
+def _safe_json(valor):
+    if isinstance(valor, str):
+        try:
+            return json.loads(valor)
+        except:
+            return {}
+    return valor or {}
+
+
+# ==========================================================
 # PALPITE FIXO
-# ==========================
+# ==========================================================
 def obter_palpite_fixo_publico():
     supabase = get_supabase()
 
@@ -62,23 +75,26 @@ def obter_palpite_fixo_publico():
 
     r = res.data[0]
 
-    numeros = json.loads(r["numeros"]) if isinstance(r["numeros"], str) else r["numeros"]
-    metricas = json.loads(r["metricas"]) if isinstance(r["metricas"], str) else {}
+    numeros = _safe_json(r.get("numeros"))
+    metricas = _safe_json(r.get("metricas"))
 
     return {
-        "data_referencia": r["data_referencia"],
+        "versao_gerador": metricas.get("versao", VERSAO_GERADOR_ATUAL),
+        "data_referencia": r.get("data_referencia"),
         "numeros": numeros,
-        "soma": r["soma_total"],
-        "pares": r["pares"],
-        "impares": r["impares"],
-        "metricas": metricas,
+        "soma": r.get("soma_total"),
+        "pares": r.get("pares"),
+        "impares": r.get("impares"),
+        "score_final": metricas.get("score_final"),
+        "ranking": metricas.get("ranking"),
         "score_backtest": obter_score_backtest(supabase, "fixo"),
+        "memoria_aplicada": metricas.get("memoria_aplicada", False),
     }
 
 
-# ==========================
+# ==========================================================
 # PALPITES ESTATÍSTICOS
-# ==========================
+# ==========================================================
 def obter_palpites_estatisticos_publico():
     supabase = get_supabase()
 
@@ -96,18 +112,21 @@ def obter_palpites_estatisticos_publico():
     palpites = []
 
     for r in res.data or []:
-        numeros = json.loads(r["numeros"]) if isinstance(r["numeros"], str) else r["numeros"]
-        metricas = json.loads(r["metricas"]) if isinstance(r["metricas"], str) else {}
+        numeros = _safe_json(r.get("numeros"))
+        metricas = _safe_json(r.get("metricas"))
 
         palpites.append({
-            "data_referencia": r["data_referencia"],
-            "indice_palpite": r["indice_palpite"],
+            "versao_gerador": metricas.get("versao", VERSAO_GERADOR_ATUAL),
+            "data_referencia": r.get("data_referencia"),
+            "indice_palpite": r.get("indice_palpite"),
             "numeros": numeros,
-            "soma": r["soma_total"],
-            "pares": r["pares"],
-            "impares": r["impares"],
-            "metricas": metricas,
+            "soma": r.get("soma_total"),
+            "pares": r.get("pares"),
+            "impares": r.get("impares"),
+            "score_final": metricas.get("score_final"),
+            "ranking": metricas.get("ranking"),
             "score_backtest": score_backtest,
+            "memoria_aplicada": metricas.get("memoria_aplicada", False),
         })
 
     return palpites
