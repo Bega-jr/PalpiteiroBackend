@@ -46,10 +46,10 @@ def calcular_ciclo_historico_completo(historico):
 
 
 # ---------------------------------------------------
-# CLASSIFICAÇÃO DE CENÁRIO
+# CLASSIFICAÇÃO DE REGIME
 # ---------------------------------------------------
 
-def classificar_cenario(df, medias):
+def classificar_regime(df, medias):
     top_quentes = df.sort_values("score", ascending=False).head(5)
     top_atrasados = df.sort_values("atraso", ascending=False).head(5)
 
@@ -74,36 +74,35 @@ def classificar_cenario(df, medias):
 
 
 # ---------------------------------------------------
-# OBTÉM CENÁRIO DOMINANTE
+# OBTÉM REGIME DOMINANTE (memoria_regimes)
 # ---------------------------------------------------
 
-def obter_cenario_dominante(supabase, limite=10):
+def obter_regime_dominante(supabase, limite=10):
     res = (
         supabase
-        .table("memoria_cenarios")
-        .select("tipo_cenario")
+        .table("memoria_regimes")
+        .select("tipo_regime")
         .order("created_at", desc=True)
         .limit(limite)
         .execute()
     )
 
     if not res.data:
-        return None  # fallback automático
+        return None
 
-    tipos = [r["tipo_cenario"] for r in res.data]
-
+    tipos = [r["tipo_regime"] for r in res.data]
     return max(set(tipos), key=tipos.count)
 
 
 # ---------------------------------------------------
-# AJUSTE DE PESOS POR CENÁRIO
+# AJUSTE DE PESOS POR REGIME
 # ---------------------------------------------------
 
-def ajustar_pesos_por_cenario(df, cenario):
-    if not cenario:
+def ajustar_pesos_por_regime(df, regime):
+    if not regime:
         return df  # primeira execução
 
-    if cenario == "EXPANSAO_QUENTES":
+    if regime == "EXPANSAO_QUENTES":
         df["score"] = (
             df["freq_norm"] * 0.45 +
             df["tendencia_norm"] * 0.35 +
@@ -111,7 +110,7 @@ def ajustar_pesos_por_cenario(df, cenario):
             df["score_norm"] * 0.10
         )
 
-    elif cenario == "RECUPERACAO_ATRASADOS":
+    elif regime == "RECUPERACAO_ATRASADOS":
         df["score"] = (
             df["atraso_norm"] * 0.40 +
             df["tendencia_norm"] * 0.25 +
@@ -119,10 +118,10 @@ def ajustar_pesos_por_cenario(df, cenario):
             df["score_norm"] * 0.15
         )
 
-    elif cenario == "DOMINANCIA_PARES":
+    elif regime == "DOMINANCIA_PARES":
         df["score"] = df["score"] * 1.05
 
-    elif cenario == "EQUILIBRIO_TOTAL":
+    elif regime == "EQUILIBRIO_TOTAL":
         df["score"] = (
             df["freq_norm"] * 0.30 +
             df["tendencia_norm"] * 0.30 +
@@ -165,7 +164,7 @@ def main():
         df["tendencia_norm"] = normalizar(df["tendencia"])
         df["score_norm"] = normalizar(df["score"])
 
-        # 🔥 Base inicial neutra
+        # Score base neutro
         df["score"] = (
             df["freq_norm"] * 0.35 +
             df["tendencia_norm"] * 0.30 +
@@ -173,39 +172,39 @@ def main():
             df["score_norm"] * 0.15
         )
 
-        # 🧠 Buscar cenário dominante
-        cenario_dominante = obter_cenario_dominante(supabase)
+        # Buscar regime dominante
+        regime_dominante = obter_regime_dominante(supabase)
 
-        if cenario_dominante:
-            print(f"🧠 Cenário dominante identificado: {cenario_dominante}")
+        if regime_dominante:
+            print(f"🧠 Regime dominante: {regime_dominante}")
         else:
-            print("🧠 Primeira execução - sem histórico de cenário")
+            print("🧠 Primeira execução - sem histórico de regime")
 
-        # 🔄 Ajustar pesos conforme cenário dominante
-        df = ajustar_pesos_por_cenario(df, cenario_dominante)
+        df = ajustar_pesos_por_regime(df, regime_dominante)
 
         listas = obter_top_listas(df)
         numeros_faltantes, ciclo_contagem = calcular_ciclo_historico_completo(historico)
 
-        # 🔥 Classifica cenário atual
-        tipo_cenario_atual = classificar_cenario(df, medias)
+        # Classifica regime atual
+        regime_atual = classificar_regime(df, medias)
 
-        payload_memoria = {
+        payload_regime = {
             "data_referencia": data_atual,
             "concurso": int(concurso_atual),
             "numero_ciclo": int(ciclo_contagem),
-            "tipo_cenario": tipo_cenario_atual,
+            "tipo_regime": regime_atual,
             "score_global": float(df["score"].mean()),
-            "numeros_quentes": listas["numeros_quentes"],
-            "numeros_frios": listas["numeros_frios"],
-            "numeros_atrasados": numeros_faltantes,
             "media_soma": float(medias.get("soma_media", 0)),
             "media_pares": float(medias.get("pares_media", 0))
         }
 
-        supabase.table("memoria_cenarios").insert(payload_memoria).execute()
+        supabase.table("memoria_regimes") \
+            .delete().eq("data_referencia", data_atual).execute()
 
-        print(f"✅ Cenário atual salvo: {tipo_cenario_atual}")
+        supabase.table("memoria_regimes") \
+            .insert(payload_regime).execute()
+
+        print(f"✅ Regime atual salvo: {regime_atual}")
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
@@ -214,3 +213,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
