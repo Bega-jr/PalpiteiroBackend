@@ -1,167 +1,271 @@
 import sys
 import json
 import random
-import logging
 from pathlib import Path
 from datetime import datetime
-
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global, aplicar_fator_aprendizado
-from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais, extrair_metricas_jogo
+from app.services.aprendizado_service_v3 import (
+    obter_fator_aprendizado_global,
+    aplicar_fator_aprendizado
+)
+from app.services.estatisticas_combinacao_v3 import (
+    calcular_score_combinacoes_reais,
+    extrair_metricas_jogo
+)
 
-# Configurações para 2026
+# ======================================================
+# CONFIG
+# ======================================================
 QTD_PALPITES = 7
-VERSAO_GERADOR = "v7.3-fixo-indice-zero-2026"
+VERSAO_GERADOR = "v4-memoria-adaptativa"
+MAX_TENTATIVAS = 20000
 
-def obter_metricas_completas(nums):
+SOMA_MIN = 155
+SOMA_MAX = 225
+PARES_MIN = 5
+PARES_MAX = 10
+SEQ_MAX = 6
+REPET_MIN = 6
+REPET_MAX = 12
+LINHA_MIN = 1
+LINHA_MAX = 5
+
+SCORE_MIN_BASE = 0.05
+
+# ======================================================
+# AUX
+# ======================================================
+def calcular_metricas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
     soma = sum(nums)
-    linhas = [0] * 5
-    for n in nums:
-        linhas[(n - 1) // 5] += 1
-    return {"pares": pares, "soma": soma, "linhas": linhas}
+    return pares, soma
 
+
+def max_sequencia(nums):
+    atual = seq = 1
+    for i in range(1, len(nums)):
+        if nums[i] == nums[i - 1] + 1:
+            atual += 1
+            seq = max(seq, atual)
+        else:
+            atual = 1
+    return seq
+
+
+def distribuicao_linhas(nums):
+    faixas = [range(1,6), range(6,11), range(11,16), range(16,21), range(21,26)]
+    return [sum(1 for n in nums if n in f) for f in faixas]
+
+
+# ======================================================
+# MEMÓRIA
+# ======================================================
+def extrair_estrutura(nums):
+    return {
+        "soma_faixa": int(round(sum(nums) / 10) * 10),
+        "pares": sum(1 for n in nums if n % 2 == 0),
+        "primos": sum(1 for n in nums if n in {2,3,5,7,11,13,17,19,23}),
+        "linhas": distribuicao_linhas(nums)
+    }
+
+
+def buscar_memoria(supabase, estrutura):
+    res = (
+        supabase.table("memoria_cenarios")
+        .select("*")
+        .eq("soma_faixa", estrutura["soma_faixa"])
+        .eq("pares", estrutura["pares"])
+        .eq("primos", estrutura["primos"])
+        .execute()
+    )
+
+    if not res.data:
+        return None
+
+    melhor = None
+    menor_diff = 999
+
+    for r in res.data:
+        diff = sum(abs(a - b) for a, b in zip(r["linhas"], estrutura["linhas"]))
+        if diff < menor_diff:
+            menor_diff = diff
+            melhor = r
+
+    return melhor
+
+
+def ajustar_score_memoria(score, memoria):
+    if not memoria:
+        return score
+
+    real = float(memoria.get("score_medio_real", 0))
+
+    if real > 0.6:
+        return score * 1.15
+    elif real > 0.3:
+        return score * 1.05
+    elif real < 0.1:
+        return score * 0.85
+
+    return score
+
+
+# ======================================================
+# VALIDAÇÃO
+# ======================================================
+def validar(nums, scores, score_min, ultimos, fator, supabase):
+    if len(set(nums)) != 15:
+        return False
+
+    pares, soma = calcular_metricas(nums)
+
+    if not (SOMA_MIN <= soma <= SOMA_MAX):
+        return False
+    if not (PARES_MIN <= pares <= PARES_MAX):
+        return False
+    if max_sequencia(nums) > SEQ_MAX:
+        return False
+    if not all(LINHA_MIN <= x <= LINHA_MAX for x in distribuicao_linhas(nums)):
+        return False
+
+    repetidos = len(set(nums) & set(ultimos))
+    if not (REPET_MIN <= repetidos <= REPET_MAX):
+        return False
+
+    m = extrair_metricas_jogo(nums)
+
+    chave = (
+        round(m["soma"] / 10) * 10,
+        m["pares"],
+        m["primos"],
+        tuple(m["linhas"])
+    )
+
+    score = scores.get(chave, 0)
+    score = aplicar_fator_aprendizado(score, fator)
+
+    # 🔥 MEMÓRIA APLICADA AQUI
+    estrutura = extrair_estrutura(nums)
+    memoria = buscar_memoria(supabase, estrutura)
+    score = ajustar_score_memoria(score, memoria)
+
+    return score >= score_min
+
+
+# ======================================================
+# GERAÇÃO
+# ======================================================
+def gerar(pool, scores, score_min, ultimos, fator, supabase):
+    for _ in range(MAX_TENTATIVAS):
+        nums = sorted(random.sample(pool, 15))
+        if validar(nums, scores, score_min, ultimos, fator, supabase):
+            return nums
+    return None
+
+
+def score_final(nums, scores, fator, supabase):
+    m = extrair_metricas_jogo(nums)
+
+    chave = (
+        round(m["soma"] / 10) * 10,
+        m["pares"],
+        m["primos"],
+        tuple(m["linhas"])
+    )
+
+    base = scores.get(chave, 0)
+    base = aplicar_fator_aprendizado(base, fator)
+
+    estrutura = extrair_estrutura(nums)
+    memoria = buscar_memoria(supabase, estrutura)
+
+    return ajustar_score_memoria(base, memoria)
+
+
+# ======================================================
+# MAIN
+# ======================================================
 def main():
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
-    
-    # 1. SETUP DE DADOS
-    try:
-        # Busca último concurso para regra de repetição
-        res_con = supabase.table("lotofacil_concursos").select("concurso, dezenas").order("concurso", desc=True).limit(1).execute()
-        concurso_ref = res_con.data[0]["concurso"]
-        ultimos = list(map(int, res_con.data[0]["dezenas"]))
-        
-        # BUSCA DE POOL (Tratamento para View com múltiplos registros)
-        res_pool = supabase.table("estatisticas_numeros").select("numero, score").execute()
-        
-        # Deduplicação: Garante apenas 1 registro por número (o de maior score)
-        dict_pool = {}
-        for r in res_pool.data:
-            num = int(r["numero"])
-            score = float(r["score"])
-            if num not in dict_pool or score > dict_pool[num]:
-                dict_pool[num] = score
-        
-        # Ordena e pega os 25 melhores números únicos
-        sorted_pool = sorted(dict_pool.items(), key=lambda x: x[1], reverse=True)
-        pool = sorted([item[0] for item in sorted_pool[:25]])
-        
-        if len(pool) < 15:
-            logging.error(f"❌ Erro Crítico: Apenas {len(pool)} dezenas únicas encontradas.")
-            return
-            
-        print(f"🎱 Pool Processado em 2026: {len(pool)} dezenas únicas prontas.")
-            
-    except Exception as e:
-        logging.error(f"❌ Erro ao carregar dados do Supabase: {e}")
-        return
 
-    fator = obter_fator_aprendizado_global().get("fator", 1.0)
-    # Aprende com os últimos 1000 resultados oficiais
-    scores_db = calcular_score_combinacoes_reais(1000)
+    print(f"\n🚀 Gerador {VERSAO_GERADOR} iniciado em {hoje}")
 
-    print(f"🚀 Iniciando Geração Adaptativa v7.3 [Concurso Ref: {concurso_ref}]")
+    concurso = supabase.table("lotofacil_concursos") \
+        .select("concurso, dezenas") \
+        .order("concurso", desc=True).limit(1).execute().data[0]
+
+    concurso_ref = concurso["concurso"]
+    ultimos = list(map(int, concurso["dezenas"]))
+
+    pool = [
+        r["numero"]
+        for r in supabase.table("estatisticas_numeros")
+        .select("numero")
+        .order("score", desc=True)
+        .limit(20).execute().data
+    ]
+
+    fator = obter_fator_aprendizado_global()["fator"]
+    print(f"🧠 Fator aprendizado: {fator}")
+
+    scores = calcular_score_combinacoes_reais()
+    score_min = SCORE_MIN_BASE
+    print(f"📊 Score mínimo: {score_min}")
+
+    supabase.table("palpites_validos") \
+        .delete().eq("concurso_referencia", concurso_ref).execute()
 
     candidatos = []
     usados = set()
 
-    # Hierarquia de 5 a 0
-    for nivel in range(5, -1, -1):
-        if len(candidatos) >= QTD_PALPITES: break
-        
-        print(f"  🔍 Tentando Nível {nivel}...")
-        tentativas = 40000 if nivel == 5 else 20000
-        
-        for _ in range(tentativas):
-            if len(candidatos) >= QTD_PALPITES: break
-            
-            nums = sorted(random.sample(pool, 15))
-            t_nums = tuple(nums)
-            if t_nums in usados: continue
-            
-            m = obter_metricas_completas(nums)
-            metr_adv = extrair_metricas_jogo(nums)
-            chave = (round(metr_adv["soma"] / 10) * 10, metr_adv["pares"], metr_adv["primos"], tuple(metr_adv["linhas"]))
-            
-            score_base = scores_db.get(chave, 0)
-            score_final = aplicar_fator_aprendizado(score_base, fator)
-            
-            valido = True
-            
-            if nivel == 5:
-                if score_base == 0: valido = False
-                if valido and not all(1 <= x <= 5 for x in m["linhas"]): valido = False
-                if valido and score_final < 0.05: valido = False
-            elif nivel >= 4:
-                if not all(1 <= x <= 5 for x in m["linhas"]): valido = False
-                if valido and not (155 <= m["soma"] <= 225): valido = False
-            elif nivel >= 3:
-                if not (160 <= m["soma"] <= 220) or not (6 <= m["pares"] <= 9): valido = False
-            elif nivel >= 2:
-                rep = len(set(nums) & set(ultimos))
-                if not (8 <= rep <= 11): valido = False
-            elif nivel >= 1:
-                if score_final < 0.001: valido = False
+    while len(candidatos) < QTD_PALPITES:
+        p = gerar(pool, scores, score_min, ultimos, fator, supabase)
 
-            if valido:
-                if any(len(set(nums) & set(ex["nums"])) > 13 for ex in candidatos): 
-                    continue
-                
-                candidatos.append({
-                    "nums": nums, 
-                    "score": score_final, 
-                    "m": m, 
-                    "nivel": nivel
-                })
-                usados.add(t_nums)
+        if p and tuple(p) not in usados:
+            usados.add(tuple(p))
+            candidatos.append(p)
 
-    if not candidatos:
-        logging.error("❌ Falha crítica: Nenhuma combinação gerada.")
-        return
+    ranking = []
+    for nums in candidatos:
+        ranking.append({
+            "numeros": nums,
+            "score": score_final(nums, scores, fator, supabase)
+        })
 
-    # Ordena pelo Score Final
-    ranking = sorted(candidatos, key=lambda x: x["score"], reverse=True)[:QTD_PALPITES]
+    ranking.sort(key=lambda x: x["score"], reverse=True)
+
+    print("\n🏆 RANKING FINAL:")
+    for i, r in enumerate(ranking, 1):
+        print(f"{i}º | score={round(r['score'],6)} | {r['numeros']}")
+
     registros = []
-    
-    print("\n🏆 RANKING FINAL (Geração Janeiro/2026):")
-    for idx, r in enumerate(ranking, 1):
-        # O 1º do ranking vira índice 0 e tipo 'fixo'
-        indice_final = 0 if idx == 1 else idx - 1
-        tipo_final = "fixo" if idx == 1 else "estatistico"
+    for i, r in enumerate(ranking, 1):
+        pares, soma = calcular_metricas(r["numeros"])
 
-        print(f"{idx}º | Indice {indice_final} | Tipo {tipo_final} | Score {round(r['score'], 5)} | {r['nums']}")
-        
         registros.append({
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
-            "indice_palpite": indice_final,
-            "tipo": tipo_final,
-            "numeros": json.dumps(r["nums"]),
-            "pares": r["m"]["pares"],
-            "impares": 15 - r["m"]["pares"],
-            "soma_total": r["m"]["soma"],
+            "indice_palpite": i,
+            "tipo": "fixo" if i == 1 else "estatistico",
+            "numeros": json.dumps(r["numeros"]),
+            "pares": pares,
+            "impares": 15 - pares,
+            "soma_total": soma,
             "metricas": json.dumps({
-                "v": VERSAO_GERADOR,
-                "nivel": r["nivel"],
-                "score": r["score"]
+                "versao": VERSAO_GERADOR,
+                "score_final": r["score"]
             })
         })
 
-    # Persistência
-    try:
-        supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso_ref).execute()
-        if registros:
-            supabase.table("palpites_validos").insert(registros).execute()
-            print(f"\n✅ Sucesso: Melhor palpite salvo como INDICE 0 (FIXO).")
-    except Exception as e:
-        logging.error(f"❌ Erro ao persistir: {e}")
+    supabase.table("palpites_validos").insert(registros).execute()
+
+    print("\n✅ Gerador com memória adaptativa finalizado\n")
+
 
 if __name__ == "__main__":
     main()
-
