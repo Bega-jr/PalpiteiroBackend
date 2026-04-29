@@ -4,6 +4,9 @@ import random
 from pathlib import Path
 from datetime import datetime
 
+# ======================================================
+# SETUP
+# ======================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -16,6 +19,7 @@ from app.services.estatisticas_combinacao_v3 import (
     calcular_score_combinacoes_reais,
     extrair_metricas_jogo
 )
+from app.services.estatisticas_service import calcular_medias_recentes
 from app.services.roi_service import (
     obter_probabilidades_reais,
     calcular_roi_real
@@ -25,11 +29,11 @@ from app.services.roi_service import (
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-POOL_SIZE = 20
-MAX_TENTATIVAS = 20000
-VERSAO = "v5.1-roi-estavel"
+POOL_SIZE = 23
+MAX_TENTATIVAS = 30000
+VERSAO = "v6-adaptativo-dinamico"
 
-ROI_MIN = 0.02
+ROI_MIN = -0.05  # 🔥 importante no início
 
 PREMIOS_FIXOS = {
     11: 6,
@@ -40,6 +44,7 @@ PREMIOS_FIXOS = {
 }
 
 CUSTO_JOGO = 3.0
+
 
 # ======================================================
 # AUX
@@ -66,22 +71,35 @@ def linhas(nums):
     return [sum(1 for n in nums if n in r) for r in ranges]
 
 
-def validar(nums):
+# ======================================================
+# VALIDAÇÃO ADAPTATIVA
+# ======================================================
+def validar(nums, medias):
     if len(set(nums)) != 15:
         return False
 
-    pares, soma = calcular_metricas(nums)
+    pares = sum(1 for n in nums if n % 2 == 0)
+    soma = sum(nums)
 
-    if not (155 <= soma <= 225):
+    media_soma = medias.get("soma_media", 195)
+    media_pares = medias.get("pares_media", 7)
+
+    soma_min = media_soma - 20
+    soma_max = media_soma + 20
+
+    pares_min = max(4, media_pares - 2)
+    pares_max = min(11, media_pares + 2)
+
+    if not (soma_min <= soma <= soma_max):
         return False
 
-    if not (5 <= pares <= 10):
+    if not (pares_min <= pares <= pares_max):
         return False
 
-    if max_seq(nums) > 6:
+    if max_seq(nums) > 7:
         return False
 
-    if not all(1 <= x <= 5 for x in linhas(nums)):
+    if not all(0 <= x <= 6 for x in linhas(nums)):
         return False
 
     return True
@@ -105,17 +123,15 @@ def score_palpite(nums, scores, fator):
 
 
 # ======================================================
-# ROI FALLBACK CORRIGIDO
+# ROI FALLBACK
 # ======================================================
 def estimar_roi_fallback(score):
-    base = max(score, 0.02)
-
     probs = {
-        11: base * 1.2,
-        12: base * 0.6,
-        13: base * 0.25,
-        14: base * 0.08,
-        15: base * 0.02
+        11: score * 0.6,
+        12: score * 0.25,
+        13: score * 0.10,
+        14: score * 0.04,
+        15: score * 0.01
     }
 
     retorno = sum(probs[k] * PREMIOS_FIXOS[k] for k in probs)
@@ -138,8 +154,10 @@ def main():
         .order("concurso", desc=True) \
         .limit(1).execute().data[0]
 
-    concurso_ref = concurso["concurso"]
+    concurso_atual = concurso["concurso"]
+    concurso_referencia = concurso_atual + 1  # 🔥 CORRETO
 
+    # pool dinâmico
     pool = [
         r["numero"]
         for r in supabase.table("estatisticas_numeros")
@@ -150,7 +168,10 @@ def main():
     ]
 
     fator = obter_fator_aprendizado_global()["fator"]
+    medias = calcular_medias_recentes()
+
     print(f"🧠 Fator aprendizado: {fator}")
+    print(f"📊 Média soma: {medias.get('soma_media')}")
 
     scores = calcular_score_combinacoes_reais()
 
@@ -161,31 +182,18 @@ def main():
     else:
         print("⚠️ ROI fallback ativo")
 
-    # ==================================================
-    # GERAR CANDIDATOS (CONTROLADO)
-    # ==================================================
     candidatos = []
-    usados = set()
-    tentativas = 0
 
-    while len(candidatos) < 3000 and tentativas < MAX_TENTATIVAS:
-        tentativas += 1
-
+    # ==================================================
+    # GERAÇÃO
+    # ==================================================
+    for _ in range(MAX_TENTATIVAS):
         nums = sorted(random.sample(pool, 15))
-        t = tuple(nums)
 
-        if t in usados:
-            continue
-
-        usados.add(t)
-
-        if not validar(nums):
+        if not validar(nums, medias):
             continue
 
         score = score_palpite(nums, scores, fator)
-
-        if score < 0.02:
-            continue
 
         if probs_reais:
             roi = calcular_roi_real(score, probs_reais)
@@ -198,9 +206,17 @@ def main():
             "roi": roi
         })
 
+    # 🔥 fallback emergência
     if not candidatos:
-        print("❌ Nenhum candidato válido")
-        return
+        print("⚠️ Nenhum válido — modo emergência")
+
+        for _ in range(QTD_FINAL * 5):
+            nums = sorted(random.sample(range(1, 26), 15))
+            candidatos.append({
+                "nums": nums,
+                "score": 0,
+                "roi": 0
+            })
 
     print(f"📊 {len(candidatos)} candidatos gerados")
 
@@ -212,11 +228,9 @@ def main():
     finais = [c for c in candidatos if c["roi"] >= ROI_MIN]
 
     if len(finais) < QTD_FINAL:
-        print("⚠️ ROI baixo → fallback score")
+        print("⚠️ ROI baixo — fallback por score")
         candidatos.sort(key=lambda x: x["score"], reverse=True)
         finais = candidatos[:QTD_FINAL]
-    else:
-        finais = finais[:QTD_FINAL]
 
     print("\n🏆 RANKING FINAL:")
     for i, p in enumerate(finais, 1):
@@ -226,7 +240,7 @@ def main():
     # SAVE
     # ==================================================
     supabase.table("palpites_validos") \
-        .delete().eq("concurso_referencia", concurso_ref).execute()
+        .delete().eq("concurso_referencia", concurso_referencia).execute()
 
     registros = []
 
@@ -235,13 +249,14 @@ def main():
 
         registros.append({
             "data_referencia": hoje,
-            "concurso_referencia": concurso_ref,
+            "concurso_referencia": concurso_referencia,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
             "numeros": json.dumps(p["nums"]),
             "pares": pares,
             "impares": 15 - pares,
             "soma_total": soma,
+            "conferido": False,
             "metricas": json.dumps({
                 "versao": VERSAO,
                 "score": p["score"],
@@ -251,7 +266,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Gerador finalizado com estabilidade\n")
+    print("\n✅ Gerador finalizado com sucesso\n")
 
 
 if __name__ == "__main__":
