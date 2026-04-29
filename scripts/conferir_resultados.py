@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 from datetime import datetime
 
@@ -7,9 +8,7 @@ sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
 
-# ======================================================
-# EXTRAI ESTRUTURA
-# ======================================================
+
 def extrair_estrutura(nums):
     return {
         "soma_faixa": int(round(sum(nums) / 10) * 10),
@@ -24,9 +23,7 @@ def extrair_estrutura(nums):
         ]
     }
 
-# ======================================================
-# PESO REAL
-# ======================================================
+
 def peso_acerto(acertos):
     return {
         11: 1,
@@ -36,9 +33,7 @@ def peso_acerto(acertos):
         15: 100
     }.get(acertos, 0)
 
-# ======================================================
-# MAIN
-# ======================================================
+
 def main():
     supabase = get_supabase()
 
@@ -54,11 +49,16 @@ def main():
         return
 
     dezenas = set(map(int, concursos[0]["dezenas"]))
-    concurso_ref = concursos[0]["concurso"]
+    concurso_atual = concursos[0]["concurso"]
+
+    # 🔥 CORREÇÃO AQUI
+    concurso_referencia = concurso_atual - 1
+
+    print(f"📊 Conferindo palpites do concurso {concurso_referencia}")
 
     palpites = supabase.table("palpites_validos") \
         .select("*") \
-        .eq("concurso_referencia", concurso_ref) \
+        .eq("concurso_referencia", concurso_referencia) \
         .execute().data
 
     if not palpites:
@@ -66,25 +66,25 @@ def main():
         return
 
     for p in palpites:
-        nums = set(eval(p["numeros"]))
+        nums = set(json.loads(p["numeros"]))
         acertos = len(nums & dezenas)
 
         estrutura = extrair_estrutura(list(nums))
-
         peso = peso_acerto(acertos)
 
-        supabase.table("memoria_cenarios").update({
-            "score_medio_real": peso,
-            "ultima_aparicao": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }).match({
+        supabase.table("memoria_cenarios").upsert({
             "soma_faixa": estrutura["soma_faixa"],
             "pares": estrutura["pares"],
             "primos": estrutura["primos"],
-            "linhas": estrutura["linhas"]
-        }).execute()
+            "linhas": estrutura["linhas"],
+            "score_medio_real": peso,
+            "ultima_aparicao": datetime.now().date().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }, on_conflict="soma_faixa,pares,primos,linhas").execute()
 
-    print("✅ Memória atualizada com desempenho real")
+        print(f"✔ Atualizado cenário | acertos={acertos} | peso={peso}")
+
+    print("✅ Memória atualizada com sucesso")
 
 
 if __name__ == "__main__":
