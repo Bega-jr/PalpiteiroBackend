@@ -21,71 +21,94 @@ from app.services.estatisticas_combinacao_v3 import (
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-VERSAO = "v7-estrutura-inteligente"
-POOL_SIZE = 25
+POOL_SIZE = 20
+MAX_TENTATIVAS = 40000
+VERSAO = "v8-estrutura-memoria-diversificada"
+
+DIVERSIDADE_MINIMA = 6
 
 # ======================================================
-# BUSCAR MELHORES CENÁRIOS
+# AUX
 # ======================================================
-def buscar_top_cenarios(supabase, limite=20):
-    res = (
-        supabase
-        .table("memoria_cenarios")
-        .select("*")
-        .order("score_medio_real", desc=True)
-        .limit(limite)
+def calcular_metricas(nums):
+    pares = sum(1 for n in nums if n % 2 == 0)
+    soma = sum(nums)
+    return pares, soma
+
+
+def max_seq(nums):
+    seq = atual = 1
+    for i in range(1, len(nums)):
+        if nums[i] == nums[i - 1] + 1:
+            atual += 1
+            seq = max(seq, atual)
+        else:
+            atual = 1
+    return seq
+
+
+def linhas(nums):
+    ranges = [range(1,6), range(6,11), range(11,16), range(16,21), range(21,26)]
+    return [sum(1 for n in nums if n in r) for r in ranges]
+
+
+def validar(nums):
+    if len(set(nums)) != 15:
+        return False
+
+    pares, soma = calcular_metricas(nums)
+
+    if not (155 <= soma <= 225):
+        return False
+
+    if not (5 <= pares <= 10):
+        return False
+
+    if max_seq(nums) > 6:
+        return False
+
+    if not all(1 <= x <= 5 for x in linhas(nums)):
+        return False
+
+    return True
+
+# ======================================================
+# MEMÓRIA
+# ======================================================
+def extrair_estrutura(nums):
+    return {
+        "soma_faixa": int(round(sum(nums) / 10) * 10),
+        "pares": sum(1 for n in nums if n % 2 == 0),
+        "primos": sum(1 for n in nums if n in {2,3,5,7,11,13,17,19,23}),
+        "linhas": tuple(linhas(nums))
+    }
+
+
+def buscar_memoria(supabase):
+    res = supabase.table("memoria_cenarios") \
+        .select("*") \
+        .order("score_medio_real", desc=True) \
+        .limit(30) \
         .execute()
-    )
 
     return res.data or []
 
 
-# ======================================================
-# GERAR PALPITE BASEADO EM ESTRUTURA
-# ======================================================
-def gerar_por_estrutura(pool, estrutura):
-    numeros = []
+def score_memoria(estrutura, memorias):
+    for m in memorias:
+        if (
+            m["soma_faixa"] == estrutura["soma_faixa"] and
+            m["pares"] == estrutura["pares"] and
+            m["primos"] == estrutura["primos"]
+        ):
+            return float(m.get("score_medio_real", 0))
 
-    linhas_ranges = [
-        list(range(1, 6)),
-        list(range(6, 11)),
-        list(range(11, 16)),
-        list(range(16, 21)),
-        list(range(21, 26)),
-    ]
-
-    for i, qtd in enumerate(estrutura["linhas"]):
-        candidatos = list(set(pool) & set(linhas_ranges[i]))
-        if len(candidatos) < qtd:
-            return None
-
-        numeros += random.sample(candidatos, qtd)
-
-    return sorted(numeros)
-
+    return 0
 
 # ======================================================
-# AJUSTES FINOS (PARES / PRIMOS)
+# SCORE MULTI-CRITÉRIO
 # ======================================================
-def ajustar_estrutura(nums, estrutura):
-    pares_alvo = estrutura["pares"]
-    primos_set = {2,3,5,7,11,13,17,19,23}
-
-    pares = sum(1 for n in nums if n % 2 == 0)
-
-    # ajuste simples
-    if pares < pares_alvo:
-        nums = sorted(nums, key=lambda x: x % 2)  # prioriza pares
-    elif pares > pares_alvo:
-        nums = sorted(nums, key=lambda x: -(x % 2))  # prioriza ímpares
-
-    return nums[:15]
-
-
-# ======================================================
-# SCORE
-# ======================================================
-def score_palpite(nums, scores, fator):
+def score_palpite(nums, scores, fator, memorias, ultimos):
     m = extrair_metricas_jogo(nums)
 
     chave = (
@@ -96,32 +119,29 @@ def score_palpite(nums, scores, fator):
     )
 
     base = scores.get(chave, 0)
-    return aplicar_fator_aprendizado(base, fator)
+    base = aplicar_fator_aprendizado(base, fator)
 
+    estrutura = extrair_estrutura(nums)
+    memoria = score_memoria(estrutura, memorias)
+
+    repeticao = len(set(nums) & set(ultimos))
+    sequencia = max_seq(nums)
+
+    diversidade = len(set(nums))
+
+    return {
+        "score": base,
+        "memoria": memoria,
+        "repeticao": repeticao,
+        "sequencia": sequencia,
+        "diversidade": diversidade
+    }
 
 # ======================================================
-# DIVERSIFICAÇÃO
+# DISTÂNCIA ENTRE JOGOS
 # ======================================================
 def distancia(a, b):
     return len(set(a) ^ set(b))
-
-
-def diversificar(lista):
-    final = []
-
-    for c in lista:
-        if not final:
-            final.append(c)
-            continue
-
-        if all(distancia(c["nums"], f["nums"]) >= 6 for f in final):
-            final.append(c)
-
-        if len(final) >= QTD_FINAL:
-            break
-
-    return final
-
 
 # ======================================================
 # MAIN
@@ -133,68 +153,101 @@ def main():
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
     concurso = supabase.table("lotofacil_concursos") \
-        .select("concurso") \
+        .select("concurso, dezenas") \
         .order("concurso", desc=True) \
         .limit(1).execute().data[0]
 
     concurso_ref = concurso["concurso"]
+    ultimos = list(map(int, concurso["dezenas"]))
 
-    # pool completo (25 números agora)
-    pool = list(range(1, 26))
+    pool = [
+        r["numero"]
+        for r in supabase.table("estatisticas_numeros")
+        .select("numero")
+        .order("score", desc=True)
+        .limit(POOL_SIZE)
+        .execute().data
+    ]
 
     fator = obter_fator_aprendizado_global()["fator"]
     scores = calcular_score_combinacoes_reais()
+    memorias = buscar_memoria(supabase)
 
-    cenarios = buscar_top_cenarios(supabase)
-
-    if not cenarios:
-        print("⚠️ Sem memória, fallback padrão")
-        return
+    print(f"🧠 Memórias carregadas: {len(memorias)}")
 
     candidatos = []
 
-    # ==================================================
-    # GERAÇÃO GUIADA POR CENÁRIOS
-    # ==================================================
-    for cenario in cenarios:
-        for _ in range(2000):
-            nums = gerar_por_estrutura(pool, cenario)
+    for _ in range(MAX_TENTATIVAS):
+        nums = sorted(random.sample(pool, 15))
 
-            if not nums:
-                continue
+        if not validar(nums):
+            continue
 
-            nums = ajustar_estrutura(nums, cenario)
+        sc = score_palpite(nums, scores, fator, memorias, ultimos)
 
-            score = score_palpite(nums, scores, fator)
+        candidatos.append({
+            "nums": nums,
+            **sc
+        })
 
-            candidatos.append({
-                "nums": nums,
-                "score": score
-            })
+    print(f"📊 {len(candidatos)} candidatos gerados")
 
     if not candidatos:
-        print("❌ Nenhum candidato gerado")
+        print("❌ Nenhum candidato válido")
         return
 
-    print(f"📊 {len(candidatos)} candidatos estruturados")
+    # ==================================================
+    # RANKING MULTI-CRITÉRIO
+    # ==================================================
+    candidatos.sort(
+        key=lambda x: (
+            x["score"],
+            x["memoria"],
+            -x["repeticao"],
+            -x["sequencia"],
+            x["diversidade"]
+        ),
+        reverse=True
+    )
 
-    candidatos.sort(key=lambda x: x["score"], reverse=True)
+    # ==================================================
+    # DIVERSIDADE FORÇADA
+    # ==================================================
+    finais = []
 
-    finais = diversificar(candidatos)
+    for c in candidatos:
+        if len(finais) == 0:
+            finais.append(c)
+            continue
 
+        if all(distancia(c["nums"], f["nums"]) >= DIVERSIDADE_MINIMA for f in finais):
+            finais.append(c)
+
+        if len(finais) == QTD_FINAL:
+            break
+
+    # fallback
+    if len(finais) < QTD_FINAL:
+        print("⚠️ Fallback diversidade")
+        finais = candidatos[:QTD_FINAL]
+
+    # ==================================================
+    # OUTPUT
+    # ==================================================
     print("\n🏆 FINAL:")
     for i, p in enumerate(finais, 1):
-        print(f"{i}º | score={round(p['score'],4)} | {p['nums']}")
+        print(f"{i}º | score={round(p['score'],6)} | mem={p['memoria']} | {p['nums']}")
 
-    # salvar
+    # ==================================================
+    # SAVE
+    # ==================================================
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
     registros = []
 
     for i, p in enumerate(finais, 1):
-        pares = sum(1 for n in p["nums"] if n % 2 == 0)
-        soma = sum(p["nums"])
+        pares, soma = calcular_metricas(p["nums"])
 
         registros.append({
             "data_referencia": hoje,
@@ -208,13 +261,13 @@ def main():
             "metricas": json.dumps({
                 "versao": VERSAO,
                 "score": p["score"],
-                "origem": "memoria_estrutural"
+                "memoria": p["memoria"]
             })
         })
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Geração estrutural concluída\n")
+    print("\n✅ Gerador v8 finalizado com inteligência total\n")
 
 
 if __name__ == "__main__":
