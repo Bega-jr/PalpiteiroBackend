@@ -33,25 +33,27 @@ MAX_TEMPO = 15
 VERSAO = "v9-auto-adaptativo"
 
 # =========================
-# AUX
+# POOL SEM DUPLICAÇÃO
 # =========================
 def gerar_pool(supabase):
-    return [
-        r["numero"]
-        for r in supabase.table("estatisticas_numeros")
-        .select("numero")
-        .order("score", desc=True)
-        .limit(POOL_SIZE)
+    data = supabase.table("estatisticas_numeros") \
+        .select("numero") \
+        .order("score", desc=True) \
+        .limit(50) \
         .execute().data
-    ]
 
+    numeros = list({int(r["numero"]) for r in data})
 
+    if len(numeros) < 15:
+        numeros = list(range(1, 26))
+
+    return numeros[:POOL_SIZE]
+
+# =========================
+# AUX
+# =========================
 def diversidade(a, b):
     return len(set(a) & set(b))
-
-
-def valido_basico(nums):
-    return len(set(nums)) == 15
 
 
 def score(nums, scores, fator):
@@ -65,16 +67,12 @@ def score(nums, scores, fator):
     return aplicar_fator_aprendizado(scores.get(chave, 0), fator)
 
 
-# =========================
-# MODO ADAPTATIVO
-# =========================
 def definir_modo(memoria_score):
     if memoria_score > 0.6:
         return "AGRESSIVO"
     elif memoria_score > 0.3:
         return "EQUILIBRADO"
     return "CONSERVADOR"
-
 
 # =========================
 # MAIN
@@ -89,10 +87,8 @@ def main():
 
     fator = obter_fator_aprendizado_global()["fator"]
     scores = calcular_score_combinacoes_reais()
-
     probs = obter_probabilidades_reais(VERSAO)
 
-    # memória média simples
     memoria = supabase.table("memoria_cenarios") \
         .select("score_medio_real") \
         .limit(50).execute().data
@@ -114,15 +110,12 @@ def main():
 
         nums = sorted(random.sample(pool, 15))
 
-        if not valido_basico(nums):
-            continue
-
         sc = score(nums, scores, fator)
 
         if probs and modo == "AGRESSIVO":
             roi = calcular_roi_real(sc, probs)
         else:
-            roi = sc * 0.1  # proxy simples
+            roi = sc * 0.1
 
         candidatos.append({
             "nums": nums,
@@ -130,18 +123,25 @@ def main():
             "roi": roi
         })
 
+    # =========================
+    # FALLBACK REAL
+    # =========================
     if not candidatos:
         print("⚠️ fallback total")
-        candidatos = [{
-            "nums": sorted(random.sample(pool, 15)),
-            "score": 0.1,
-            "roi": 0
-        } for _ in range(QTD_FINAL)]
+
+        candidatos = []
+        for _ in range(QTD_FINAL):
+            nums = sorted(random.sample(range(1, 26), 15))
+            candidatos.append({
+                "nums": nums,
+                "score": 0.1,
+                "roi": 0
+            })
 
     print(f"📊 {len(candidatos)} candidatos")
 
     # =========================
-    # RANKING ADAPTATIVO
+    # RANKING
     # =========================
     if modo == "AGRESSIVO":
         candidatos.sort(key=lambda x: (x["roi"], x["score"]), reverse=True)
@@ -151,7 +151,7 @@ def main():
         candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     # =========================
-    # DIVERSIDADE FORÇADA
+    # DIVERSIDADE
     # =========================
     finais = []
 
@@ -161,7 +161,6 @@ def main():
         if len(finais) == QTD_FINAL:
             break
 
-    # fallback diversidade
     if len(finais) < QTD_FINAL:
         finais = candidatos[:QTD_FINAL]
 
@@ -173,10 +172,16 @@ def main():
         print(f"{i}º | score={round(f['score'],4)} | roi={round(f['roi'],4)} | {f['nums']}")
 
     # =========================
+    # DELETE SEGURO
+    # =========================
+    supabase.table("palpites_validos") \
+        .delete() \
+        .eq("data_referencia", hoje) \
+        .execute()
+
+    # =========================
     # SAVE
     # =========================
-    supabase.table("palpites_validos").delete().execute()
-
     registros = []
 
     for i, f in enumerate(finais, 1):
@@ -195,7 +200,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ V9 finalizado")
+    print("\n✅ V9 finalizado com sucesso")
 
 
 if __name__ == "__main__":
