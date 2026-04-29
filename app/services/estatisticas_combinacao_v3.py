@@ -2,22 +2,20 @@ from app.services.supabase_service import get_supabase
 from collections import defaultdict
 from typing import Dict, Tuple
 import json
+import numpy as np
 
 # ======================================================
-# Métricas Estruturais Otimizadas
+# MÉTRICAS ESTRUTURAIS
 # ======================================================
-
 def extrair_metricas_jogo(nums):
     """
-    Extrai o DNA estrutural de uma combinação de 15 números.
-    Utilizado para identificar padrões que se repetem no histórico.
+    Extrai estrutura estatística do jogo (15 números)
     """
+
     soma = sum(nums)
     pares = sum(1 for n in nums if n % 2 == 0)
-    # Lista de primos entre 1 e 25
     primos = sum(1 for n in nums if n in {2, 3, 5, 7, 11, 13, 17, 19, 23})
 
-    # Distribuição por linhas (1-5, 6-10, 11-15, 16-20, 21-25)
     linhas = [0, 0, 0, 0, 0]
     for n in nums:
         idx = (n - 1) // 5
@@ -32,19 +30,20 @@ def extrair_metricas_jogo(nums):
     }
 
 # ======================================================
-# Aprendizado Dinâmico via Histórico Real (Gabarito 2026)
+# SCORE DE COMBINAÇÕES REAIS (VERSÃO ESTÁVEL)
 # ======================================================
+def calcular_score_combinacoes_reais(limite_concursos: int = 1000):
+    """
+    Aprende padrões reais sem distorcer distribuição.
+    Retorna:
+        - base_scores (estrutura geral)
+        - rec_scores (recência leve)
+    """
 
-def calcular_score_combinacoes_reais(limite_concursos: int = 1000) -> Dict[Tuple, float]:
-    """
-    Aprende a probabilidade de acerto analisando a frequência dos últimos 
-    1000 resultados oficiais da Lotofácil.
-    """
     supabase = get_supabase()
 
-    # 1. Busca os últimos resultados oficiais (Gabarito Real)
-    print(f"📊 Analisando os últimos {limite_concursos} concursos oficiais para aprendizado...")
-    
+    print(f"📊 Aprendizado: últimos {limite_concursos} concursos")
+
     try:
         res = (
             supabase
@@ -55,63 +54,83 @@ def calcular_score_combinacoes_reais(limite_concursos: int = 1000) -> Dict[Tuple
             .execute()
         )
     except Exception as e:
-        print(f"❌ Erro na conexão com Supabase: {e}")
-        return {}
+        print(f"❌ erro Supabase: {e}")
+        return {}, {}
 
     if not res.data:
-        print("⚠️ Histórico real não encontrado no banco. Usando fallback teórico.")
-        # Fallback para não travar o gerador em caso de banco vazio
-        return {(180, 8, 5, (3, 3, 3, 3, 3)): 1.0}
+        print("⚠️ fallback ativado (dados vazios)")
+        return {}, {}
 
-    frequencia_padroes = defaultdict(int)
-    
-    # 2. Mapeia a recorrência de cada padrão estrutural nos últimos 1000 sorteios
-    for r in res.data:
+    freq_base = defaultdict(int)
+    freq_rec = defaultdict(int)
+
+    total = len(res.data)
+
+    # ==================================================
+    # LEITURA DOS CONCURSOS
+    # ==================================================
+    for idx, r in enumerate(res.data):
+
         try:
-            # Tratamento resiliente das dezenas (pode vir como string JSON ou lista)
-            raw_dezenas = r["dezenas"]
-            if isinstance(raw_dezenas, str):
-                nums = json.loads(raw_dezenas)
+            raw = r["dezenas"]
+
+            if isinstance(raw, str):
+                nums = json.loads(raw)
             else:
-                nums = raw_dezenas
-            
-            # Converte para inteiros e ordena
-            nums = sorted([int(n) for n in nums])
-            
+                nums = raw
+
+            nums = sorted(int(n) for n in nums)
+
             if len(nums) != 15:
                 continue
 
             m = extrair_metricas_jogo(nums)
-            
-            # Chave de Identidade do Jogo:
-            # (Soma Arredondada, Qtd Pares, Qtd Primos, Distribuição de Linhas)
+
+            # CHAVE ESTÁVEL (CRÍTICO)
             chave = (
                 round(m["soma"] / 10) * 10,
                 m["pares"],
                 m["primos"],
                 m["linhas"]
             )
-            frequencia_padroes[chave] += 1
-            
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            # Pula registros malformados sem interromper o aprendizado
+
+            freq_base[chave] += 1
+
+            # recência ponderada (últimos concursos valem mais)
+            peso_rec = 1 + (1 - (idx / total))
+            freq_rec[chave] += peso_rec
+
+        except Exception:
             continue
 
-    # 3. Normalização dos Scores (0.0 a 1.0)
-    if not frequencia_padroes:
-        return {}
+    # ======================================================
+    # NORMALIZAÇÃO SEGURA
+    # ======================================================
+    if not freq_base:
+        return {}, {}
 
-    max_ocorrencias = max(frequencia_padroes.values())
-    
-    # Atribui score proporcional à frequência (ex: padrão mais comum = 1.0)
-    scores_finais = {
-        k: round(v / max_ocorrencias, 6)
-        for k, v in frequencia_padroes.items()
+    max_base = max(freq_base.values())
+    max_rec = max(freq_rec.values())
+
+    base_scores = {
+        k: v / max_base
+        for k, v in freq_base.items()
     }
 
-    print(f"✅ Aprendizado 2026 concluído: {len(scores_finais)} padrões identificados em {len(res.data)} concursos.")
-    return scores_finais
+    rec_scores = {
+        k: v / max_rec
+        for k, v in freq_rec.items()
+    }
 
-# Mantém a compatibilidade com chamadas de outras versões
+    print(
+        f"✅ Aprendizado concluído: "
+        f"{len(base_scores)} padrões"
+    )
+
+    return base_scores, rec_scores
+
+# ======================================================
+# COMPATIBILIDADE LEGACY
+# ======================================================
 calcular_score_combinacoes = calcular_score_combinacoes_reais
 
