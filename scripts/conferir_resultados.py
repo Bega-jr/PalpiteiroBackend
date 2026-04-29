@@ -1,133 +1,91 @@
-import os
-import json
-import logging
+import sys
+from pathlib import Path
 from datetime import datetime
-from supabase import create_client, Client
 
-# Configuração de Logs para monitoramento em 2026
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.append(str(BASE_DIR))
 
-# -----------------------------------
-# Configuração Supabase
-# -----------------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
+from app.services.supabase_service import get_supabase
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    logging.error("❌ Variáveis de ambiente SUPABASE_URL ou SUPABASE_KEY não configuradas.")
-    exit(1)
+# ======================================================
+# EXTRAI ESTRUTURA
+# ======================================================
+def extrair_estrutura(nums):
+    return {
+        "soma_faixa": int(round(sum(nums) / 10) * 10),
+        "pares": sum(1 for n in nums if n % 2 == 0),
+        "primos": sum(1 for n in nums if n in {2,3,5,7,11,13,17,19,23}),
+        "linhas": [
+            sum(1 for n in nums if 1 <= n <= 5),
+            sum(1 for n in nums if 6 <= n <= 10),
+            sum(1 for n in nums if 11 <= n <= 15),
+            sum(1 for n in nums if 16 <= n <= 20),
+            sum(1 for n in nums if 21 <= n <= 25),
+        ]
+    }
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# ======================================================
+# PESO REAL
+# ======================================================
+def peso_acerto(acertos):
+    return {
+        11: 1,
+        12: 2,
+        13: 5,
+        14: 20,
+        15: 100
+    }.get(acertos, 0)
 
-# -----------------------------------
-# Conferência com Feedback Loop
-# -----------------------------------
-def conferir_historico():
-    logging.info(f"🚀 Iniciando Conferência 2026 - {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+# ======================================================
+# MAIN
+# ======================================================
+def main():
+    supabase = get_supabase()
 
-    # 1. Resultados oficiais (Busca os últimos 10 para conferência/ajuste)
-    res_oficiais = (
-        supabase.table("lotofacil_concursos")
-        .select("concurso, dezenas, data")
-        .order("concurso", desc=True)
-        .limit(10) 
-        .execute()
-    )
+    print("🏁 Conferindo resultados e atualizando memória...")
 
-    if not res_oficiais.data:
-        logging.error("❌ Nenhum concurso oficial encontrado no banco.")
+    concursos = supabase.table("lotofacil_concursos") \
+        .select("concurso, dezenas") \
+        .order("concurso", desc=True) \
+        .limit(1).execute().data
+
+    if not concursos:
+        print("❌ Sem concurso")
         return
 
-    for sorteio in res_oficiais.data:
-        concurso_alvo = sorteio["concurso"]
-        data_oficial = sorteio["data"]
-        dezenas_sorteadas = set(map(int, sorteio["dezenas"]))
+    dezenas = set(map(int, concursos[0]["dezenas"]))
+    concurso_ref = concursos[0]["concurso"]
 
-        # LÓGICA DE ALVO: O palpite gerado PARA o 3595 usa o 3594 como referência
-        concurso_referencia_utilizado = concurso_alvo - 1
+    palpites = supabase.table("palpites_validos") \
+        .select("*") \
+        .eq("concurso_referencia", concurso_ref) \
+        .execute().data
 
-        # 2. Busca palpites que foram criados para este sorteio
-        palpites_res = (
-            supabase.table("palpites_validos")
-            .select("id, numeros, tipo, acertos")
-            .eq("concurso_referencia", concurso_referencia_utilizado)
-            .execute()
-        )
+    if not palpites:
+        print("⚠️ Sem palpites para conferir")
+        return
 
-        if not palpites_res.data:
-            continue
+    for p in palpites:
+        nums = set(eval(p["numeros"]))
+        acertos = len(nums & dezenas)
 
-        # Filtra para processar apenas se ainda não houver conferência (evita loops desnecessários)
-        # Se quiser forçar re-conferência, remova a condição 'p["acertos"] is None'
-        logging.info(f"🔍 Concurso {concurso_alvo}: Conferindo {len(palpites_res.data)} palpites...")
+        estrutura = extrair_estrutura(list(nums))
 
-        resumo_por_tipo = {}
+        peso = peso_acerto(acertos)
 
-        for p in palpites_res.data:
-            try:
-                raw_nums = p.get("numeros")
-                # Tratamento resiliente do JSON de números
-                if isinstance(raw_nums, str):
-                    nums = json.loads(raw_nums.strip('"').replace("\\", ""))
-                else:
-                    nums = raw_nums
-                
-                numeros_palpite = set(map(int, nums))
-                
-                # CÁLCULO DE ACERTOS
-                qtd_acertos = len(numeros_palpite & dezenas_sorteadas)
-                tipo = p.get("tipo", "estatistico")
+        supabase.table("memoria_cenarios").update({
+            "score_medio_real": peso,
+            "ultima_aparicao": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }).match({
+            "soma_faixa": estrutura["soma_faixa"],
+            "pares": estrutura["pares"],
+            "primos": estrutura["primos"],
+            "linhas": estrutura["linhas"]
+        }).execute()
 
-                # --- MELHORIA PRINCIPAL: FEEDBACK LOOP ---
-                # Atualiza o palpite individual para que o gerador possa APRENDER com ele
-                supabase.table("palpites_validos") \
-                    .update({"acertos": qtd_acertos}) \
-                    .eq("id", p["id"]) \
-                    .execute()
+    print("✅ Memória atualizada com desempenho real")
 
-                # Acumula para o resumo estatístico
-                if tipo not in resumo_por_tipo:
-                    resumo_por_tipo[tipo] = {"11":0,"12":0,"13":0,"14":0,"15":0,"total":0}
-                
-                resumo_por_tipo[tipo]["total"] += 1
-                if qtd_acertos >= 11:
-                    resumo_por_tipo[tipo][str(qtd_acertos)] += 1
-
-            except Exception as e:
-                logging.error(f"⚠️ Erro ao conferir palpite ID {p.get('id')}: {e}")
-                continue
-
-        # 3. Persistência do Resumo para Dashboard
-        for tipo, dados in resumo_por_tipo.items():
-            versao = "v7.3-fixo-2026"
-
-            # Remove resumo antigo para este concurso/tipo e insere o novo (Upsert manual)
-            supabase.table("palpites_resultados_reais") \
-                .delete() \
-                .eq("concurso_inicio", concurso_alvo) \
-                .eq("tipo_palpite", tipo) \
-                .execute()
-
-            registro = {
-                "data_referencia": data_oficial,
-                "concurso_inicio": concurso_alvo,
-                "concurso_fim": concurso_alvo,
-                "tipo_palpite": tipo,
-                "versao_gerador": versao,
-                "qtd_palpites": dados["total"],
-                "acertos_11": dados["11"],
-                "acertos_12": dados["12"],
-                "acertos_13": dados["13"],
-                "acertos_14": dados["14"],
-                "acertos_15": dados["15"],
-                "total_concursos": 1
-            }
-
-            supabase.table("palpites_resultados_reais").insert(registro).execute()
-            logging.info(f"✅ Resultado Salvo: Concurso {concurso_alvo} [{tipo}] -> {dados['11']} acertos de 11.")
-
-    logging.info("🎯 Conferência finalizada com sucesso.")
 
 if __name__ == "__main__":
-    conferir_historico()
-
+    main()
