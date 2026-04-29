@@ -3,84 +3,73 @@ import json
 import random
 from pathlib import Path
 from datetime import datetime
-import numpy as np
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.estatisticas_service import carregar_historico
-from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
+from app.services.aprendizado_service_v3 import (
+    obter_fator_aprendizado_global,
+    aplicar_fator_aprendizado
+)
+from app.services.estatisticas_combinacao_v3 import (
+    calcular_score_combinacoes_reais,
+    extrair_metricas_jogo
+)
 
 # ======================================================
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-MAX_TENTATIVAS = 15000
-VERSAO = "v9.3-anti-travamento"
-
-CUSTO_JOGO = 3.0
+POOL_SIZE = 25
+MAX_TENTATIVAS = 20000
+VERSAO = "v9.3-fix-sem-duplicacao"
 
 # ======================================================
-# PARÂMETROS DINÂMICOS
+# DINÂMICO
 # ======================================================
-def calcular_parametros(historico):
-    ultimos = historico[-200:]
-
-    somas = [sum(h["numeros"]) for h in ultimos]
-    pares = [sum(1 for n in h["numeros"] if n % 2 == 0) for h in ultimos]
-
+def obter_parametros_dinamicos():
     return {
-        "soma_min": int(np.percentile(somas, 3)),
-        "soma_max": int(np.percentile(somas, 97)),
-        "pares_min": int(np.percentile(pares, 5)),
-        "pares_max": int(np.percentile(pares, 95)),
+        "soma_min": 160,
+        "soma_max": 225,
+        "pares_min": 5,
+        "pares_max": 10
     }
 
 # ======================================================
-# POOL COMPLETO (CRÍTICO)
+# VALIDAÇÃO FORTE
 # ======================================================
-def obter_pool(supabase):
-    dados = supabase.table("estatisticas_numeros") \
-        .select("numero, frequencia") \
-        .order("score", desc=True) \
-        .limit(25) \
-        .execute().data
+def validar(nums, params):
+    # 🔴 GARANTE unicidade
+    if len(set(nums)) != 15:
+        return False
 
-    pool = [r["numero"] for r in dados]
-    freq_map = {r["numero"]: r["frequencia"] for r in dados}
-
-    return pool, freq_map
-
-# ======================================================
-# VALIDAÇÃO FLEXÍVEL
-# ======================================================
-def validar(nums, params, relax):
     soma = sum(nums)
     pares = sum(1 for n in nums if n % 2 == 0)
 
-    if not (params["soma_min"] - relax <= soma <= params["soma_max"] + relax):
+    if not (params["soma_min"] <= soma <= params["soma_max"]):
         return False
 
-    if not (params["pares_min"] - relax//2 <= pares <= params["pares_max"] + relax//2):
+    if not (params["pares_min"] <= pares <= params["pares_max"]):
         return False
 
     return True
 
 # ======================================================
-# SCORE SIMPLES E ESTÁVEL
+# SCORE
 # ======================================================
-def score_palpite(nums, freq_map, fator):
-    base = sum(freq_map.get(n, 0) for n in nums) / 15
-    variacao = random.uniform(-0.05, 0.05)
-    return max((base * fator) + variacao, 0)
+def score_palpite(nums, scores, fator):
+    m = extrair_metricas_jogo(nums)
 
-# ======================================================
-# ROI SIMPLES
-# ======================================================
-def calcular_roi(score):
-    retorno = score * 80
-    return (retorno - CUSTO_JOGO) / CUSTO_JOGO
+    chave = (
+        round(m["soma"] / 10) * 10,
+        m["pares"],
+        m["primos"],
+        tuple(m["linhas"])
+    )
+
+    base = scores.get(chave, 0.1)
+    return aplicar_fator_aprendizado(base, fator)
 
 # ======================================================
 # DIVERSIDADE
@@ -88,18 +77,14 @@ def calcular_roi(score):
 def distancia(a, b):
     return len(set(a) ^ set(b))
 
-def diversificar(candidatos, qtd):
+def filtrar_diversidade(candidatos):
     finais = []
 
     for c in candidatos:
-        if not finais:
-            finais.append(c)
-            continue
-
         if all(distancia(c["nums"], f["nums"]) >= 5 for f in finais):
             finais.append(c)
 
-        if len(finais) == qtd:
+        if len(finais) >= QTD_FINAL:
             break
 
     return finais
@@ -113,80 +98,61 @@ def main():
 
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
-    # concurso referência
-    concursos = supabase.table("lotofacil_concursos") \
+    concurso = supabase.table("lotofacil_concursos") \
         .select("concurso") \
         .order("concurso", desc=True) \
         .limit(1).execute().data
 
-    if not concursos:
-        print("❌ Sem concurso base")
+    if not concurso:
+        print("❌ Sem concurso")
         return
 
-    concurso_ref = concursos[0]["concurso"]
+    concurso_ref = concurso[0]["concurso"]
     print(f"📌 Concurso referência: {concurso_ref}")
 
-    # histórico
-    historico = carregar_historico()
-    params = calcular_parametros(historico)
+    pool = [
+        r["numero"]
+        for r in supabase.table("estatisticas_numeros")
+        .select("numero")
+        .limit(POOL_SIZE)
+        .execute().data
+    ]
 
+    params = obter_parametros_dinamicos()
     print(f"📊 Parâmetros: {params}")
-
-    # pool
-    pool, freq_map = obter_pool(supabase)
     print(f"📊 Pool size: {len(pool)}")
 
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
+    scores = calcular_score_combinacoes_reais()
+
     candidatos = []
 
-    # ==================================================
-    # GERAÇÃO COM RELAXAMENTO PROGRESSIVO
-    # ==================================================
-    for relax in [0, 3, 6, 10, 20]:
-        print(f"🔄 Relaxamento: {relax}")
+    for _ in range(MAX_TENTATIVAS):
+        # 🔴 CORREÇÃO CRÍTICA
+        nums = sorted(random.sample(pool, 15))
 
-        for _ in range(MAX_TENTATIVAS):
-            nums = sorted(random.sample(pool, 15))
+        if not validar(nums, params):
+            continue
 
-            if not validar(nums, params, relax):
-                continue
+        score = score_palpite(nums, scores, fator)
 
-            score = score_palpite(nums, freq_map, fator)
-            roi = calcular_roi(score)
+        candidatos.append({
+            "nums": nums,
+            "score": score,
+            "roi": score * 0.1
+        })
 
-            candidatos.append({
-                "nums": nums,
-                "score": score,
-                "roi": roi
-            })
-
-        if candidatos:
-            print(f"✅ {len(candidatos)} candidatos")
-            break
-
-    # ==================================================
-    # FALLBACK TOTAL (NUNCA FALHAR)
-    # ==================================================
     if not candidatos:
-        print("⚠️ FALLBACK TOTAL ATIVADO")
+        print("❌ Nenhum candidato gerado")
+        return
 
-        for _ in range(100):
-            nums = sorted(random.sample(range(1, 26), 15))
+    print(f"✅ {len(candidatos)} candidatos válidos")
 
-            candidatos.append({
-                "nums": nums,
-                "score": 0.1,
-                "roi": 0
-            })
-
-    # ==================================================
-    # RANKING
-    # ==================================================
     candidatos.sort(key=lambda x: (x["score"], x["roi"]), reverse=True)
 
-    finais = diversificar(candidatos, QTD_FINAL)
+    finais = filtrar_diversidade(candidatos)
 
     if len(finais) < QTD_FINAL:
         finais = candidatos[:QTD_FINAL]
@@ -196,30 +162,28 @@ def main():
     # ==================================================
     print("\n🏆 FINAL:")
     for i, p in enumerate(finais, 1):
-        print(f"{i}º | score={round(p['score'],4)} | roi={round(p['roi'],4)} | {p['nums']}")
+        print(f"{i}º | score={round(p['score'],4)} | {p['nums']}")
 
     # ==================================================
-    # SAVE
+    # DELETE SEGURO
     # ==================================================
     supabase.table("palpites_validos") \
         .delete() \
         .eq("concurso_referencia", concurso_ref) \
         .execute()
 
+    # ==================================================
+    # SAVE
+    # ==================================================
     registros = []
 
     for i, p in enumerate(finais, 1):
-        pares = sum(1 for n in p["nums"] if n % 2 == 0)
-
         registros.append({
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
             "numeros": json.dumps(p["nums"]),
-            "pares": pares,
-            "impares": 15 - pares,
-            "soma_total": sum(p["nums"]),
             "metricas": json.dumps({
                 "versao": VERSAO,
                 "score": p["score"],
@@ -229,7 +193,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Geração concluída (v9.3)\n")
+    print("\n✅ Geração corrigida (sem duplicação)\n")
 
 
 if __name__ == "__main__":
