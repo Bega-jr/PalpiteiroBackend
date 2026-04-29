@@ -9,6 +9,9 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
+# ======================================================
+# EXTRAI ESTRUTURA
+# ======================================================
 def extrair_estrutura(nums):
     return {
         "soma_faixa": int(round(sum(nums) / 10) * 10),
@@ -24,6 +27,9 @@ def extrair_estrutura(nums):
     }
 
 
+# ======================================================
+# PESO REAL
+# ======================================================
 def peso_acerto(acertos):
     return {
         11: 1,
@@ -34,44 +40,60 @@ def peso_acerto(acertos):
     }.get(acertos, 0)
 
 
+# ======================================================
+# MAIN
+# ======================================================
 def main():
     supabase = get_supabase()
 
-    print("🏁 Conferindo resultados e atualizando memória...")
+    print("🏁 Conferindo resultados (modo robusto)...")
 
-    concursos = supabase.table("lotofacil_concursos") \
+    # 🔥 último resultado oficial
+    concurso = supabase.table("lotofacil_concursos") \
         .select("concurso, dezenas") \
         .order("concurso", desc=True) \
         .limit(1).execute().data
 
-    if not concursos:
-        print("❌ Sem concurso")
+    if not concurso:
+        print("❌ Sem concurso disponível")
         return
 
-    dezenas = set(map(int, concursos[0]["dezenas"]))
-    concurso_atual = concursos[0]["concurso"]
+    dezenas = set(map(int, concurso[0]["dezenas"]))
+    concurso_atual = concurso[0]["concurso"]
 
-    # 🔥 CORREÇÃO AQUI
-    concurso_referencia = concurso_atual - 1
+    print(f"📊 Concurso atual: {concurso_atual}")
 
-    print(f"📊 Conferindo palpites do concurso {concurso_referencia}")
-
+    # ==================================================
+    # 🔥 BUSCAR TODOS NÃO CONFERIDOS
+    # ==================================================
     palpites = supabase.table("palpites_validos") \
         .select("*") \
-        .eq("concurso_referencia", concurso_referencia) \
+        .eq("conferido", False) \
         .execute().data
 
     if not palpites:
-        print("⚠️ Sem palpites para conferir")
+        print("✅ Nenhum palpite pendente")
         return
 
+    print(f"📌 {len(palpites)} palpites pendentes encontrados")
+
+    atualizados = 0
+
     for p in palpites:
-        nums = set(json.loads(p["numeros"]))
+        try:
+            nums = set(json.loads(p["numeros"]))
+        except:
+            print(f"⚠️ Erro ao ler numeros ID={p.get('id')}")
+            continue
+
         acertos = len(nums & dezenas)
 
         estrutura = extrair_estrutura(list(nums))
         peso = peso_acerto(acertos)
 
+        # ==================================================
+        # UPSERT NA MEMÓRIA
+        # ==================================================
         supabase.table("memoria_cenarios").upsert({
             "soma_faixa": estrutura["soma_faixa"],
             "pares": estrutura["pares"],
@@ -82,9 +104,19 @@ def main():
             "updated_at": datetime.now().isoformat()
         }, on_conflict="soma_faixa,pares,primos,linhas").execute()
 
-        print(f"✔ Atualizado cenário | acertos={acertos} | peso={peso}")
+        # ==================================================
+        # MARCAR COMO CONFERIDO
+        # ==================================================
+        supabase.table("palpites_validos") \
+            .update({"conferido": True}) \
+            .eq("id", p["id"]) \
+            .execute()
 
-    print("✅ Memória atualizada com sucesso")
+        print(f"✔ ID={p['id']} | acertos={acertos} | peso={peso}")
+
+        atualizados += 1
+
+    print(f"\n✅ {atualizados} palpites conferidos com sucesso")
 
 
 if __name__ == "__main__":
