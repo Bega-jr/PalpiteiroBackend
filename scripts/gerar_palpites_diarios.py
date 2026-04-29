@@ -16,23 +16,29 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-MAX_TENTATIVAS = 70000
-VERSAO = "v9.8-probabilistico"
+MAX_TENTATIVAS = 60000
+VERSAO = "v9.8.2-estavel"
 
 # ======================================================
-# POOL ESTÁVEL
+# POOL (BLINDADO)
 # ======================================================
 def gerar_pool(supabase):
     data = supabase.table("estatisticas_numeros") \
         .select("numero") \
-        .order("score", desc=True) \
-        .limit(80) \
         .execute().data
 
-    pool = sorted({r["numero"] for r in data if isinstance(r.get("numero"), int)})
+    pool = sorted(set(
+        int(r["numero"])
+        for r in data
+        if r.get("numero") is not None
+    ))
+
+    print(f"\n📊 POOL RAW SIZE: {len(data)}")
+    print(f"📊 POOL FINAL SIZE: {len(pool)}")
+    print(f"📊 POOL: {pool}")
 
     if len(pool) < 15:
-        raise ValueError(f"POOL INVÁLIDO: apenas {len(pool)} números")
+        raise ValueError("POOL CORROMPIDO")
 
     return pool
 
@@ -60,9 +66,25 @@ def calcular_metricas(nums):
     return pares, soma, linhas
 
 # ======================================================
-# SCORE BASE (NORMALIZADO)
+# VALIDAÇÃO SUAVE
 # ======================================================
-def score_base(nums, base_scores, rec_scores):
+def score_validacao(nums):
+    pares, soma, linhas = calcular_metricas(nums)
+
+    score = 1.0
+    score -= abs(7 - pares) * 0.03
+
+    if soma < 165 or soma > 220:
+        score -= 0.15
+
+    score -= (max(linhas) - 4) * 0.02
+
+    return max(score, 0.2)
+
+# ======================================================
+# SCORE FINAL
+# ======================================================
+def calcular_score_final(nums, base_scores, rec_scores, fator):
     chave = tuple(nums)
 
     base = base_scores.get(chave)
@@ -73,32 +95,12 @@ def score_base(nums, base_scores, rec_scores):
     if rec is None:
         rec = np.mean(list(rec_scores.values())) if rec_scores else 0.5
 
-    return (base * 0.6) + (rec * 0.4)
+    score = (base * 0.6) + (rec * 0.4)
 
-# ======================================================
-# SCORE PROBABILÍSTICO (NÚCLEO v9.8)
-# ======================================================
-def score_probabilistico(score):
-    # transforma score em distribuição (evita empate)
-    ruido = np.random.normal(0, 0.05)
-    return score + ruido
+    # ruído leve (evita empate)
+    score *= (1 + np.random.normal(0, 0.03))
 
-# ======================================================
-# VALIDAÇÃO COMO PESO (NÃO FILTRO)
-# ======================================================
-def peso_validacao(nums):
-    pares, soma, linhas = calcular_metricas(nums)
-
-    peso = 1.0
-
-    peso -= abs(7 - pares) * 0.03
-
-    if soma < 165 or soma > 220:
-        peso -= 0.15
-
-    peso -= (max(linhas) - 4) * 0.02
-
-    return max(peso, 0.2)
+    return score * fator * score_validacao(nums)
 
 # ======================================================
 # DIVERSIDADE
@@ -109,12 +111,6 @@ def distancia(a, b):
 
 def diversidade_ok(jogo, selecionados):
     return all(distancia(jogo, s) >= 5 for s in selecionados)
-
-# ======================================================
-# NORMALIZAÇÃO
-# ======================================================
-def normalizar(nums):
-    return tuple(sorted(nums))
 
 # ======================================================
 # MAIN
@@ -130,55 +126,32 @@ def main():
         .order("concurso", desc=True) \
         .limit(1).execute().data
 
-    if not concurso:
-        print("❌ Sem concurso")
-        return
-
     concurso_ref = concurso[0]["concurso"]
-    print(f"📌 Concurso referência: {concurso_ref}")
+    print(f"📌 Concurso: {concurso_ref}")
 
     pool = gerar_pool(supabase)
-    print(f"📊 Pool size: {len(pool)}")
 
     fator = obter_fator_aprendizado_global()["fator"]
-    print(f"🧠 Fator aprendizado: {fator}")
+    print(f"🧠 Fator: {fator}")
 
-    raw = calcular_score_combinacoes_reais()
-
-    if isinstance(raw, dict):
-        base_scores = raw.get("base", {})
-        rec_scores = raw.get("recencia", {})
-    else:
-        base_scores, rec_scores = raw[:2]
+    base_scores, rec_scores = calcular_score_combinacoes_reais()
 
     candidatos = []
     vistos = set()
 
-    # ==================================================
-    # GERAÇÃO
-    # ==================================================
     for _ in range(MAX_TENTATIVAS):
 
         if len(candidatos) >= 3000:
             break
 
         jogo = gerar_jogo(pool)
-        key = normalizar(jogo)
+        key = tuple(jogo)
 
         if key in vistos:
             continue
         vistos.add(key)
 
-        base = score_base(jogo, base_scores, rec_scores)
-
-        # probabilístico (NÚCLEO v9.8)
-        score = score_probabilistico(base)
-
-        # fator aprendizado
-        score *= fator
-
-        # peso de validação (não bloqueia, só ajusta ranking)
-        score *= peso_validacao(jogo)
+        score = calcular_score_final(jogo, base_scores, rec_scores, fator)
 
         candidatos.append({
             "nums": jogo,
@@ -187,26 +160,8 @@ def main():
 
     print(f"✅ candidatos: {len(candidatos)}")
 
-    # ==================================================
-    # RANKING POR PERCENTIL (NOVA LÓGICA)
-    # ==================================================
-    scores = np.array([c["score"] for c in candidatos])
-
-    # evita divisão por zero
-    if len(scores) == 0:
-        print("❌ sem candidatos")
-        return
-
-    percentis = np.argsort(np.argsort(scores))
-
-    for i, c in enumerate(candidatos):
-        c["score"] = percentis[i] / len(scores)
-
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
-    # ==================================================
-    # SELEÇÃO FINAL
-    # ==================================================
     finais = []
 
     for c in candidatos:
@@ -216,45 +171,11 @@ def main():
         if len(finais) == QTD_FINAL:
             break
 
-    if len(finais) < QTD_FINAL:
-        finais = candidatos[:QTD_FINAL]
-
-    # ==================================================
-    # OUTPUT
-    # ==================================================
     print("\n🏆 FINAL:")
     for i, p in enumerate(finais, 1):
-        print(f"{i}º | score={round(p['score'],4)} | {p['nums']}")
+        print(i, p["score"], p["nums"])
 
-    # ==================================================
-    # SAVE
-    # ==================================================
-    supabase.table("palpites_validos") \
-        .delete().eq("concurso_referencia", concurso_ref).execute()
-
-    registros = []
-
-    for i, p in enumerate(finais, 1):
-        pares, soma, _ = calcular_metricas(p["nums"])
-
-        registros.append({
-            "data_referencia": hoje,
-            "concurso_referencia": concurso_ref,
-            "indice_palpite": i,
-            "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(p["nums"]),
-            "pares": pares,
-            "impares": 15 - pares,
-            "soma_total": soma,
-            "metricas": json.dumps({
-                "versao": VERSAO,
-                "score": float(p["score"])
-            })
-        })
-
-    supabase.table("palpites_validos").insert(registros).execute()
-
-    print("\n✅ v9.8 executada com modelo probabilístico\n")
+    print("\n✅ v9.8.2 concluída")
 
 
 if __name__ == "__main__":
