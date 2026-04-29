@@ -17,7 +17,7 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 # ======================================================
 QTD_FINAL = 7
 MAX_TENTATIVAS = 50000
-VERSAO = "v9.5-adaptativo-estavel"
+VERSAO = "v9.5.1-blindado"
 
 # ======================================================
 # UTIL
@@ -51,17 +51,17 @@ def calcular_metricas(nums):
     return pares, soma, linhas
 
 # ======================================================
-# PARAMETROS ADAPTATIVOS
+# PARAMETROS DINÂMICOS
 # ======================================================
-def parametros_dinamicos(n_fail=0):
-    relax = min(n_fail * 2, 15)
+def parametros_dinamicos(falhas=0):
+    relax = min(falhas * 2, 15)
 
     return {
         "soma_min": 160 - relax,
         "soma_max": 225 + relax,
-        "pares_min": max(4, 5 - n_fail),
-        "pares_max": min(11, 10 + n_fail),
-        "min_score": max(0.45, 0.65 - n_fail * 0.03)
+        "pares_min": max(4, 5 - falhas),
+        "pares_max": min(11, 10 + falhas),
+        "min_score": max(0.45, 0.65 - falhas * 0.03)
     }
 
 # ======================================================
@@ -78,7 +78,7 @@ def diversidade_ok(jogo, selecionados):
     return True
 
 # ======================================================
-# SCORE DINÂMICO (CORE V9.5)
+# SCORE FINAL
 # ======================================================
 def calcular_score_final(nums, base_scores, recencia_scores, fator):
     chave = tuple(nums)
@@ -92,6 +92,25 @@ def calcular_score_final(nums, base_scores, recencia_scores, fator):
     bonus = 1 - abs(7 - pares) * 0.04
 
     return score * fator * bonus
+
+# ======================================================
+# SAFE UNPACK (CORREÇÃO PRINCIPAL)
+# ======================================================
+def extrair_scores(resultado):
+    """
+    Aceita qualquer formato de retorno sem quebrar o sistema.
+    """
+
+    if isinstance(resultado, dict):
+        base = resultado.get("base", {})
+        rec = resultado.get("recencia", {})
+        return base, rec
+
+    if isinstance(resultado, (list, tuple)):
+        if len(resultado) >= 2:
+            return resultado[0], resultado[1]
+
+    raise ValueError("Formato inválido de calcular_score_combinacoes_reais")
 
 # ======================================================
 # VALIDACAO
@@ -137,7 +156,11 @@ def main():
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
-    scores_base, scores_recencia = calcular_score_combinacoes_reais()
+    # ==================================================
+    # SAFE SCORE LOAD (SEM QUEBRAR)
+    # ==================================================
+    raw_scores = calcular_score_combinacoes_reais()
+    scores_base, scores_recencia = extrair_scores(raw_scores)
 
     candidatos = []
     vistos = set()
@@ -181,10 +204,10 @@ def main():
         })
 
     # ==================================================
-    # FALLBACK (GARANTIA ZERO FAIL)
+    # FALLBACK
     # ==================================================
     if not candidatos:
-        print("⚠️ Fallback ativado (relaxamento total)")
+        print("⚠️ Fallback ativado")
 
         for _ in range(3000):
             jogo = gerar_jogo(pool)
@@ -227,9 +250,9 @@ def main():
     for i, p in enumerate(finais, 1):
         print(f"{i}º | score={round(p['score'],4)} | {p['nums']}")
 
-    # ======================================================
+    # ==================================================
     # SAVE
-    # ======================================================
+    # ==================================================
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
@@ -255,7 +278,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ v9.5 concluída com estabilidade total\n")
+    print("\n✅ v9.5.1 executada com sucesso\n")
 
 
 if __name__ == "__main__":
