@@ -16,26 +16,30 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-MAX_TENTATIVAS = 50000
-VERSAO = "v9.5.1-blindado"
+MAX_TENTATIVAS = 60000
+VERSAO = "v9.6-real-estavel"
 
 # ======================================================
-# UTIL
+# POOL LIMPO E ESTÁVEL
 # ======================================================
 def gerar_pool(supabase):
     data = supabase.table("estatisticas_numeros") \
-        .select("numero, score") \
+        .select("numero") \
         .order("score", desc=True) \
-        .limit(50) \
+        .limit(60) \
         .execute().data
 
-    return [r["numero"] for r in data]
+    return sorted(set(r["numero"] for r in data))
 
-
+# ======================================================
+# GERAÇÃO GARANTIDA (SEM DUPLICADOS INTERNOS)
+# ======================================================
 def gerar_jogo(pool):
     return sorted(random.sample(pool, 15))
 
-
+# ======================================================
+# MÉTRICAS
+# ======================================================
 def calcular_metricas(nums):
     pares = sum(n % 2 == 0 for n in nums)
     soma = sum(nums)
@@ -51,83 +55,59 @@ def calcular_metricas(nums):
     return pares, soma, linhas
 
 # ======================================================
-# PARAMETROS DINÂMICOS
+# VALIDAÇÃO PROBABILÍSTICA (NÃO BINÁRIA)
 # ======================================================
-def parametros_dinamicos(falhas=0):
-    relax = min(falhas * 2, 15)
+def score_validacao(nums):
+    pares, soma, linhas = calcular_metricas(nums)
 
-    return {
-        "soma_min": 160 - relax,
-        "soma_max": 225 + relax,
-        "pares_min": max(4, 5 - falhas),
-        "pares_max": min(11, 10 + falhas),
-        "min_score": max(0.45, 0.65 - falhas * 0.03)
-    }
+    score = 1.0
+
+    # pares ideal ~7
+    score -= abs(7 - pares) * 0.04
+
+    # soma ideal faixa central
+    if soma < 165 or soma > 220:
+        score -= 0.2
+
+    # distribuição linhas
+    score -= (max(linhas) - 4) * 0.03
+
+    return max(score, 0.1)
 
 # ======================================================
-# DIVERSIDADE
+# DIVERSIDADE REAL
 # ======================================================
-def distancia(j1, j2):
-    return len(set(j1) ^ set(j2))
+def distancia(a, b):
+    return len(set(a) ^ set(b))
 
 
 def diversidade_ok(jogo, selecionados):
-    for s in selecionados:
-        if distancia(jogo, s) < 5:
-            return False
-    return True
+    return all(distancia(jogo, s) >= 5 for s in selecionados)
 
 # ======================================================
-# SCORE FINAL
+# NORMALIZAÇÃO DE SCORE KEY (CORREÇÃO CRÍTICA)
 # ======================================================
-def calcular_score_final(nums, base_scores, recencia_scores, fator):
-    chave = tuple(nums)
-
-    base = base_scores.get(chave, 0)
-    rec = recencia_scores.get(chave, 0)
-
-    score = (base * 0.6) + (rec * 0.4)
-
-    pares = sum(n % 2 == 0 for n in nums)
-    bonus = 1 - abs(7 - pares) * 0.04
-
-    return score * fator * bonus
+def normalizar_chave(nums):
+    return tuple(sorted(nums))
 
 # ======================================================
-# SAFE UNPACK (CORREÇÃO PRINCIPAL)
+# SCORE FINAL CONSISTENTE
 # ======================================================
-def extrair_scores(resultado):
-    """
-    Aceita qualquer formato de retorno sem quebrar o sistema.
-    """
+def calcular_score_final(nums, base_scores, rec_scores, fator):
+    chave = normalizar_chave(nums)
 
-    if isinstance(resultado, dict):
-        base = resultado.get("base", {})
-        rec = resultado.get("recencia", {})
-        return base, rec
+    base = base_scores.get(chave)
+    rec = rec_scores.get(chave)
 
-    if isinstance(resultado, (list, tuple)):
-        if len(resultado) >= 2:
-            return resultado[0], resultado[1]
+    # fallback inteligente (NUNCA zero)
+    if base is None:
+        base = np.mean(list(base_scores.values())) if base_scores else 0.5
+    if rec is None:
+        rec = np.mean(list(rec_scores.values())) if rec_scores else 0.5
 
-    raise ValueError("Formato inválido de calcular_score_combinacoes_reais")
+    score = (base * 0.55) + (rec * 0.45)
 
-# ======================================================
-# VALIDACAO
-# ======================================================
-def validar(nums, params):
-    pares, soma, linhas = calcular_metricas(nums)
-
-    if not (params["soma_min"] <= soma <= params["soma_max"]):
-        return False
-
-    if not (params["pares_min"] <= pares <= params["pares_max"]):
-        return False
-
-    if max(linhas) > 6:
-        return False
-
-    return True
+    return score * fator * score_validacao(nums)
 
 # ======================================================
 # MAIN
@@ -156,47 +136,34 @@ def main():
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
-    # ==================================================
-    # SAFE SCORE LOAD (SEM QUEBRAR)
-    # ==================================================
     raw_scores = calcular_score_combinacoes_reais()
-    scores_base, scores_recencia = extrair_scores(raw_scores)
+
+    # compatibilidade total (dict ou tuple)
+    if isinstance(raw_scores, dict):
+        base_scores = raw_scores.get("base", {})
+        rec_scores = raw_scores.get("recencia", {})
+    else:
+        base_scores, rec_scores = raw_scores[:2]
 
     candidatos = []
     vistos = set()
-    falhas = 0
-
-    params = parametros_dinamicos(falhas)
 
     # ==================================================
-    # GERAÇÃO
+    # GERAÇÃO PRINCIPAL
     # ==================================================
     for _ in range(MAX_TENTATIVAS):
 
-        if len(candidatos) >= 2000:
+        if len(candidatos) >= 2500:
             break
 
         jogo = gerar_jogo(pool)
-
         key = tuple(jogo)
+
         if key in vistos:
             continue
         vistos.add(key)
 
-        if not validar(jogo, params):
-            falhas += 1
-            params = parametros_dinamicos(falhas)
-            continue
-
-        score = calcular_score_final(
-            jogo,
-            scores_base,
-            scores_recencia,
-            fator
-        )
-
-        if score < params["min_score"]:
-            continue
+        score = calcular_score_final(jogo, base_scores, rec_scores, fator)
 
         candidatos.append({
             "nums": jogo,
@@ -204,27 +171,11 @@ def main():
         })
 
     # ==================================================
-    # FALLBACK
+    # SEM FALLBACK LIXO (CORREÇÃO CRÍTICA)
     # ==================================================
-    if not candidatos:
-        print("⚠️ Fallback ativado")
+    candidatos = [c for c in candidatos if c["score"] > 0]
 
-        for _ in range(3000):
-            jogo = gerar_jogo(pool)
-
-            score = calcular_score_final(
-                jogo,
-                scores_base,
-                scores_recencia,
-                fator
-            )
-
-            candidatos.append({
-                "nums": jogo,
-                "score": score
-            })
-
-    print(f"✅ Candidatos: {len(candidatos)}")
+    print(f"✅ candidatos válidos: {len(candidatos)}")
 
     # ==================================================
     # RANKING
@@ -240,6 +191,7 @@ def main():
         if len(finais) == QTD_FINAL:
             break
 
+    # fallback inteligente (NÃO LIXO)
     if len(finais) < QTD_FINAL:
         finais = candidatos[:QTD_FINAL]
 
@@ -278,7 +230,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ v9.5.1 executada com sucesso\n")
+    print("\n✅ v9.6 executada com estabilidade REAL\n")
 
 
 if __name__ == "__main__":
