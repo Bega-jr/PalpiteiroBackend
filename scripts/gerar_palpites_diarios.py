@@ -25,41 +25,60 @@ from app.services.roi_service import (
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-POOL_SIZE = 20
 MAX_TENTATIVAS = 40000
-VERSAO = "v9-auto-adaptativo"
-
-ROI_MIN = 0.01
-CUSTO_JOGO = 3.0
+POOL_SIZE = 20
+VERSAO = "v9.1-dinamico-diversificado"
 
 # ======================================================
 # AUX
 # ======================================================
-def validar(nums):
-    # evita bug de números repetidos
-    if len(nums) != 15 or len(set(nums)) != 15:
-        return False
-
-    nums = sorted(nums)
-
-    pares = sum(n % 2 == 0 for n in nums)
-    soma = sum(nums)
-
-    if not (150 <= soma <= 230):
-        return False
-
-    if not (5 <= pares <= 10):
-        return False
-
-    return True
-
-
-def diversidade_ok(novo, existentes, min_diff=5):
-    for e in existentes:
-        intersec = len(set(novo) & set(e))
-        if intersec > (15 - min_diff):
+def diversidade_ok(novo, lista):
+    for jogo in lista:
+        iguais = len(set(novo) & set(jogo))
+        if iguais >= 11:
             return False
     return True
+
+
+def gerar_pool(supabase):
+    return [
+        r["numero"]
+        for r in supabase.table("estatisticas_numeros")
+        .select("numero")
+        .order("score", desc=True)
+        .limit(POOL_SIZE)
+        .execute().data
+    ]
+
+
+def gerar_estrutura():
+    return {
+        "pares": random.choice([6, 7, 8, 9]),
+        "soma_min": 170,
+        "soma_max": 220
+    }
+
+
+def gerar_jogo(pool, estrutura):
+    tentativas = 0
+
+    while tentativas < 50:
+        nums = sorted(random.sample(pool, 15))
+
+        pares = sum(n % 2 == 0 for n in nums)
+        soma = sum(nums)
+
+        if pares != estrutura["pares"]:
+            tentativas += 1
+            continue
+
+        if not (estrutura["soma_min"] <= soma <= estrutura["soma_max"]):
+            tentativas += 1
+            continue
+
+        return nums
+
+    return None
 
 
 def score_palpite(nums, scores, fator):
@@ -73,11 +92,13 @@ def score_palpite(nums, scores, fator):
     )
 
     base = scores.get(chave, 0)
-    return aplicar_fator_aprendizado(base, fator)
 
+    score = aplicar_fator_aprendizado(base, fator)
 
-def estimar_roi(score):
-    return round(score * 0.1, 4)
+    # 🔥 variação pra evitar empate
+    score += random.uniform(-0.05, 0.05)
+
+    return max(score, 0)
 
 
 # ======================================================
@@ -89,50 +110,33 @@ def main():
 
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
-    # ==================================================
-    # CONCURSO REFERÊNCIA (COM FALLBACK)
-    # ==================================================
+    # concurso referência
     concurso_data = supabase.table("lotofacil_concursos") \
         .select("concurso") \
         .order("concurso", desc=True) \
         .limit(1).execute().data
 
     if not concurso_data:
-        print("❌ Nenhum concurso encontrado")
+        print("❌ Sem concurso base")
         return
 
     concurso_ref = concurso_data[0]["concurso"]
-
-    if not concurso_ref:
-        print("❌ concurso_referencia inválido")
-        return
-
     print(f"📌 Concurso referência: {concurso_ref}")
 
-    # ==================================================
-    # POOL
-    # ==================================================
-    pool = [
-        r["numero"]
-        for r in supabase.table("estatisticas_numeros")
-        .select("numero")
-        .order("score", desc=True)
-        .limit(POOL_SIZE)
-        .execute().data
-    ]
+    # pool
+    pool = gerar_pool(supabase)
 
-    if len(pool) < 15:
-        print("❌ Pool insuficiente")
-        return
-
+    # aprendizado
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
     scores = calcular_score_combinacoes_reais()
 
+    # ROI
     probs_reais = obter_probabilidades_reais(VERSAO)
+    usar_roi_real = probs_reais is not None
 
-    if probs_reais:
+    if usar_roi_real:
         print("🧠 ROI real ativo")
     else:
         print("⚠️ ROI fallback ativo")
@@ -143,23 +147,30 @@ def main():
     candidatos = []
 
     for _ in range(MAX_TENTATIVAS):
-        nums = sorted(random.sample(pool, 15))
+        estrutura = gerar_estrutura()
 
-        if not validar(nums):
+        nums = gerar_jogo(pool, estrutura)
+        if not nums:
             continue
 
         score = score_palpite(nums, scores, fator)
 
-        roi = calcular_roi_real(score, probs_reais) if probs_reais else estimar_roi(score)
+        if usar_roi_real:
+            roi = calcular_roi_real(score, probs_reais)
+        else:
+            roi = score * 0.1  # fallback leve
+
+        rank = (score * 0.7) + (roi * 0.3)
 
         candidatos.append({
             "nums": nums,
             "score": score,
-            "roi": roi
+            "roi": roi,
+            "rank": rank
         })
 
     if not candidatos:
-        print("❌ Nenhum candidato válido")
+        print("❌ Nenhum candidato gerado")
         return
 
     print(f"📊 {len(candidatos)} candidatos")
@@ -167,42 +178,36 @@ def main():
     # ==================================================
     # RANKING
     # ==================================================
-    candidatos.sort(key=lambda x: (x["roi"], x["score"]), reverse=True)
+    candidatos.sort(key=lambda x: x["rank"], reverse=True)
 
     finais = []
 
     for c in candidatos:
-        if len(finais) >= QTD_FINAL:
-            break
-
         if diversidade_ok(c["nums"], [f["nums"] for f in finais]):
             finais.append(c)
+        if len(finais) == QTD_FINAL:
+            break
 
+    # fallback se não conseguiu diversidade suficiente
     if len(finais) < QTD_FINAL:
-        print("⚠️ Diversidade insuficiente, completando...")
-        for c in candidatos:
-            if len(finais) >= QTD_FINAL:
-                break
-            finais.append(c)
+        print("⚠️ fallback diversidade")
+        finais = candidatos[:QTD_FINAL]
 
     # ==================================================
     # OUTPUT
     # ==================================================
     print("\n🏆 FINAL:")
     for i, p in enumerate(finais, 1):
-        print(f"{i}º | score={round(p['score'],4)} | roi={p['roi']} | {p['nums']}")
+        print(f"{i}º | score={round(p['score'],4)} | roi={round(p['roi'],4)} | {p['nums']}")
 
     # ==================================================
-    # DELETE SEGURO (OBRIGATÓRIO WHERE)
+    # SAVE (SEGURO)
     # ==================================================
     supabase.table("palpites_validos") \
         .delete() \
         .eq("concurso_referencia", concurso_ref) \
         .execute()
 
-    # ==================================================
-    # SAVE
-    # ==================================================
     registros = []
 
     for i, p in enumerate(finais, 1):
@@ -227,7 +232,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Palpites salvos com sucesso\n")
+    print("\n✅ Geração finalizada (v9.1)\n")
 
 
 if __name__ == "__main__":
