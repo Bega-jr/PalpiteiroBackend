@@ -4,9 +4,6 @@ import random
 from pathlib import Path
 from datetime import datetime
 
-# ======================================================
-# SETUP
-# ======================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -19,7 +16,6 @@ from app.services.estatisticas_combinacao_v3 import (
     calcular_score_combinacoes_reais,
     extrair_metricas_jogo
 )
-from app.services.estatisticas_service import calcular_medias_recentes
 from app.services.roi_service import (
     obter_probabilidades_reais,
     calcular_roi_real
@@ -29,12 +25,13 @@ from app.services.roi_service import (
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-POOL_SIZE = 23
-MAX_TENTATIVAS = 30000
-VERSAO = "v6-adaptativo-dinamico"
+POOL_SIZE = 22
+MAX_TENTATIVAS = 40000
+VERSAO = "v6-diversificado-roi"
 
-ROI_MIN = -0.05  # 🔥 importante no início
+ROI_MIN = -0.05  # mais flexível
 
+# fallback
 PREMIOS_FIXOS = {
     11: 6,
     12: 12,
@@ -44,7 +41,6 @@ PREMIOS_FIXOS = {
 }
 
 CUSTO_JOGO = 3.0
-
 
 # ======================================================
 # AUX
@@ -71,35 +67,23 @@ def linhas(nums):
     return [sum(1 for n in nums if n in r) for r in ranges]
 
 
-# ======================================================
-# VALIDAÇÃO ADAPTATIVA
-# ======================================================
-def validar(nums, medias):
+def validar(nums, soma_media, pares_media):
     if len(set(nums)) != 15:
         return False
 
-    pares = sum(1 for n in nums if n % 2 == 0)
-    soma = sum(nums)
+    pares, soma = calcular_metricas(nums)
 
-    media_soma = medias.get("soma_media", 195)
-    media_pares = medias.get("pares_media", 7)
-
-    soma_min = media_soma - 20
-    soma_max = media_soma + 20
-
-    pares_min = max(4, media_pares - 2)
-    pares_max = min(11, media_pares + 2)
-
-    if not (soma_min <= soma <= soma_max):
+    # 🔥 limites dinâmicos
+    if not (soma_media - 25 <= soma <= soma_media + 25):
         return False
 
-    if not (pares_min <= pares <= pares_max):
+    if not (pares_media - 3 <= pares <= pares_media + 3):
         return False
 
-    if max_seq(nums) > 7:
+    if max_seq(nums) > 6:
         return False
 
-    if not all(0 <= x <= 6 for x in linhas(nums)):
+    if not all(1 <= x <= 5 for x in linhas(nums)):
         return False
 
     return True
@@ -123,7 +107,7 @@ def score_palpite(nums, scores, fator):
 
 
 # ======================================================
-# ROI FALLBACK
+# ROI
 # ======================================================
 def estimar_roi_fallback(score):
     probs = {
@@ -141,6 +125,39 @@ def estimar_roi_fallback(score):
 
 
 # ======================================================
+# DIVERSIDADE
+# ======================================================
+def intersecao(a, b):
+    return len(set(a) & set(b))
+
+
+def selecionar_diversificados(candidatos, qtd=7, max_inter=8):
+    selecionados = []
+
+    for c in candidatos:
+        nums = c["nums"]
+
+        if not selecionados:
+            selecionados.append(c)
+            continue
+
+        valido = True
+
+        for s in selecionados:
+            if intersecao(nums, s["nums"]) > max_inter:
+                valido = False
+                break
+
+        if valido:
+            selecionados.append(c)
+
+        if len(selecionados) == qtd:
+            break
+
+    return selecionados
+
+
+# ======================================================
 # MAIN
 # ======================================================
 def main():
@@ -150,14 +167,22 @@ def main():
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
     concurso = supabase.table("lotofacil_concursos") \
-        .select("concurso") \
+        .select("concurso, dezenas") \
         .order("concurso", desc=True) \
         .limit(1).execute().data[0]
 
-    concurso_atual = concurso["concurso"]
-    concurso_referencia = concurso_atual + 1  # 🔥 CORRETO
+    concurso_ref = concurso["concurso"]
 
-    # pool dinâmico
+    # médias dinâmicas
+    stats = supabase.table("estatisticas_diarias_v2") \
+        .select("media_soma, media_pares") \
+        .order("data_referencia", desc=True) \
+        .limit(1).execute().data
+
+    soma_media = stats[0]["media_soma"] if stats else 195
+    pares_media = stats[0]["media_pares"] if stats else 8
+
+    # pool
     pool = [
         r["numero"]
         for r in supabase.table("estatisticas_numeros")
@@ -168,10 +193,7 @@ def main():
     ]
 
     fator = obter_fator_aprendizado_global()["fator"]
-    medias = calcular_medias_recentes()
-
     print(f"🧠 Fator aprendizado: {fator}")
-    print(f"📊 Média soma: {medias.get('soma_media')}")
 
     scores = calcular_score_combinacoes_reais()
 
@@ -182,15 +204,15 @@ def main():
     else:
         print("⚠️ ROI fallback ativo")
 
+    # ==================================================
+    # GERAR
+    # ==================================================
     candidatos = []
 
-    # ==================================================
-    # GERAÇÃO
-    # ==================================================
     for _ in range(MAX_TENTATIVAS):
         nums = sorted(random.sample(pool, 15))
 
-        if not validar(nums, medias):
+        if not validar(nums, soma_media, pares_media):
             continue
 
         score = score_palpite(nums, scores, fator)
@@ -206,32 +228,34 @@ def main():
             "roi": roi
         })
 
-    # 🔥 fallback emergência
     if not candidatos:
-        print("⚠️ Nenhum válido — modo emergência")
-
-        for _ in range(QTD_FINAL * 5):
-            nums = sorted(random.sample(range(1, 26), 15))
-            candidatos.append({
-                "nums": nums,
-                "score": 0,
-                "roi": 0
-            })
+        print("❌ Nenhum candidato válido")
+        return
 
     print(f"📊 {len(candidatos)} candidatos gerados")
 
     # ==================================================
-    # RANKING
+    # RANKING + DIVERSIDADE
     # ==================================================
     candidatos.sort(key=lambda x: (x["roi"], x["score"]), reverse=True)
 
-    finais = [c for c in candidatos if c["roi"] >= ROI_MIN]
+    filtrados = [c for c in candidatos if c["roi"] >= ROI_MIN]
+
+    base = filtrados if len(filtrados) >= QTD_FINAL else candidatos
+
+    finais = selecionar_diversificados(base, QTD_FINAL)
 
     if len(finais) < QTD_FINAL:
-        print("⚠️ ROI baixo — fallback por score")
-        candidatos.sort(key=lambda x: x["score"], reverse=True)
-        finais = candidatos[:QTD_FINAL]
+        print("⚠️ Complementando por score")
+        for c in base:
+            if c not in finais:
+                finais.append(c)
+            if len(finais) == QTD_FINAL:
+                break
 
+    # ==================================================
+    # OUTPUT
+    # ==================================================
     print("\n🏆 RANKING FINAL:")
     for i, p in enumerate(finais, 1):
         print(f"{i}º | ROI={p['roi']} | score={round(p['score'],6)} | {p['nums']}")
@@ -240,7 +264,7 @@ def main():
     # SAVE
     # ==================================================
     supabase.table("palpites_validos") \
-        .delete().eq("concurso_referencia", concurso_referencia).execute()
+        .delete().eq("concurso_referencia", concurso_ref).execute()
 
     registros = []
 
@@ -249,14 +273,13 @@ def main():
 
         registros.append({
             "data_referencia": hoje,
-            "concurso_referencia": concurso_referencia,
+            "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
             "numeros": json.dumps(p["nums"]),
             "pares": pares,
             "impares": 15 - pares,
             "soma_total": soma,
-            "conferido": False,
             "metricas": json.dumps({
                 "versao": VERSAO,
                 "score": p["score"],
@@ -266,7 +289,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Gerador finalizado com sucesso\n")
+    print("\n✅ Gerador finalizado com diversidade + ROI\n")
 
 
 if __name__ == "__main__":
