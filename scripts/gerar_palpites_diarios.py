@@ -137,7 +137,7 @@ def main():
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
-    scores_base, scores_recencia = calcular_score_combinacoes_reais(ultimos=1000)
+    scores_base, scores_recencia = calcular_score_combinacoes_reais()
 
     candidatos = []
     vistos = set()
