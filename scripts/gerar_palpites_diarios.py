@@ -16,60 +16,70 @@ from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 # CONFIG
 # ======================================================
 QTD_FINAL = 7
-POOL_SIZE = 22
-MAX_TENTATIVAS = 20000
-VERSAO = "v9.2-dinamico-flex"
+MAX_TENTATIVAS = 15000
+VERSAO = "v9.3-anti-travamento"
 
 CUSTO_JOGO = 3.0
 
 # ======================================================
-# DINÂMICO BASEADO NO HISTÓRICO
+# PARÂMETROS DINÂMICOS
 # ======================================================
-def calcular_parametros_dinamicos(historico):
+def calcular_parametros(historico):
     ultimos = historico[-200:]
 
     somas = [sum(h["numeros"]) for h in ultimos]
     pares = [sum(1 for n in h["numeros"] if n % 2 == 0) for h in ultimos]
 
     return {
-        "soma_min": int(np.percentile(somas, 5)),
-        "soma_max": int(np.percentile(somas, 95)),
+        "soma_min": int(np.percentile(somas, 3)),
+        "soma_max": int(np.percentile(somas, 97)),
         "pares_min": int(np.percentile(pares, 5)),
         "pares_max": int(np.percentile(pares, 95)),
     }
 
 # ======================================================
-# VALIDAÇÃO FLEXÍVEL (COM RELAXAMENTO)
+# POOL COMPLETO (CRÍTICO)
 # ======================================================
-def validar(nums, params, relax=0):
-    nums = sorted(nums)
+def obter_pool(supabase):
+    dados = supabase.table("estatisticas_numeros") \
+        .select("numero, frequencia") \
+        .order("score", desc=True) \
+        .limit(25) \
+        .execute().data
 
-    if len(set(nums)) != 15:
-        return False
+    pool = [r["numero"] for r in dados]
+    freq_map = {r["numero"]: r["frequencia"] for r in dados}
 
+    return pool, freq_map
+
+# ======================================================
+# VALIDAÇÃO FLEXÍVEL
+# ======================================================
+def validar(nums, params, relax):
     soma = sum(nums)
     pares = sum(1 for n in nums if n % 2 == 0)
 
     if not (params["soma_min"] - relax <= soma <= params["soma_max"] + relax):
         return False
 
-    if not (params["pares_min"] - relax <= pares <= params["pares_max"] + relax):
+    if not (params["pares_min"] - relax//2 <= pares <= params["pares_max"] + relax//2):
         return False
 
     return True
 
 # ======================================================
-# SCORE SIMPLES (ROBUSTO)
+# SCORE SIMPLES E ESTÁVEL
 # ======================================================
 def score_palpite(nums, freq_map, fator):
     base = sum(freq_map.get(n, 0) for n in nums) / 15
-    return base * fator
+    variacao = random.uniform(-0.05, 0.05)
+    return max((base * fator) + variacao, 0)
 
 # ======================================================
-# ROI (SECUNDÁRIO)
+# ROI SIMPLES
 # ======================================================
 def calcular_roi(score):
-    retorno = score * 100  # aproximação simples
+    retorno = score * 80
     return (retorno - CUSTO_JOGO) / CUSTO_JOGO
 
 # ======================================================
@@ -78,16 +88,16 @@ def calcular_roi(score):
 def distancia(a, b):
     return len(set(a) ^ set(b))
 
-def diversificar(lista, qtd):
+def diversificar(candidatos, qtd):
     finais = []
 
-    for cand in lista:
-        if len(finais) == 0:
-            finais.append(cand)
+    for c in candidatos:
+        if not finais:
+            finais.append(c)
             continue
 
-        if all(distancia(cand["nums"], f["nums"]) >= 5 for f in finais):
-            finais.append(cand)
+        if all(distancia(c["nums"], f["nums"]) >= 5 for f in finais):
+            finais.append(c)
 
         if len(finais) == qtd:
             break
@@ -103,9 +113,7 @@ def main():
 
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
-    # ==================================================
-    # CONCURSO REFERÊNCIA
-    # ==================================================
+    # concurso referência
     concursos = supabase.table("lotofacil_concursos") \
         .select("concurso") \
         .order("concurso", desc=True) \
@@ -118,35 +126,26 @@ def main():
     concurso_ref = concursos[0]["concurso"]
     print(f"📌 Concurso referência: {concurso_ref}")
 
-    # ==================================================
-    # HISTÓRICO + PARÂMETROS
-    # ==================================================
+    # histórico
     historico = carregar_historico()
-    params = calcular_parametros_dinamicos(historico)
+    params = calcular_parametros(historico)
 
-    print(f"📊 Parâmetros dinâmicos: {params}")
+    print(f"📊 Parâmetros: {params}")
 
-    # ==================================================
-    # POOL
-    # ==================================================
-    dados = supabase.table("estatisticas_numeros") \
-        .select("numero, frequencia") \
-        .order("score", desc=True) \
-        .limit(POOL_SIZE).execute().data
-
-    pool = [r["numero"] for r in dados]
-    freq_map = {r["numero"]: r["frequencia"] for r in dados}
+    # pool
+    pool, freq_map = obter_pool(supabase)
+    print(f"📊 Pool size: {len(pool)}")
 
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
+    candidatos = []
+
     # ==================================================
     # GERAÇÃO COM RELAXAMENTO PROGRESSIVO
     # ==================================================
-    candidatos = []
-
-    for relax in [0, 2, 5, 10]:
-        print(f"🔄 Tentando com relaxamento: {relax}")
+    for relax in [0, 3, 6, 10, 20]:
+        print(f"🔄 Relaxamento: {relax}")
 
         for _ in range(MAX_TENTATIVAS):
             nums = sorted(random.sample(pool, 15))
@@ -164,19 +163,29 @@ def main():
             })
 
         if candidatos:
-            print(f"✅ {len(candidatos)} candidatos encontrados")
+            print(f"✅ {len(candidatos)} candidatos")
             break
 
+    # ==================================================
+    # FALLBACK TOTAL (NUNCA FALHAR)
+    # ==================================================
     if not candidatos:
-        print("❌ Nenhum candidato gerado (nem com relaxamento)")
-        return
+        print("⚠️ FALLBACK TOTAL ATIVADO")
+
+        for _ in range(100):
+            nums = sorted(random.sample(range(1, 26), 15))
+
+            candidatos.append({
+                "nums": nums,
+                "score": 0.1,
+                "roi": 0
+            })
 
     # ==================================================
-    # RANKING MULTICRITÉRIO
+    # RANKING
     # ==================================================
     candidatos.sort(key=lambda x: (x["score"], x["roi"]), reverse=True)
 
-    # diversidade
     finais = diversificar(candidatos, QTD_FINAL)
 
     if len(finais) < QTD_FINAL:
@@ -190,7 +199,7 @@ def main():
         print(f"{i}º | score={round(p['score'],4)} | roi={round(p['roi'],4)} | {p['nums']}")
 
     # ==================================================
-    # SAVE (SEGURO)
+    # SAVE
     # ==================================================
     supabase.table("palpites_validos") \
         .delete() \
@@ -220,7 +229,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Geração concluída com sucesso\n")
+    print("\n✅ Geração concluída (v9.3)\n")
 
 
 if __name__ == "__main__":
