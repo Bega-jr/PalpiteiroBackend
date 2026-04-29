@@ -8,9 +8,32 @@ sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
 
+# ======================================================
+# PARSER ROBUSTO (resolve seu problema)
+# ======================================================
+def parse_numeros(raw):
+    try:
+        # já é lista
+        if isinstance(raw, list):
+            return list(map(int, raw))
+
+        # tenta json normal
+        try:
+            return list(map(int, json.loads(raw)))
+        except:
+            pass
+
+        # remove aspas duplicadas "\"[...]\""
+        cleaned = raw.strip().replace('\\"', '"').strip('"')
+
+        return list(map(int, json.loads(cleaned)))
+
+    except Exception:
+        return None
+
 
 # ======================================================
-# EXTRAI ESTRUTURA
+# ESTRUTURA
 # ======================================================
 def extrair_estrutura(nums):
     return {
@@ -48,75 +71,56 @@ def main():
 
     print("🏁 Conferindo resultados (modo robusto)...")
 
-    # 🔥 último resultado oficial
     concurso = supabase.table("lotofacil_concursos") \
         .select("concurso, dezenas") \
         .order("concurso", desc=True) \
-        .limit(1).execute().data
+        .limit(1).execute().data[0]
 
-    if not concurso:
-        print("❌ Sem concurso disponível")
-        return
+    concurso_ref = concurso["concurso"]
+    dezenas = set(map(int, concurso["dezenas"]))
 
-    dezenas = set(map(int, concurso[0]["dezenas"]))
-    concurso_atual = concurso[0]["concurso"]
+    print(f"📊 Concurso atual: {concurso_ref}")
 
-    print(f"📊 Concurso atual: {concurso_atual}")
-
-    # ==================================================
-    # 🔥 BUSCAR TODOS NÃO CONFERIDOS
-    # ==================================================
     palpites = supabase.table("palpites_validos") \
         .select("*") \
-        .eq("conferido", False) \
+        .eq("concurso_referencia", concurso_ref) \
         .execute().data
 
     if not palpites:
-        print("✅ Nenhum palpite pendente")
+        print("⚠️ Nenhum palpite encontrado")
         return
 
-    print(f"📌 {len(palpites)} palpites pendentes encontrados")
+    print(f"📌 {len(palpites)} palpites encontrados")
 
-    atualizados = 0
+    ok = 0
 
     for p in palpites:
-        try:
-            nums = set(json.loads(p["numeros"]))
-        except:
-            print(f"⚠️ Erro ao ler numeros ID={p.get('id')}")
+        nums = parse_numeros(p["numeros"])
+
+        if not nums:
+            print(f"⚠️ Erro ao ler numeros ID={p['id']}")
             continue
 
-        acertos = len(nums & dezenas)
+        acertos = len(set(nums) & dezenas)
 
-        estrutura = extrair_estrutura(list(nums))
+        estrutura = extrair_estrutura(nums)
         peso = peso_acerto(acertos)
 
-        # ==================================================
-        # UPSERT NA MEMÓRIA
-        # ==================================================
-        supabase.table("memoria_cenarios").upsert({
+        # Atualiza memória (acumulando aprendizado)
+        supabase.table("memoria_cenarios").update({
+            "score_medio_real": peso,
+            "ultima_aparicao": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }).match({
             "soma_faixa": estrutura["soma_faixa"],
             "pares": estrutura["pares"],
             "primos": estrutura["primos"],
-            "linhas": estrutura["linhas"],
-            "score_medio_real": peso,
-            "ultima_aparicao": datetime.now().date().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }, on_conflict="soma_faixa,pares,primos,linhas").execute()
+            "linhas": estrutura["linhas"]
+        }).execute()
 
-        # ==================================================
-        # MARCAR COMO CONFERIDO
-        # ==================================================
-        supabase.table("palpites_validos") \
-            .update({"conferido": True}) \
-            .eq("id", p["id"]) \
-            .execute()
+        ok += 1
 
-        print(f"✔ ID={p['id']} | acertos={acertos} | peso={peso}")
-
-        atualizados += 1
-
-    print(f"\n✅ {atualizados} palpites conferidos com sucesso")
+    print(f"✅ {ok} palpites conferidos com sucesso")
 
 
 if __name__ == "__main__":
