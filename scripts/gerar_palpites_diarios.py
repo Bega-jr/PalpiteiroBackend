@@ -4,6 +4,9 @@ import random
 from pathlib import Path
 from datetime import datetime
 
+# ======================================================
+# SETUP
+# ======================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -24,13 +27,15 @@ from app.services.roi_service import (
 # ======================================================
 # CONFIG
 # ======================================================
+VERSAO = "v8.1-memoria-diversidade-roi"
 QTD_FINAL = 7
-POOL_SIZE = 20
+POOL_SIZE = 23
 MAX_TENTATIVAS = 40000
-VERSAO = "v8-memoria-diversidade-roi"
 
-ROI_MIN = -0.05  # 🔥 nunca trava mais
+ROI_MIN = 0.01
+DIVERSIDADE_MIN = 8  # diferença mínima entre jogos
 
+# fallback ROI
 PREMIOS = {
     11: 6,
     12: 12,
@@ -38,75 +43,47 @@ PREMIOS = {
     14: 1500,
     15: 1500000
 }
+
 CUSTO = 3.0
 
 # ======================================================
 # AUX
 # ======================================================
+def diversidade(jogo1, jogo2):
+    return len(set(jogo1) ^ set(jogo2))
+
+
 def calcular_metricas(nums):
     pares = sum(1 for n in nums if n % 2 == 0)
     soma = sum(nums)
     return pares, soma
 
 
-def linhas(nums):
-    ranges = [range(1,6), range(6,11), range(11,16), range(16,21), range(21,26)]
-    return [sum(1 for n in nums if n in r) for r in ranges]
-
-
-def diversidade(j1, j2):
-    return len(set(j1) & set(j2))
-
-
-def estimar_roi(score):
-    probs = {
-        11: score * 0.6,
-        12: score * 0.25,
-        13: score * 0.10,
-        14: score * 0.04,
-        15: score * 0.01
-    }
-    retorno = sum(probs[k] * PREMIOS[k] for k in probs)
-    return (retorno - CUSTO) / CUSTO
-
-
 # ======================================================
-# MEMÓRIA
+# GERAÇÃO SEGURA (CORRIGIDA)
 # ======================================================
-def carregar_memoria(supabase):
-    res = supabase.table("memoria_cenarios") \
-        .select("*") \
-        .order("score_medio_real", desc=True) \
-        .limit(50) \
-        .execute()
-
-    return res.data or []
-
-
-def escolher_estrutura(memoria):
-    if not memoria:
-        return None
-
-    top = memoria[:10]
-    return random.choice(top)
-
-
 def gerar_por_estrutura(pool, estrutura):
-    if not estrutura:
-        return sorted(random.sample(pool, 15))
-
-    pares_target = estrutura["pares"]
-    linhas_target = estrutura["linhas"]
-
     pares = [n for n in pool if n % 2 == 0]
     impares = [n for n in pool if n % 2 != 0]
 
+    alvo_pares = estrutura["pares"]
+    alvo_impares = 15 - alvo_pares
+
     escolhidos = []
 
-    escolhidos += random.sample(pares, min(pares_target, len(pares)))
-    escolhidos += random.sample(impares, 15 - len(escolhidos))
+    qtd_pares = min(alvo_pares, len(pares))
+    qtd_impares = min(alvo_impares, len(impares))
 
-    return sorted(escolhidos[:15])
+    escolhidos += random.sample(pares, qtd_pares)
+    escolhidos += random.sample(impares, qtd_impares)
+
+    # completar até 15
+    while len(escolhidos) < 15:
+        n = random.choice(pool)
+        if n not in escolhidos:
+            escolhidos.append(n)
+
+    return sorted(escolhidos)
 
 
 # ======================================================
@@ -127,6 +104,35 @@ def score_palpite(nums, scores, fator):
 
 
 # ======================================================
+# ROI
+# ======================================================
+def estimar_roi(score):
+    probs = {
+        11: score * 0.6,
+        12: score * 0.25,
+        13: score * 0.1,
+        14: score * 0.04,
+        15: score * 0.01
+    }
+
+    retorno = sum(probs[k] * PREMIOS[k] for k in probs)
+    return (retorno - CUSTO) / CUSTO
+
+
+# ======================================================
+# MEMÓRIA
+# ======================================================
+def carregar_memoria(supabase):
+    res = supabase.table("memoria_cenarios") \
+        .select("*") \
+        .order("score_medio_real", desc=True) \
+        .limit(50) \
+        .execute()
+
+    return res.data or []
+
+
+# ======================================================
 # MAIN
 # ======================================================
 def main():
@@ -142,6 +148,7 @@ def main():
 
     concurso_ref = concurso["concurso"]
 
+    # pool expandido
     pool = [
         r["numero"]
         for r in supabase.table("estatisticas_numeros")
@@ -155,30 +162,32 @@ def main():
     print(f"🧠 Fator aprendizado: {fator}")
 
     scores = calcular_score_combinacoes_reais()
+
     probs_reais = obter_probabilidades_reais(VERSAO)
+    usar_roi_real = bool(probs_reais)
 
     memoria = carregar_memoria(supabase)
-
-    if memoria:
-        print(f"🧠 Memória carregada: {len(memoria)} cenários")
-    else:
-        print("⚠️ Sem memória - fallback livre")
+    print(f"🧠 Memória carregada: {len(memoria)} cenários")
 
     candidatos = []
 
     # ==================================================
-    # GERAÇÃO MASSIVA
+    # GERAÇÃO BASEADA EM MEMÓRIA
     # ==================================================
     for _ in range(MAX_TENTATIVAS):
-        estrutura = escolher_estrutura(memoria)
-        nums = gerar_por_estrutura(pool, estrutura)
 
-        if len(set(nums)) != 15:
-            continue
+        if memoria:
+            estrutura = random.choice(memoria)
+        else:
+            estrutura = {
+                "pares": random.randint(6, 9)
+            }
+
+        nums = gerar_por_estrutura(pool, estrutura)
 
         score = score_palpite(nums, scores, fator)
 
-        if probs_reais:
+        if usar_roi_real:
             roi = calcular_roi_real(score, probs_reais)
         else:
             roi = estimar_roi(score)
@@ -199,25 +208,18 @@ def main():
     finais = []
 
     for c in candidatos:
-        if len(finais) == 0:
-            finais.append(c)
-            continue
-
-        # 🔥 diversidade mínima
-        if all(diversidade(c["nums"], f["nums"]) <= 10 for f in finais):
-            finais.append(c)
-
-        if len(finais) == QTD_FINAL:
+        if len(finais) >= QTD_FINAL:
             break
 
-    # fallback se não atingir 7
+        if all(diversidade(c["nums"], f["nums"]) >= DIVERSIDADE_MIN for f in finais):
+            finais.append(c)
+
+    # fallback
     if len(finais) < QTD_FINAL:
-        print("⚠️ Baixa diversidade - completando")
         for c in candidatos:
-            if c not in finais:
-                finais.append(c)
-            if len(finais) == QTD_FINAL:
+            if len(finais) >= QTD_FINAL:
                 break
+            finais.append(c)
 
     # ==================================================
     # OUTPUT
@@ -255,7 +257,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Gerador v8 finalizado com inteligência total\n")
+    print("\n✅ Geração concluída (memória + diversidade + ROI)\n")
 
 
 if __name__ == "__main__":
