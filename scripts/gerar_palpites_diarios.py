@@ -17,22 +17,31 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 # ======================================================
 QTD_FINAL = 7
 MAX_TENTATIVAS = 60000
-VERSAO = "v9.6-real-estavel"
+VERSAO = "v9.7-robusto"
 
 # ======================================================
-# POOL LIMPO E ESTÁVEL
+# POOL SAFE (CORRIGE SEU ERRO ATUAL)
 # ======================================================
 def gerar_pool(supabase):
     data = supabase.table("estatisticas_numeros") \
-        .select("numero") \
+        .select("numero, score") \
         .order("score", desc=True) \
-        .limit(60) \
         .execute().data
 
-    return sorted(set(r["numero"] for r in data))
+    pool = sorted({
+        r["numero"]
+        for r in data
+        if isinstance(r.get("numero"), int)
+    })
+
+    # proteção crítica
+    if len(pool) < 15:
+        raise ValueError(f"POOL INVÁLIDO: apenas {len(pool)} números disponíveis")
+
+    return pool
 
 # ======================================================
-# GERAÇÃO GARANTIDA (SEM DUPLICADOS INTERNOS)
+# GERAÇÃO SEGURA
 # ======================================================
 def gerar_jogo(pool):
     return sorted(random.sample(pool, 15))
@@ -55,7 +64,28 @@ def calcular_metricas(nums):
     return pares, soma, linhas
 
 # ======================================================
-# VALIDAÇÃO PROBABILÍSTICA (NÃO BINÁRIA)
+# NOVAS MÉTRICAS (O QUE VOCÊ SUGERIU)
+# ======================================================
+
+def sequencia_max(nums):
+    max_seq = 1
+    atual = 1
+
+    for i in range(len(nums) - 1):
+        if nums[i+1] == nums[i] + 1:
+            atual += 1
+            max_seq = max(max_seq, atual)
+        else:
+            atual = 1
+
+    return max_seq
+
+
+def repetidos_concurso_anterior(nums, anterior):
+    return len(set(nums) & set(anterior))
+
+# ======================================================
+# SCORE VALIDACAO CONTÍNUA
 # ======================================================
 def score_validacao(nums):
     pares, soma, linhas = calcular_metricas(nums)
@@ -65,17 +95,24 @@ def score_validacao(nums):
     # pares ideal ~7
     score -= abs(7 - pares) * 0.04
 
-    # soma ideal faixa central
+    # soma ideal
     if soma < 165 or soma > 220:
         score -= 0.2
 
-    # distribuição linhas
+    # distribuição
     score -= (max(linhas) - 4) * 0.03
+
+    # sequência penalizada
+    seq = sequencia_max(nums)
+    if seq >= 6:
+        score -= 0.25
+    elif seq >= 5:
+        score -= 0.10
 
     return max(score, 0.1)
 
 # ======================================================
-# DIVERSIDADE REAL
+# DIVERSIDADE
 # ======================================================
 def distancia(a, b):
     return len(set(a) ^ set(b))
@@ -85,21 +122,20 @@ def diversidade_ok(jogo, selecionados):
     return all(distancia(jogo, s) >= 5 for s in selecionados)
 
 # ======================================================
-# NORMALIZAÇÃO DE SCORE KEY (CORREÇÃO CRÍTICA)
+# NORMALIZAÇÃO
 # ======================================================
-def normalizar_chave(nums):
+def normalizar(nums):
     return tuple(sorted(nums))
 
 # ======================================================
-# SCORE FINAL CONSISTENTE
+# SCORE FINAL (ESTÁVEL)
 # ======================================================
 def calcular_score_final(nums, base_scores, rec_scores, fator):
-    chave = normalizar_chave(nums)
+    chave = normalizar(nums)
 
     base = base_scores.get(chave)
     rec = rec_scores.get(chave)
 
-    # fallback inteligente (NUNCA zero)
     if base is None:
         base = np.mean(list(base_scores.values())) if base_scores else 0.5
     if rec is None:
@@ -136,20 +172,31 @@ def main():
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
-    raw_scores = calcular_score_combinacoes_reais()
+    raw = calcular_score_combinacoes_reais()
 
-    # compatibilidade total (dict ou tuple)
-    if isinstance(raw_scores, dict):
-        base_scores = raw_scores.get("base", {})
-        rec_scores = raw_scores.get("recencia", {})
+    if isinstance(raw, dict):
+        base_scores = raw.get("base", {})
+        rec_scores = raw.get("recencia", {})
     else:
-        base_scores, rec_scores = raw_scores[:2]
+        base_scores, rec_scores = raw[:2]
 
     candidatos = []
     vistos = set()
 
+    ultimo_concurso = None
+    try:
+        ultimo = supabase.table("palpites_validos") \
+            .select("numeros") \
+            .order("id", desc=True) \
+            .limit(1).execute().data
+
+        if ultimo:
+            ultimo_concurso = json.loads(ultimo[0]["numeros"])
+    except:
+        ultimo_concurso = None
+
     # ==================================================
-    # GERAÇÃO PRINCIPAL
+    # GERAÇÃO
     # ==================================================
     for _ in range(MAX_TENTATIVAS):
 
@@ -165,14 +212,19 @@ def main():
 
         score = calcular_score_final(jogo, base_scores, rec_scores, fator)
 
+        # penalidade por repetição excessiva
+        if ultimo_concurso:
+            rep = repetidos_concurso_anterior(jogo, ultimo_concurso)
+            if rep > 11:
+                score *= 0.6
+            elif rep < 6:
+                score *= 0.85
+
         candidatos.append({
             "nums": jogo,
             "score": score
         })
 
-    # ==================================================
-    # SEM FALLBACK LIXO (CORREÇÃO CRÍTICA)
-    # ==================================================
     candidatos = [c for c in candidatos if c["score"] > 0]
 
     print(f"✅ candidatos válidos: {len(candidatos)}")
@@ -191,7 +243,6 @@ def main():
         if len(finais) == QTD_FINAL:
             break
 
-    # fallback inteligente (NÃO LIXO)
     if len(finais) < QTD_FINAL:
         finais = candidatos[:QTD_FINAL]
 
@@ -230,7 +281,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ v9.6 executada com estabilidade REAL\n")
+    print("\n✅ v9.7 executada com estabilidade real\n")
 
 
 if __name__ == "__main__":
