@@ -4,9 +4,6 @@ import random
 from pathlib import Path
 from datetime import datetime
 
-# ======================================================
-# Setup
-# ======================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
@@ -29,12 +26,11 @@ from app.services.roi_service import (
 # ======================================================
 QTD_FINAL = 7
 POOL_SIZE = 20
-MAX_TENTATIVAS = 30000
-VERSAO = "v5-roi-real-adaptativo"
+MAX_TENTATIVAS = 20000
+VERSAO = "v5.1-roi-estavel"
 
 ROI_MIN = 0.02
 
-# fallback simples (caso não tenha histórico ainda)
 PREMIOS_FIXOS = {
     11: 6,
     12: 12,
@@ -109,15 +105,17 @@ def score_palpite(nums, scores, fator):
 
 
 # ======================================================
-# ROI FALLBACK
+# ROI FALLBACK CORRIGIDO
 # ======================================================
 def estimar_roi_fallback(score):
+    base = max(score, 0.02)
+
     probs = {
-        11: score * 0.6,
-        12: score * 0.25,
-        13: score * 0.10,
-        14: score * 0.04,
-        15: score * 0.01
+        11: base * 1.2,
+        12: base * 0.6,
+        13: base * 0.25,
+        14: base * 0.08,
+        15: base * 0.02
     }
 
     retorno = sum(probs[k] * PREMIOS_FIXOS[k] for k in probs)
@@ -136,13 +134,12 @@ def main():
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
     concurso = supabase.table("lotofacil_concursos") \
-        .select("concurso, dezenas") \
+        .select("concurso") \
         .order("concurso", desc=True) \
         .limit(1).execute().data[0]
 
     concurso_ref = concurso["concurso"]
 
-    # pool
     pool = [
         r["numero"]
         for r in supabase.table("estatisticas_numeros")
@@ -157,26 +154,38 @@ def main():
 
     scores = calcular_score_combinacoes_reais()
 
-    # ROI REAL
     probs_reais = obter_probabilidades_reais(VERSAO)
 
     if probs_reais:
-        print("🧠 ROI baseado em histórico real")
+        print("🧠 ROI real ativo")
     else:
-        print("⚠️ ROI fallback (sem histórico suficiente)")
+        print("⚠️ ROI fallback ativo")
 
     # ==================================================
-    # GERAR CANDIDATOS
+    # GERAR CANDIDATOS (CONTROLADO)
     # ==================================================
     candidatos = []
+    usados = set()
+    tentativas = 0
 
-    for _ in range(MAX_TENTATIVAS):
+    while len(candidatos) < 3000 and tentativas < MAX_TENTATIVAS:
+        tentativas += 1
+
         nums = sorted(random.sample(pool, 15))
+        t = tuple(nums)
+
+        if t in usados:
+            continue
+
+        usados.add(t)
 
         if not validar(nums):
             continue
 
         score = score_palpite(nums, scores, fator)
+
+        if score < 0.02:
+            continue
 
         if probs_reais:
             roi = calcular_roi_real(score, probs_reais)
@@ -200,16 +209,15 @@ def main():
     # ==================================================
     candidatos.sort(key=lambda x: (x["roi"], x["score"]), reverse=True)
 
-    finais = [c for c in candidatos if c["roi"] >= ROI_MIN][:QTD_FINAL]
+    finais = [c for c in candidatos if c["roi"] >= ROI_MIN]
 
     if len(finais) < QTD_FINAL:
-        print("⚠️ ROI insuficiente, completando com melhor score")
+        print("⚠️ ROI baixo → fallback score")
         candidatos.sort(key=lambda x: x["score"], reverse=True)
         finais = candidatos[:QTD_FINAL]
+    else:
+        finais = finais[:QTD_FINAL]
 
-    # ==================================================
-    # OUTPUT
-    # ==================================================
     print("\n🏆 RANKING FINAL:")
     for i, p in enumerate(finais, 1):
         print(f"{i}º | ROI={p['roi']} | score={round(p['score'],6)} | {p['nums']}")
@@ -243,7 +251,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Gerador finalizado com ROI REAL adaptativo\n")
+    print("\n✅ Gerador finalizado com estabilidade\n")
 
 
 if __name__ == "__main__":
