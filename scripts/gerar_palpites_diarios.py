@@ -27,20 +27,9 @@ from app.services.roi_service import (
 QTD_FINAL = 7
 POOL_SIZE = 22
 MAX_TENTATIVAS = 40000
-VERSAO = "v6-diversificado-roi"
+VERSAO = "v6-memoria-ativa"
 
-ROI_MIN = -0.05  # mais flexível
-
-# fallback
-PREMIOS_FIXOS = {
-    11: 6,
-    12: 12,
-    13: 30,
-    14: 1500,
-    15: 1500000
-}
-
-CUSTO_JOGO = 3.0
+ROI_MIN = -0.05
 
 # ======================================================
 # AUX
@@ -51,48 +40,66 @@ def calcular_metricas(nums):
     return pares, soma
 
 
-def max_seq(nums):
-    seq = atual = 1
-    for i in range(1, len(nums)):
-        if nums[i] == nums[i - 1] + 1:
-            atual += 1
-            seq = max(seq, atual)
-        else:
-            atual = 1
-    return seq
+def extrair_estrutura(nums):
+    return {
+        "soma_faixa": int(round(sum(nums) / 10) * 10),
+        "pares": sum(1 for n in nums if n % 2 == 0),
+        "primos": sum(1 for n in nums if n in {2,3,5,7,11,13,17,19,23}),
+        "linhas": [
+            sum(1 for n in nums if 1 <= n <= 5),
+            sum(1 for n in nums if 6 <= n <= 10),
+            sum(1 for n in nums if 11 <= n <= 15),
+            sum(1 for n in nums if 16 <= n <= 20),
+            sum(1 for n in nums if 21 <= n <= 25),
+        ]
+    }
 
 
-def linhas(nums):
-    ranges = [range(1,6), range(6,11), range(11,16), range(16,21), range(21,26)]
-    return [sum(1 for n in nums if n in r) for r in ranges]
+def buscar_memoria(supabase, estrutura):
+    res = (
+        supabase
+        .table("memoria_cenarios")
+        .select("*")
+        .eq("soma_faixa", estrutura["soma_faixa"])
+        .eq("pares", estrutura["pares"])
+        .eq("primos", estrutura["primos"])
+        .execute()
+    )
+
+    if not res.data:
+        return None
+
+    melhor = None
+    menor_diff = 999
+
+    for r in res.data:
+        diff = sum(abs(a - b) for a, b in zip(r["linhas"], estrutura["linhas"]))
+        if diff < menor_diff:
+            menor_diff = diff
+            melhor = r
+
+    return melhor
 
 
-def validar(nums, soma_media, pares_media):
+def validar(nums):
     if len(set(nums)) != 15:
         return False
 
     pares, soma = calcular_metricas(nums)
 
-    # 🔥 limites dinâmicos
-    if not (soma_media - 25 <= soma <= soma_media + 25):
+    if not (150 <= soma <= 230):
         return False
 
-    if not (pares_media - 3 <= pares <= pares_media + 3):
-        return False
-
-    if max_seq(nums) > 6:
-        return False
-
-    if not all(1 <= x <= 5 for x in linhas(nums)):
+    if not (4 <= pares <= 11):
         return False
 
     return True
 
 
 # ======================================================
-# SCORE
+# SCORE + MEMÓRIA
 # ======================================================
-def score_palpite(nums, scores, fator):
+def score_final(nums, scores, fator, memoria):
     m = extrair_metricas_jogo(nums)
 
     chave = (
@@ -103,55 +110,41 @@ def score_palpite(nums, scores, fator):
     )
 
     base = scores.get(chave, 0)
-    return aplicar_fator_aprendizado(base, fator)
+    score = aplicar_fator_aprendizado(base, fator)
+
+    # 🔥 AJUSTE POR MEMÓRIA
+    if memoria:
+        score_real = float(memoria.get("score_medio_real", 0))
+
+        if score_real > 0:
+            score *= (1 + score_real)
+
+        # penaliza cenários ruins
+        if score_real < 0.05:
+            score *= 0.7
+
+    return score
 
 
 # ======================================================
-# ROI
+# DIVERSIFICAÇÃO
 # ======================================================
-def estimar_roi_fallback(score):
-    probs = {
-        11: score * 0.6,
-        12: score * 0.25,
-        13: score * 0.10,
-        14: score * 0.04,
-        15: score * 0.01
-    }
-
-    retorno = sum(probs[k] * PREMIOS_FIXOS[k] for k in probs)
-    roi = (retorno - CUSTO_JOGO) / CUSTO_JOGO
-
-    return round(roi, 4)
+def distancia(a, b):
+    return len(set(a) ^ set(b))
 
 
-# ======================================================
-# DIVERSIDADE
-# ======================================================
-def intersecao(a, b):
-    return len(set(a) & set(b))
-
-
-def selecionar_diversificados(candidatos, qtd=7, max_inter=8):
+def diversificar(candidatos):
     selecionados = []
 
     for c in candidatos:
-        nums = c["nums"]
-
         if not selecionados:
             selecionados.append(c)
             continue
 
-        valido = True
-
-        for s in selecionados:
-            if intersecao(nums, s["nums"]) > max_inter:
-                valido = False
-                break
-
-        if valido:
+        if all(distancia(c["nums"], s["nums"]) >= 6 for s in selecionados):
             selecionados.append(c)
 
-        if len(selecionados) == qtd:
+        if len(selecionados) >= QTD_FINAL:
             break
 
     return selecionados
@@ -167,22 +160,12 @@ def main():
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
     concurso = supabase.table("lotofacil_concursos") \
-        .select("concurso, dezenas") \
+        .select("concurso") \
         .order("concurso", desc=True) \
         .limit(1).execute().data[0]
 
     concurso_ref = concurso["concurso"]
 
-    # médias dinâmicas
-    stats = supabase.table("estatisticas_diarias_v2") \
-        .select("media_soma, media_pares") \
-        .order("data_referencia", desc=True) \
-        .limit(1).execute().data
-
-    soma_media = stats[0]["media_soma"] if stats else 195
-    pares_media = stats[0]["media_pares"] if stats else 8
-
-    # pool
     pool = [
         r["numero"]
         for r in supabase.table("estatisticas_numeros")
@@ -199,28 +182,23 @@ def main():
 
     probs_reais = obter_probabilidades_reais(VERSAO)
 
-    if probs_reais:
-        print("🧠 ROI real ativo")
-    else:
-        print("⚠️ ROI fallback ativo")
-
-    # ==================================================
-    # GERAR
-    # ==================================================
     candidatos = []
 
     for _ in range(MAX_TENTATIVAS):
         nums = sorted(random.sample(pool, 15))
 
-        if not validar(nums, soma_media, pares_media):
+        if not validar(nums):
             continue
 
-        score = score_palpite(nums, scores, fator)
+        estrutura = extrair_estrutura(nums)
+        memoria = buscar_memoria(supabase, estrutura)
+
+        score = score_final(nums, scores, fator, memoria)
 
         if probs_reais:
             roi = calcular_roi_real(score, probs_reais)
         else:
-            roi = estimar_roi_fallback(score)
+            roi = score * 0.5  # fallback simples
 
         candidatos.append({
             "nums": nums,
@@ -234,35 +212,15 @@ def main():
 
     print(f"📊 {len(candidatos)} candidatos gerados")
 
-    # ==================================================
-    # RANKING + DIVERSIDADE
-    # ==================================================
     candidatos.sort(key=lambda x: (x["roi"], x["score"]), reverse=True)
 
-    filtrados = [c for c in candidatos if c["roi"] >= ROI_MIN]
+    finais = diversificar(candidatos)
 
-    base = filtrados if len(filtrados) >= QTD_FINAL else candidatos
-
-    finais = selecionar_diversificados(base, QTD_FINAL)
-
-    if len(finais) < QTD_FINAL:
-        print("⚠️ Complementando por score")
-        for c in base:
-            if c not in finais:
-                finais.append(c)
-            if len(finais) == QTD_FINAL:
-                break
-
-    # ==================================================
-    # OUTPUT
-    # ==================================================
     print("\n🏆 RANKING FINAL:")
     for i, p in enumerate(finais, 1):
-        print(f"{i}º | ROI={p['roi']} | score={round(p['score'],6)} | {p['nums']}")
+        print(f"{i}º | ROI={round(p['roi'],4)} | score={round(p['score'],4)} | {p['nums']}")
 
-    # ==================================================
-    # SAVE
-    # ==================================================
+    # salvar
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
@@ -289,7 +247,7 @@ def main():
 
     supabase.table("palpites_validos").insert(registros).execute()
 
-    print("\n✅ Gerador finalizado com diversidade + ROI\n")
+    print("\n✅ Gerador com memória ATIVA finalizado\n")
 
 
 if __name__ == "__main__":
