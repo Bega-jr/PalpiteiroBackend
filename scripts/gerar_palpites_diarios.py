@@ -9,7 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.aprendizado_service_v3 import obter_fator_aprendizado
+from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
 
 # ======================================================
