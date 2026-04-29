@@ -33,7 +33,7 @@ def gerar_pool(supabase):
         if r.get("numero") is not None
     ))
 
-    print(f"\n📊 POOL: {len(pool)} números")
+    print(f"\n📊 POOL: {len(pool)} números -> {pool}")
 
     if len(pool) < 15:
         raise ValueError("POOL INVÁLIDO")
@@ -64,16 +64,7 @@ def calcular_metricas(nums):
     return pares, soma, linhas
 
 # ======================================================
-# DIVERSIDADE
-# ======================================================
-def distancia(a, b):
-    return len(set(a) ^ set(b))
-
-def diversidade_ok(jogo, selecionados):
-    return all(distancia(jogo, s) >= 5 for s in selecionados)
-
-# ======================================================
-# SCORE DE VALIDAÇÃO
+# VALIDAÇÃO
 # ======================================================
 def score_validacao(nums):
     pares, soma, linhas = calcular_metricas(nums)
@@ -89,7 +80,16 @@ def score_validacao(nums):
     return max(score, 0.25)
 
 # ======================================================
-# SCORE FINAL (v9.8.3)
+# DISTÂNCIA
+# ======================================================
+def distancia(a, b):
+    return len(set(a) ^ set(b))
+
+def diversidade_ok(jogo, selecionados):
+    return all(distancia(jogo, s) >= 5 for s in selecionados)
+
+# ======================================================
+# SCORE FINAL
 # ======================================================
 def calcular_score_final(nums, base_scores, rec_scores, fator, ultimo_concurso=None):
     chave = tuple(nums)
@@ -102,18 +102,16 @@ def calcular_score_final(nums, base_scores, rec_scores, fator, ultimo_concurso=N
     if rec is None:
         rec = np.mean(list(rec_scores.values())) if rec_scores else 0.5
 
-    # score base
     score = (base * 0.6) + (rec * 0.4)
 
-    # 🔥 1. ruído controlado (evita empate)
+    # ruído controlado (evita empate)
     score *= (1 + np.random.normal(0, 0.025))
 
-    # 🔥 2. penalidade de repetição com último concurso
+    # penalidade leve de repetição com último concurso
     if ultimo_concurso:
         repetidos = len(set(nums) & set(ultimo_concurso))
-        score *= (1 - (repetidos / 30))  # leve penalização
+        score *= (1 - (repetidos / 30))
 
-    # 🔥 3. validação estrutural
     score *= score_validacao(nums)
 
     return max(score, 0.01)
@@ -127,24 +125,54 @@ def main():
 
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
+    # ==================================================
+    # CONCURSO + FIX DEFINITIVO (LIST vs STRING)
+    # ==================================================
     concurso = supabase.table("lotofacil_concursos") \
         .select("concurso,dezenas") \
         .order("concurso", desc=True) \
-        .limit(1).execute().data
+        .limit(1) \
+        .execute().data
+
+    if not concurso:
+        raise ValueError("Nenhum concurso encontrado")
 
     concurso_ref = concurso[0]["concurso"]
-    ultimo = json.loads(concurso[0]["dezenas"])
 
+    raw_dezenas = concurso[0]["dezenas"]
+
+    # 🔥 FIX CRÍTICO (corrige erro JSON/list)
+    if isinstance(raw_dezenas, str):
+        ultimo = json.loads(raw_dezenas)
+    else:
+        ultimo = raw_dezenas
+
+    ultimo = [int(x) for x in ultimo]
+
+    print(f"📌 Concurso: {concurso_ref}")
+
+    # ==================================================
+    # POOL
+    # ==================================================
     pool = gerar_pool(supabase)
 
+    # ==================================================
+    # FATOR
+    # ==================================================
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator: {fator}")
 
+    # ==================================================
+    # SCORE BASE
+    # ==================================================
     base_scores, rec_scores = calcular_score_combinacoes_reais()
 
     candidatos = []
     vistos = set()
 
+    # ==================================================
+    # GERAÇÃO
+    # ==================================================
     for _ in range(MAX_TENTATIVAS):
 
         if len(candidatos) >= 3000:
@@ -170,8 +198,11 @@ def main():
             "score": score
         })
 
-    print(f"✅ candidatos: {len(candidatos)}")
+    print(f"✅ candidatos válidos: {len(candidatos)}")
 
+    # ==================================================
+    # RANKING
+    # ==================================================
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
@@ -183,11 +214,18 @@ def main():
         if len(finais) == QTD_FINAL:
             break
 
+    # fallback
+    if len(finais) < QTD_FINAL:
+        finais = candidatos[:QTD_FINAL]
+
+    # ==================================================
+    # OUTPUT
+    # ==================================================
     print("\n🏆 FINAL:")
     for i, p in enumerate(finais, 1):
-        print(i, round(p["score"], 4), p["nums"])
+        print(f"{i}º | score={round(p['score'],4)} | {p['nums']}")
 
-    print("\n✅ v9.8.3 concluída")
+    print("\n✅ v9.8.3 concluída com sucesso")
 
 
 if __name__ == "__main__":
