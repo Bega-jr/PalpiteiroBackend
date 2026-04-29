@@ -143,7 +143,7 @@ def main():
     pool = gerar_pool(supabase)
     print(f"📊 Pool size: {len(pool)}")
 
-    fator = obter_fator_aprendizado()["fator"]
+    fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator aprendizado: {fator}")
 
     scores = calcular_score_combinacoes_reais()
