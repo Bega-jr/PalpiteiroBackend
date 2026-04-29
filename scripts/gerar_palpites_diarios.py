@@ -17,10 +17,10 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 # ======================================================
 QTD_FINAL = 7
 MAX_TENTATIVAS = 60000
-VERSAO = "v9.8.2-estavel"
+VERSAO = "v9.8.3-discriminativo"
 
 # ======================================================
-# POOL (BLINDADO)
+# POOL
 # ======================================================
 def gerar_pool(supabase):
     data = supabase.table("estatisticas_numeros") \
@@ -33,17 +33,15 @@ def gerar_pool(supabase):
         if r.get("numero") is not None
     ))
 
-    print(f"\n📊 POOL RAW SIZE: {len(data)}")
-    print(f"📊 POOL FINAL SIZE: {len(pool)}")
-    print(f"📊 POOL: {pool}")
+    print(f"\n📊 POOL: {len(pool)} números")
 
     if len(pool) < 15:
-        raise ValueError("POOL CORROMPIDO")
+        raise ValueError("POOL INVÁLIDO")
 
     return pool
 
 # ======================================================
-# GERAÇÃO
+# JOGO
 # ======================================================
 def gerar_jogo(pool):
     return sorted(random.sample(pool, 15))
@@ -66,7 +64,16 @@ def calcular_metricas(nums):
     return pares, soma, linhas
 
 # ======================================================
-# VALIDAÇÃO SUAVE
+# DIVERSIDADE
+# ======================================================
+def distancia(a, b):
+    return len(set(a) ^ set(b))
+
+def diversidade_ok(jogo, selecionados):
+    return all(distancia(jogo, s) >= 5 for s in selecionados)
+
+# ======================================================
+# SCORE DE VALIDAÇÃO
 # ======================================================
 def score_validacao(nums):
     pares, soma, linhas = calcular_metricas(nums)
@@ -75,16 +82,16 @@ def score_validacao(nums):
     score -= abs(7 - pares) * 0.03
 
     if soma < 165 or soma > 220:
-        score -= 0.15
+        score -= 0.12
 
     score -= (max(linhas) - 4) * 0.02
 
-    return max(score, 0.2)
+    return max(score, 0.25)
 
 # ======================================================
-# SCORE FINAL
+# SCORE FINAL (v9.8.3)
 # ======================================================
-def calcular_score_final(nums, base_scores, rec_scores, fator):
+def calcular_score_final(nums, base_scores, rec_scores, fator, ultimo_concurso=None):
     chave = tuple(nums)
 
     base = base_scores.get(chave)
@@ -95,22 +102,21 @@ def calcular_score_final(nums, base_scores, rec_scores, fator):
     if rec is None:
         rec = np.mean(list(rec_scores.values())) if rec_scores else 0.5
 
+    # score base
     score = (base * 0.6) + (rec * 0.4)
 
-    # ruído leve (evita empate)
-    score *= (1 + np.random.normal(0, 0.03))
+    # 🔥 1. ruído controlado (evita empate)
+    score *= (1 + np.random.normal(0, 0.025))
 
-    return score * fator * score_validacao(nums)
+    # 🔥 2. penalidade de repetição com último concurso
+    if ultimo_concurso:
+        repetidos = len(set(nums) & set(ultimo_concurso))
+        score *= (1 - (repetidos / 30))  # leve penalização
 
-# ======================================================
-# DIVERSIDADE
-# ======================================================
-def distancia(a, b):
-    return len(set(a) ^ set(b))
+    # 🔥 3. validação estrutural
+    score *= score_validacao(nums)
 
-
-def diversidade_ok(jogo, selecionados):
-    return all(distancia(jogo, s) >= 5 for s in selecionados)
+    return max(score, 0.01)
 
 # ======================================================
 # MAIN
@@ -122,12 +128,12 @@ def main():
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
     concurso = supabase.table("lotofacil_concursos") \
-        .select("concurso") \
+        .select("concurso,dezenas") \
         .order("concurso", desc=True) \
         .limit(1).execute().data
 
     concurso_ref = concurso[0]["concurso"]
-    print(f"📌 Concurso: {concurso_ref}")
+    ultimo = json.loads(concurso[0]["dezenas"])
 
     pool = gerar_pool(supabase)
 
@@ -151,7 +157,13 @@ def main():
             continue
         vistos.add(key)
 
-        score = calcular_score_final(jogo, base_scores, rec_scores, fator)
+        score = calcular_score_final(
+            jogo,
+            base_scores,
+            rec_scores,
+            fator,
+            ultimo_concurso=ultimo
+        )
 
         candidatos.append({
             "nums": jogo,
@@ -173,9 +185,9 @@ def main():
 
     print("\n🏆 FINAL:")
     for i, p in enumerate(finais, 1):
-        print(i, p["score"], p["nums"])
+        print(i, round(p["score"], 4), p["nums"])
 
-    print("\n✅ v9.8.2 concluída")
+    print("\n✅ v9.8.3 concluída")
 
 
 if __name__ == "__main__":
