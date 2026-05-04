@@ -23,9 +23,13 @@ VERSAO = "v9.8.3-discriminativo"
 # POOL
 # ======================================================
 def gerar_pool(supabase):
-    data = supabase.table("estatisticas_numeros") \
-        .select("numero") \
-        .execute().data
+    data = (
+        supabase
+        .table("estatisticas_numeros")
+        .select("numero")
+        .execute()
+        .data
+    )
 
     pool = sorted(set(
         int(r["numero"])
@@ -40,11 +44,13 @@ def gerar_pool(supabase):
 
     return pool
 
+
 # ======================================================
 # JOGO
 # ======================================================
 def gerar_jogo(pool):
     return sorted(random.sample(pool, 15))
+
 
 # ======================================================
 # MÉTRICAS
@@ -63,6 +69,7 @@ def calcular_metricas(nums):
 
     return pares, soma, linhas
 
+
 # ======================================================
 # VALIDAÇÃO
 # ======================================================
@@ -75,9 +82,10 @@ def score_validacao(nums):
     if soma < 165 or soma > 220:
         score -= 0.12
 
-    score -= (max(linhas) - 4) * 0.02
+    score -= max(0, max(linhas) - 4) * 0.02
 
     return max(score, 0.25)
+
 
 # ======================================================
 # DISTÂNCIA
@@ -85,54 +93,73 @@ def score_validacao(nums):
 def distancia(a, b):
     return len(set(a) ^ set(b))
 
+
 def diversidade_ok(jogo, selecionados):
     return all(distancia(jogo, s) >= 5 for s in selecionados)
 
+
 # ======================================================
-# SCORE FINAL
+# SCORE
 # ======================================================
-def calcular_score_final(nums, base_scores, rec_scores, fator, ultimo_concurso=None):
+def calcular_score_final(
+    nums,
+    base_scores,
+    rec_scores,
+    fator,
+    ultimo_concurso=None
+):
     chave = tuple(nums)
 
     base = base_scores.get(chave)
     rec = rec_scores.get(chave)
 
+    media_base = np.mean(list(base_scores.values())) if base_scores else 0.5
+    media_rec = np.mean(list(rec_scores.values())) if rec_scores else 0.5
+
     if base is None:
-        base = np.mean(list(base_scores.values())) if base_scores else 0.5
+        base = media_base
+
     if rec is None:
-        rec = np.mean(list(rec_scores.values())) if rec_scores else 0.5
+        rec = media_rec
 
     score = (base * 0.6) + (rec * 0.4)
 
-    # ruído controlado (evita empate)
+    # ruído controlado
     score *= (1 + np.random.normal(0, 0.025))
 
-    # penalidade leve de repetição com último concurso
+    # penalidade leve de repetição
     if ultimo_concurso:
         repetidos = len(set(nums) & set(ultimo_concurso))
         score *= (1 - (repetidos / 30))
 
+    score *= fator
     score *= score_validacao(nums)
 
     return max(score, 0.01)
+
 
 # ======================================================
 # MAIN
 # ======================================================
 def main():
+
     supabase = get_supabase()
     hoje = datetime.now().date().isoformat()
 
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
 
     # ==================================================
-    # CONCURSO + FIX DEFINITIVO (LIST vs STRING)
+    # CONCURSO
     # ==================================================
-    concurso = supabase.table("lotofacil_concursos") \
-        .select("concurso,dezenas") \
-        .order("concurso", desc=True) \
-        .limit(1) \
-        .execute().data
+    concurso = (
+        supabase
+        .table("lotofacil_concursos")
+        .select("concurso,dezenas")
+        .order("concurso", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
 
     if not concurso:
         raise ValueError("Nenhum concurso encontrado")
@@ -141,7 +168,6 @@ def main():
 
     raw_dezenas = concurso[0]["dezenas"]
 
-    # 🔥 FIX CRÍTICO (corrige erro JSON/list)
     if isinstance(raw_dezenas, str):
         ultimo = json.loads(raw_dezenas)
     else:
@@ -157,22 +183,19 @@ def main():
     pool = gerar_pool(supabase)
 
     # ==================================================
-    # FATOR
+    # APRENDIZADO
     # ==================================================
     fator = obter_fator_aprendizado_global()["fator"]
     print(f"🧠 Fator: {fator}")
 
-    # ==================================================
-    # SCORE BASE
-    # ==================================================
     base_scores, rec_scores = calcular_score_combinacoes_reais()
-
-    candidatos = []
-    vistos = set()
 
     # ==================================================
     # GERAÇÃO
     # ==================================================
+    candidatos = []
+    vistos = set()
+
     for _ in range(MAX_TENTATIVAS):
 
         if len(candidatos) >= 3000:
@@ -183,6 +206,7 @@ def main():
 
         if key in vistos:
             continue
+
         vistos.add(key)
 
         score = calcular_score_final(
@@ -203,18 +227,24 @@ def main():
     # ==================================================
     # RANKING
     # ==================================================
-    candidatos.sort(key=lambda x: x["score"], reverse=True)
+    candidatos.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
 
     finais = []
 
-    for c in candidatos:
-        if diversidade_ok(c["nums"], [f["nums"] for f in finais]):
-            finais.append(c)
+    for candidato in candidatos:
 
-        if len(finais) == QTD_FINAL:
+        if diversidade_ok(
+            candidato["nums"],
+            [f["nums"] for f in finais]
+        ):
+            finais.append(candidato)
+
+        if len(finais) >= QTD_FINAL:
             break
 
-    # fallback
     if len(finais) < QTD_FINAL:
         finais = candidatos[:QTD_FINAL]
 
@@ -222,10 +252,58 @@ def main():
     # OUTPUT
     # ==================================================
     print("\n🏆 FINAL:")
-    for i, p in enumerate(finais, 1):
-        print(f"{i}º | score={round(p['score'],4)} | {p['nums']}")
 
-    print("\n✅ v9.8.3 concluída com sucesso")
+    for i, p in enumerate(finais, 1):
+        print(
+            f"{i}º | score={round(p['score'],4)} | {p['nums']}"
+        )
+
+    # ==================================================
+    # SAVE SUPABASE
+    # ==================================================
+    print("\n💾 Salvando no Supabase...")
+
+    registros = []
+
+    for i, p in enumerate(finais, 1):
+
+        pares, soma, _ = calcular_metricas(p["nums"])
+
+        registros.append({
+            "data_referencia": hoje,
+            "concurso_referencia": concurso_ref,
+            "indice_palpite": i,
+            "tipo": "fixo" if i == 1 else "estatistico",
+            "numeros": json.dumps(p["nums"]),
+            "pares": pares,
+            "impares": 15 - pares,
+            "soma_total": soma,
+            "metricas": json.dumps({
+                "versao": VERSAO,
+                "score": round(p["score"], 6)
+            })
+        })
+
+    # limpa antigos
+    (
+        supabase
+        .table("palpites_validos")
+        .delete()
+        .eq("concurso_referencia", concurso_ref)
+        .execute()
+    )
+
+    # grava novos
+    resp = (
+        supabase
+        .table("palpites_validos")
+        .insert(registros)
+        .execute()
+    )
+
+    print(f"✅ Salvos: {len(resp.data)}")
+
+    print(f"\n✅ {VERSAO} concluída com sucesso")
 
 
 if __name__ == "__main__":
