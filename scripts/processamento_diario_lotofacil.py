@@ -95,17 +95,26 @@ def buscar_cenario_similar(supabase, estrutura):
 # AJUSTE DE PESO POR MEMÓRIA REAL
 # ======================================================
 def ajustar_por_memoria(df, memoria):
+
     if not memoria:
-        print("🧠 Sem memória relevante (fallback neutro)")
+        print("🧠 Sem memória")
         return df
 
-    score_real = float(memoria.get("score_medio_real", 0))
+    score_real = float(
+        memoria.get(
+            "score_medio_real",
+            0
+        )
+    )
 
-    print(f"🧠 Memória encontrada | score_real={score_real}")
+    print(
+        f"🧠 score_real={score_real}"
+    )
 
-    if score_real > 0.6:
+    if score_real >= 5:
         df["score"] *= 1.10
-    elif score_real < 0.2:
+
+    elif score_real <= 1:
         df["score"] *= 0.90
 
     return df
