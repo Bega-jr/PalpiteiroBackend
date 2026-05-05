@@ -9,9 +9,6 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-# ======================================================
-# ESTRUTURA
-# ======================================================
 def extrair_estrutura(nums):
     return {
         "soma_faixa": int(round(sum(nums) / 10) * 10),
@@ -30,47 +27,39 @@ def extrair_estrutura(nums):
     }
 
 
-# ======================================================
-# PESO REAL
-# ======================================================
 def peso_acerto(acertos):
     pesos = {
         11: 1,
         12: 2,
         13: 5,
-        14: 20,
-        15: 100
+        14: 10,
+        15: 15
     }
 
     return pesos.get(acertos, 0)
 
 
-# ======================================================
-# LEITURA SEGURA
-# ======================================================
 def parse_numeros(valor):
     try:
+
         if isinstance(valor, list):
             return [int(x) for x in valor]
 
         if isinstance(valor, str):
             return [int(x) for x in json.loads(valor)]
 
-    except Exception:
+    except:
         return None
 
     return None
 
 
-# ======================================================
-# MAIN
-# ======================================================
 def main():
+
     supabase = get_supabase()
 
     print("🏁 Conferindo resultados...")
 
-    # Último concurso oficial
     concursos = (
         supabase
         .table("lotofacil_concursos")
@@ -81,10 +70,6 @@ def main():
         .data
     )
 
-    if not concursos:
-        print("❌ Nenhum concurso encontrado")
-        return
-
     concurso_atual = concursos[0]["concurso"]
 
     dezenas_raw = concursos[0]["dezenas"]
@@ -94,25 +79,15 @@ def main():
     else:
         dezenas_oficiais = set(dezenas_raw)
 
-    print(f"📌 {concurso_atual}")
-
-    # Busca palpites pendentes
     palpites = (
         supabase
         .table("palpites_validos")
         .select("*")
         .is_("acertos", None)
-        .order("concurso_referencia", desc=True)
-        .limit(200)
         .execute()
         .data
     )
 
-    if not palpites:
-        print("⚠️ Nenhum palpite pendente")
-        return
-
-    # Não conferir concurso atual
     palpites = [
         p for p in palpites
         if p["concurso_referencia"] < concurso_atual
@@ -128,20 +103,25 @@ def main():
 
     for p in palpites:
 
-        numeros = parse_numeros(p["numeros"])
+        numeros = parse_numeros(
+            p["numeros"]
+        )
 
         if not numeros:
             continue
 
-        nums_set = set(numeros)
+        acertos = len(
+            set(numeros) & dezenas_oficiais
+        )
 
-        acertos = len(nums_set & dezenas_oficiais)
+        estrutura = extrair_estrutura(
+            numeros
+        )
 
-        estrutura = extrair_estrutura(numeros)
+        peso = peso_acerto(
+            acertos
+        )
 
-        peso = peso_acerto(acertos)
-
-        # Marca palpite conferido
         (
             supabase
             .table("palpites_validos")
@@ -152,27 +132,39 @@ def main():
             .execute()
         )
 
-        # Payload seguro
-               payload_memoria = {
-            "soma_faixa": estrutura["soma_faixa"],
-            "pares": estrutura["pares"],
-            "primos": estrutura["primos"],
-            "linhas": estrutura["linhas"],
+        memoria_payload = {
+            **estrutura,
             "vezes_gerado": 1,
             "score_medio_real": peso,
             "ultima_aparicao": datetime.now().date().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
-        
-        if acertos >= 11:
-            payload_memoria[f"acertos_{acertos}"] = 1
+
         (
             supabase
             .table("memoria_cenarios")
             .upsert(
-                payload,
+                memoria_payload,
                 on_conflict="soma_faixa,pares,primos,linhas"
             )
+            .execute()
+        )
+
+        resultado_payload = {
+            "data_referencia": p["data_referencia"],
+            "versao_gerador": p["versao_gerador"],
+            "qtd_palpites": 1,
+            "acertos_11": 1 if acertos == 11 else 0,
+            "acertos_12": 1 if acertos == 12 else 0,
+            "acertos_13": 1 if acertos == 13 else 0,
+            "acertos_14": 1 if acertos == 14 else 0,
+            "acertos_15": 1 if acertos == 15 else 0
+        }
+
+        (
+            supabase
+            .table("palpites_resultados_reais")
+            .insert(resultado_payload)
             .execute()
         )
 
