@@ -27,11 +27,13 @@ def gerar_pool(supabase):
         .data
     )
 
-    pool = sorted(set(
-        int(r["numero"])
-        for r in data
-        if r.get("numero") is not None
-    ))
+    pool = sorted(
+        set(
+            int(r["numero"])
+            for r in data
+            if r.get("numero") is not None
+        )
+    )
 
     print(f"\n📊 POOL: {len(pool)} números -> {pool}")
 
@@ -88,7 +90,7 @@ def calcular_score_final(
     base_scores,
     rec_scores,
     fator,
-    ultimo_concurso=None
+    ultimo_concurso
 ):
     chave = tuple(nums)
 
@@ -102,9 +104,8 @@ def calcular_score_final(
 
     score *= (1 + np.random.normal(0, 0.025))
 
-    if ultimo_concurso:
-        repetidos = len(set(nums) & set(ultimo_concurso))
-        score *= (1 - (repetidos / 30))
+    repetidos = len(set(nums) & set(ultimo_concurso))
+    score *= (1 - (repetidos / 30))
 
     score *= score_validacao(nums)
     score *= fator
@@ -114,6 +115,7 @@ def calcular_score_final(
 
 def main():
     supabase = get_supabase()
+
     hoje = datetime.now().date().isoformat()
 
     print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
@@ -127,9 +129,6 @@ def main():
         .execute()
         .data
     )
-
-    if not concurso:
-        raise ValueError("Nenhum concurso encontrado")
 
     concurso_ref = concurso[0]["concurso"]
 
@@ -147,7 +146,7 @@ def main():
     pool = gerar_pool(supabase)
 
     fator = obter_fator_aprendizado_global()["fator"]
-    print(f"🧠 Fator: {fator}")
+    print(f"🧠 Fator: {round(fator,4)}")
 
     base_scores, rec_scores = calcular_score_combinacoes_reais()
 
@@ -201,9 +200,6 @@ def main():
         if len(finais) == QTD_FINAL:
             break
 
-    if len(finais) < QTD_FINAL:
-        finais = candidatos[:QTD_FINAL]
-
     print("\n🏆 FINAL:")
 
     for i, p in enumerate(finais, start=1):
@@ -213,52 +209,47 @@ def main():
 
     print("\n💾 Salvando no Supabase...")
 
-    try:
+    (
+        supabase
+        .table("palpites_validos")
+        .delete()
+        .eq("concurso_referencia", concurso_ref)
+        .execute()
+    )
 
-        (
-            supabase
-            .table("palpites_validos")
-            .delete()
-            .eq("concurso_referencia", concurso_ref)
-            .execute()
+    payload = []
+
+    for i, p in enumerate(finais, start=1):
+
+        pares, soma, _ = calcular_metricas(
+            p["nums"]
         )
 
-        payload = []
+        payload.append({
+            "data_referencia": hoje,
+            "concurso_referencia": concurso_ref,
+            "indice_palpite": i,
+            "tipo": "fixo" if i == 1 else "estatistico",
+            "numeros": p["nums"],
+            "pares": pares,
+            "impares": 15 - pares,
+            "soma_total": soma,
+            "acertos": None,
+            "versao_gerador": VERSAO,
+            "metricas": {
+                "versao": VERSAO,
+                "score": round(float(p["score"]), 6)
+            }
+        })
 
-        for i, p in enumerate(finais, start=1):
+    (
+        supabase
+        .table("palpites_validos")
+        .insert(payload)
+        .execute()
+    )
 
-            pares, soma, _ = calcular_metricas(
-                p["nums"]
-            )
-
-            payload.append({
-                "data_referencia": hoje,
-                "concurso_referencia": concurso_ref,
-                "indice_palpite": i,
-                "tipo": "fixo" if i == 1 else "estatistico",
-                "numeros": p["nums"],
-                "pares": pares,
-                "impares": 15 - pares,
-                "soma_total": soma,
-                "acertos": None,
-                "metricas": {
-                    "versao": VERSAO,
-                    "score": round(float(p["score"]), 6)
-                }
-            })
-
-        (
-            supabase
-            .table("palpites_validos")
-            .insert(payload)
-            .execute()
-        )
-
-        print(f"✅ {len(payload)} palpites gravados")
-
-    except Exception as e:
-        print(f"❌ Erro ao salvar: {e}")
-
+    print(f"✅ {len(payload)} palpites gravados")
     print(f"\n✅ {VERSAO} concluída")
 
 
