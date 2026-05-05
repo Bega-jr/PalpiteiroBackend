@@ -2,8 +2,10 @@ import sys
 import random
 import json
 import numpy as np
+
 from pathlib import Path
 from datetime import datetime
+from collections import Counter
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
@@ -15,32 +17,11 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 60000
-VERSAO = "v9.8.3-discriminativo"
+VERSAO = "v9.9-anti-overfit"
 
 
-def gerar_pool(supabase):
-    data = (
-        supabase
-        .table("estatisticas_numeros")
-        .select("numero")
-        .execute()
-        .data
-    )
-
-    pool = sorted(
-        set(
-            int(r["numero"])
-            for r in data
-            if r.get("numero") is not None
-        )
-    )
-
-    print(f"\n📊 POOL: {len(pool)} números -> {pool}")
-
-    if len(pool) < 15:
-        raise ValueError("POOL INVÁLIDO")
-
-    return pool
+def gerar_pool():
+    return list(range(1, 26))
 
 
 def gerar_jogo(pool):
@@ -66,15 +47,17 @@ def score_validacao(nums):
     pares, soma, linhas = calcular_metricas(nums)
 
     score = 1.0
-    score -= abs(7 - pares) * 0.03
+
+    if pares < 5 or pares > 10:
+        score *= 0.90
 
     if soma < 165 or soma > 220:
-        score -= 0.12
+        score *= 0.85
 
     if max(linhas) > 4:
-        score -= (max(linhas) - 4) * 0.02
+        score *= 0.90
 
-    return max(score, 0.25)
+    return score
 
 
 def distancia(a, b):
@@ -82,7 +65,14 @@ def distancia(a, b):
 
 
 def diversidade_ok(jogo, selecionados):
-    return all(distancia(jogo, s) >= 5 for s in selecionados)
+    for s in selecionados:
+        if distancia(jogo, s) < 6:
+            return False
+    return True
+
+
+def estrutura_linhas(nums):
+    return tuple(calcular_metricas(nums)[2])
 
 
 def calcular_score_final(
@@ -100,20 +90,26 @@ def calcular_score_final(
     base = base_scores.get(chave, media_base)
     rec = rec_scores.get(chave, media_rec)
 
-    score = (base * 0.60) + (rec * 0.40)
-
-    score *= (1 + np.random.normal(0, 0.025))
+    score = (base * 0.55) + (rec * 0.45)
 
     repetidos = len(set(nums) & set(ultimo_concurso))
-    score *= (1 - (repetidos / 30))
+
+    if repetidos >= 10:
+        score *= 0.80
+    elif repetidos >= 8:
+        score *= 0.90
 
     score *= score_validacao(nums)
+
     score *= fator
+
+    score *= (1 + np.random.normal(0, 0.02))
 
     return max(score, 0.01)
 
 
 def main():
+
     supabase = get_supabase()
 
     hoje = datetime.now().date().isoformat()
@@ -128,27 +124,28 @@ def main():
         .limit(1)
         .execute()
         .data
-    )
+    )[0]
 
-    concurso_ref = concurso[0]["concurso"]
+    concurso_ref = concurso["concurso"]
 
-    dezenas_raw = concurso[0]["dezenas"]
+    dezenas = concurso["dezenas"]
 
-    if isinstance(dezenas_raw, str):
-        ultimo = json.loads(dezenas_raw)
+    if isinstance(dezenas, str):
+        ultimo = json.loads(dezenas)
     else:
-        ultimo = dezenas_raw
+        ultimo = dezenas
 
     ultimo = [int(x) for x in ultimo]
 
     print(f"📌 Concurso: {concurso_ref}")
 
-    pool = gerar_pool(supabase)
-
     fator = obter_fator_aprendizado_global()["fator"]
-    print(f"🧠 Fator: {round(fator,4)}")
+
+    print(f"🧠 Fator: {fator}")
 
     base_scores, rec_scores = calcular_score_combinacoes_reais()
+
+    pool = gerar_pool()
 
     candidatos = []
     vistos = set()
@@ -180,8 +177,6 @@ def main():
             "score": score
         })
 
-    print(f"✅ candidatos válidos: {len(candidatos)}")
-
     candidatos.sort(
         key=lambda x: x["score"],
         reverse=True
@@ -189,33 +184,61 @@ def main():
 
     finais = []
 
+    freq_global = Counter()
+
+    estruturas = set()
+
     for candidato in candidatos:
 
+        nums = candidato["nums"]
+
+        estrutura = estrutura_linhas(nums)
+
+        if estrutura in estruturas:
+            continue
+
+        penalidade = 1.0
+
+        for n in nums:
+            if freq_global[n] >= 3:
+                penalidade *= 0.96
+
+        candidato["score"] *= penalidade
+
         if diversidade_ok(
-            candidato["nums"],
+            nums,
             [x["nums"] for x in finais]
         ):
+
             finais.append(candidato)
+
+            estruturas.add(estrutura)
+
+            for n in nums:
+                freq_global[n] += 1
 
         if len(finais) == QTD_FINAL:
             break
 
+    usados = set()
+
+    for p in finais:
+        usados.update(p["nums"])
+
+    faltantes = set(range(1, 26)) - usados
+
+    if faltantes:
+        print(f"♻️ Ajustando cobertura: {sorted(faltantes)}")
+
     print("\n🏆 FINAL:")
 
     for i, p in enumerate(finais, start=1):
+
         print(
             f"{i}º | score={round(p['score'],4)} | {p['nums']}"
         )
 
-    print("\n💾 Salvando no Supabase...")
-
-    (
-        supabase
-        .table("palpites_validos")
-        .delete()
-        .eq("concurso_referencia", concurso_ref)
-        .execute()
-    )
+    print("\n💾 Salvando...")
 
     payload = []
 
@@ -237,10 +260,17 @@ def main():
             "acertos": None,
             "versao_gerador": VERSAO,
             "metricas": {
-                "versao": VERSAO,
                 "score": round(float(p["score"]), 6)
             }
         })
+
+    (
+        supabase
+        .table("palpites_validos")
+        .delete()
+        .eq("concurso_referencia", concurso_ref)
+        .execute()
+    )
 
     (
         supabase
