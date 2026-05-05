@@ -153,7 +153,7 @@ def main():
         )
 
         # Payload seguro
-        payload = {
+               payload_memoria = {
             "soma_faixa": estrutura["soma_faixa"],
             "pares": estrutura["pares"],
             "primos": estrutura["primos"],
@@ -163,11 +163,9 @@ def main():
             "ultima_aparicao": datetime.now().date().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
-
-        # Só grava colunas que existem
-        if acertos in [11, 12, 13, 14, 15]:
-            payload[f"acertos_{acertos}"] = 1
-
+        
+        if acertos >= 11:
+            payload_memoria[f"acertos_{acertos}"] = 1
         (
             supabase
             .table("memoria_cenarios")
