@@ -170,23 +170,26 @@ def main():
             )
 
             # 3. Grava performance real
-            resultado_payload = {
+           resultado_payload = {
                 "data_referencia": p["data_referencia"],
-
                 "concurso_inicio": p["concurso_referencia"],
-                "concurso_fim": concurso_atual,
-
-                "versao_gerador": versao,
-
+                "concurso_fim": p["concurso_referencia"],
+                "versao_gerador": p.get("versao_gerador", "desconhecido"),
                 "qtd_palpites": 1,
-
+            
                 "acertos_11": 1 if acertos == 11 else 0,
                 "acertos_12": 1 if acertos == 12 else 0,
                 "acertos_13": 1 if acertos == 13 else 0,
                 "acertos_14": 1 if acertos == 14 else 0,
                 "acertos_15": 1 if acertos == 15 else 0,
-
-                "score_ponderado": peso
+            
+                "score_ponderado": float(peso),
+                "eficiencia": 1 if acertos >= 11 else 0,
+            
+                "taxa_15": 1 if acertos == 15 else 0,
+                "taxa_14": 1 if acertos == 14 else 0,
+                "taxa_13": 1 if acertos == 13 else 0,
+                "taxa_12": 1 if acertos == 12 else 0,
             }
 
             (
