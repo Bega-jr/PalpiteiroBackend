@@ -17,13 +17,11 @@ jobs:
       PYTHONPATH: .
 
     steps:
-
       # =====================================================
       # CHECKOUT
       # =====================================================
       - name: 📥 Checkout
         uses: actions/checkout@v4
-
 
       # =====================================================
       # PYTHON
@@ -34,20 +32,13 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-
       # =====================================================
       # DEPENDÊNCIAS
       # =====================================================
       - name: 📦 Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          pip install \
-            pandas \
-            numpy \
-            requests \
-            python-dotenv \
-            supabase
-
+          pip install pandas numpy requests python-dotenv supabase
 
       # =====================================================
       # DEBUG
@@ -57,42 +48,31 @@ jobs:
           echo "SUPABASE_URL configurada? -> ${SUPABASE_URL:+SIM}"
           echo "SUPABASE_KEY configurada? -> ${SUPABASE_KEY:+SIM}"
 
-
       # =====================================================
-      # PASSO 1
+      # PASSO 1: ATUALIZAÇÃO
       # =====================================================
       - name: 📊 Atualizar histórico + estatísticas
         run: |
           python scripts/processamento_diario_lotofacil.py
 
-
       # =====================================================
-      # PASSO 1.5
+      # PASSO 2: CONFERÊNCIA E CONSOLIDAÇÃO (Agora substitui o reconciliar)
       # =====================================================
-      - name: 🔄 Reconciliar resultados antigos
-        run: |
-          python scripts/reconciliar_resultados.py
-
-
-      # =====================================================
-      # PASSO 2
-      # =====================================================
-      - name: 🏁 Conferir palpites pendentes
+      - name: 🏁 Conferir e Consolidar Resultados
         run: |
           python scripts/conferir_resultados.py
 
-
       # =====================================================
-      # PASSO 3
+      # PASSO 3: GERAÇÃO
       # =====================================================
       - name: 🎯 Gerar novos palpites
         run: |
           python scripts/gerar_palpites_diarios.py
-
 
       # =====================================================
       # FIM
       # =====================================================
       - name: ✅ Finalização
         run: |
-          echo "Pipeline executado com sucesso"
+          echo "Pipeline executado com sucesso em $(date)"
+
