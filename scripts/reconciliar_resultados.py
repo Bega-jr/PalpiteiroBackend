@@ -8,9 +8,6 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-# =========================
-# PARSER ROBUSTO
-# =========================
 def parse_numeros(valor):
 
     if not valor:
@@ -31,8 +28,8 @@ def parse_numeros(valor):
             if isinstance(parsed, list):
                 return [int(x) for x in parsed]
 
-    except Exception as e:
-        print(f"⚠️ Parse erro: {e}")
+    except:
+        return None
 
     return None
 
@@ -50,45 +47,65 @@ def peso_acerto(acertos):
     return pesos.get(acertos, 0)
 
 
-# =========================
-# MAIN
-# =========================
+def carregar_concursos(supabase):
+
+    rows = (
+        supabase
+        .table("lotofacil_concursos")
+        .select("concurso,dezenas")
+        .execute()
+        .data
+    )
+
+    mapa = {}
+
+    for r in rows:
+
+        concurso = int(r["concurso"])
+        dezenas = parse_numeros(r["dezenas"])
+
+        if not dezenas or len(dezenas) != 15:
+            continue
+
+        mapa[concurso] = set(dezenas)
+
+    print(f"📊 Concursos carregados: {len(mapa)}")
+
+    return mapa
+
+
+def ja_existe(supabase, palpite_id):
+
+    row = (
+        supabase
+        .table("palpites_resultados_reais")
+        .select("id")
+        .eq("palpite_id", palpite_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+
+    return len(row) > 0
+
+
 def main():
 
     supabase = get_supabase()
 
     print("🔄 Reconciliando resultados históricos...")
 
-    # pega último concurso oficial
-    concurso = (
-        supabase
-        .table("lotofacil_concursos")
-        .select("concurso,dezenas")
-        .order("concurso", desc=True)
-        .limit(1)
-        .execute()
-        .data
-    )[0]
+    concursos = carregar_concursos(supabase)
 
-    concurso_atual = int(concurso["concurso"])
-
-    dezenas_raw = concurso["dezenas"]
-
-    dezenas = parse_numeros(dezenas_raw)
-
-    if not dezenas:
-        print("❌ Concurso oficial inválido")
+    if not concursos:
+        print("❌ Nenhum concurso carregado")
         return
 
-    oficiais = set(dezenas)
-
-    # pega apenas pendentes antigos
     pendentes = (
         supabase
         .table("palpites_validos")
         .select("*")
         .is_("acertos", None)
-        .lt("concurso_referencia", concurso_atual)
         .execute()
         .data
     )
@@ -97,28 +114,46 @@ def main():
         print("✅ Nada pendente")
         return
 
-    reconciliados = 0
+    print(f"📌 {len(pendentes)} palpites pendentes")
+
+    total = 0
 
     for p in pendentes:
 
         try:
+
+            concurso = int(p["concurso_referencia"])
+
+            if concurso not in concursos:
+                print(f"⏳ Concurso {concurso} ainda sem resultado oficial")
+                continue
 
             numeros = parse_numeros(p["numeros"])
 
             if not numeros:
                 continue
 
+            oficiais = concursos[concurso]
+
             acertos = len(set(numeros) & oficiais)
+
+            # evita duplicar resultado
+            if ja_existe(supabase, p["id"]):
+                continue
 
             peso = peso_acerto(acertos)
 
-            # 🔥 FIX CRÍTICO: evitar null constraint
+            # atualiza palpite
+            supabase.table("palpites_validos").update({
+                "acertos": acertos
+            }).eq("id", p["id"]).execute()
+
             payload = {
+                "palpite_id": p["id"],
                 "data_referencia": p["data_referencia"],
-                "concurso_inicio": p["concurso_referencia"],
-                "concurso_fim": p["concurso_referencia"],
-                "total_concursos": 1,  # <<< FIX AQUI
-                "tipo_palpite": p.get("tipo_palpite") or "estatistico",
+                "concurso_inicio": concurso,
+                "concurso_fim": concurso,
+                "tipo_palpite": p.get("tipo") or "estatistico",
                 "versao_gerador": p.get("versao_gerador") or "legacy",
                 "qtd_palpites": 1,
 
@@ -130,43 +165,22 @@ def main():
 
                 "score_ponderado": float(peso),
                 "eficiencia": 1 if acertos >= 11 else 0,
-
                 "taxa_15": 1 if acertos == 15 else 0,
                 "taxa_14": 1 if acertos == 14 else 0,
                 "taxa_13": 1 if acertos == 13 else 0,
                 "taxa_12": 1 if acertos == 12 else 0
             }
 
-            # evita duplicação silenciosa
-            exists = (
-                supabase
-                .table("palpites_resultados_reais")
-                .select("id")
-                .eq("concurso_inicio", p["concurso_referencia"])
-                .eq("versao_gerador", payload["versao_gerador"])
-                .limit(1)
-                .execute()
-                .data
-            )
+            supabase.table("palpites_resultados_reais").insert(payload).execute()
 
-            if not exists:
+            total += 1
 
-                supabase.table("palpites_resultados_reais") \
-                    .insert(payload) \
-                    .execute()
-
-            # atualiza base principal
-            supabase.table("palpites_validos") \
-                .update({"acertos": acertos}) \
-                .eq("id", p["id"]) \
-                .execute()
-
-            reconciliados += 1
+            print(f"✅ Concurso {concurso} | {acertos} acertos")
 
         except Exception as e:
             print(f"❌ Erro: {e}")
 
-    print(f"🏁 {reconciliados} registros reconciliados")
+    print(f"🏁 {total} registros reconciliados")
 
 
 if __name__ == "__main__":
