@@ -10,44 +10,30 @@ from app.services.supabase_service import get_supabase
 
 def parse_numeros(valor):
 
-    if valor is None:
-        return None
-
-    try:
-
-        # já veio como lista
-        if isinstance(valor, list):
-            return [
-                int(x)
-                for x in valor
-            ]
-
-        # jsonb/string
-        if isinstance(valor, str):
-
-            valor = valor.strip()
-
-            if not valor:
-                return None
-
-            parsed = json.loads(
-                valor
-            )
-
-            if isinstance(
-                parsed,
-                list
-            ):
-
-                return [
-                    int(x)
-                    for x in parsed
-                ]
-
-        return None
-
-    except Exception:
-
+        if not valor:
+            return None
+    
+        try:
+    
+            # Caso já seja lista
+            if isinstance(valor, list):
+                return [int(x) for x in valor]
+    
+            # Corrige dupla serialização
+            if isinstance(valor, str):
+    
+                parsed = json.loads(valor)
+    
+                # caso venha "\"[1,2,3]\""
+                if isinstance(parsed, str):
+                    parsed = json.loads(parsed)
+    
+                if isinstance(parsed, list):
+                    return [int(x) for x in parsed]
+    
+        except Exception as e:
+            print(f"Erro parse: {e}")
+    
         return None
 
 
