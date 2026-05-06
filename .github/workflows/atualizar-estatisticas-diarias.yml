@@ -50,7 +50,7 @@ jobs:
 
 
       # =====================================================
-      # DEBUG DE CONEXÃO
+      # DEBUG
       # =====================================================
       - name: 🔍 Verificar variáveis
         run: |
@@ -67,9 +67,17 @@ jobs:
 
 
       # =====================================================
+      # PASSO 1.5
+      # =====================================================
+      - name: 🔄 Reconciliar resultados antigos
+        run: |
+          python scripts/reconciliar_resultados.py
+
+
+      # =====================================================
       # PASSO 2
       # =====================================================
-      - name: 🏁 Conferir palpites anteriores
+      - name: 🏁 Conferir palpites pendentes
         run: |
           python scripts/conferir_resultados.py
 
