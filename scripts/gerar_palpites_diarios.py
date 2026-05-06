@@ -15,8 +15,8 @@ from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
 
 QTD_FINAL = 7
-MAX_TENTATIVAS = 60000
-VERSAO = "v10.5-bayes-conditional"
+MAX_TENTATIVAS = 65000
+VERSAO = "v11.0-ensemble-models"
 
 def gerar_pool():
     return list(range(1, 26))
@@ -24,151 +24,113 @@ def gerar_pool():
 def gerar_jogo(pool):
     return sorted(random.sample(pool, 15))
 
-def serializar_numeros(nums):
-    return json.dumps(nums)
-
 def calcular_metricas(nums):
     pares = sum(n % 2 == 0 for n in nums)
     soma = sum(nums)
-    linhas = [
-        sum(1 for n in nums if 1 <= n <= 5),
-        sum(1 for n in nums if 6 <= n <= 10),
-        sum(1 for n in nums if 11 <= n <= 15),
-        sum(1 for n in nums if 16 <= n <= 20),
-        sum(1 for n in nums if 21 <= n <= 25)
-    ]
+    linhas = [sum(1 for n in nums if i <= n < i+5) for i in range(1, 26, 5)]
     return pares, soma, linhas
 
 def score_validacao(nums):
     pares, soma, linhas = calcular_metricas(nums)
     score = 1.0
-    if pares < 7 or pares > 9: score *= 0.90 # Faixa ideal da Lotofácil
-    if soma < 170 or soma > 215: score *= 0.85
-    if max(linhas) > 5: score *= 0.80
+    if not (7 <= pares <= 9): score *= 0.85
+    if not (175 <= soma <= 210): score *= 0.85
+    if max(linhas) > 5: score *= 0.75
     return score
 
-# --- LÓGICA BAYESIANA v10.5 ---
-def calcular_score_bayesiano(nums, base_scores):
-    """
-    Avalia a força da combinação baseada na co-ocorrência 
-    estatística (P(A|B)) simplificada.
-    """
-    if not base_scores: return 1.0
-    
-    # Extraímos a força média das dezenas do jogo atual baseada no histórico
+# --- MODELO 1: BAYESIANO (Co-ocorrência) ---
+def get_score_bayes(nums, base_scores):
+    if not base_scores: return 0.5
     scores_presentes = [base_scores.get(tuple([n]), 0.5) for n in nums]
-    prob_posterior = np.mean(scores_presentes)
-    
-    return float(prob_posterior)
+    return float(np.mean(scores_presentes))
 
-def calcular_score_final(nums, base_scores, rec_scores, fator, ultimo_concurso):
-    chave = tuple(nums)
-    
-    # Scores baseados nos serviços de IA
-    media_base = np.mean(list(base_scores.values())) if base_scores else 0.5
-    base = base_scores.get(chave, media_base)
-    
-    # Adição do componente Bayesiano v10.5
-    bayes = calcular_score_bayesiano(nums, base_scores)
-    
-    score = (base * 0.40) + (bayes * 0.60) # Bayes tem peso maior nesta versão
-
+# --- MODELO 2: MOMENTUM (Frequência Curta) ---
+def get_score_momentum(nums, ultimo_concurso):
+    # Dezenas que tendem a se manter (repetição do último)
     repetidos = len(set(nums) & set(ultimo_concurso))
-    if repetidos >= 11 or repetidos <= 7:
-        score *= 0.70
-    elif repetidos == 9:
-        score *= 1.10 # Bônus para a média matemática de repetição (9)
+    if repetidos == 9: return 1.2
+    if repetidos in [8, 10]: return 1.0
+    return 0.7
 
-    score *= score_validacao(nums)
-    score *= fator
-    score *= (1 + np.random.normal(0, 0.01)) # Reduzi o ruído para v10.5
+# --- MODELO 3: REENTRADA (Lei das Médias) ---
+def get_score_reentrada(nums, ultimo_concurso):
+    # Foca em dezenas que NÃO saíram no último (geralmente voltam 5 a 6)
+    ausentes_ultimo = set(range(1, 26)) - set(ultimo_concurso)
+    presentes_ausentes = len(set(nums) & ausentes_ultimo)
+    if presentes_ausentes in [5, 6]: return 1.1
+    return 0.8
+
+def calcular_score_ensemble(nums, base_scores, rec_scores, fator, ultimo):
+    # Pesos do Ensemble
+    s_bayes = get_score_bayes(nums, base_scores)
+    s_momentum = get_score_momentum(nums, ultimo)
+    s_reentrada = get_score_reentrada(nums, ultimo)
     
-    return max(score, 0.01)
-
-def estrutura_linhas(nums):
-    return tuple(calcular_metricas(nums)[2])
-
-def diversidade_ok(jogo, selecionados):
-    for s in selecionados:
-        distancia = len(set(jogo) ^ set(s))
-        if distancia < 8: # Aumentei a exigência de diversidade
-            return False
-    return True
+    # Integração ponderada
+    score_base = (s_bayes * 0.50) + (s_momentum * 0.25) + (s_reentrada * 0.25)
+    
+    # Validações estruturais e aprendizado global
+    final = score_base * score_validacao(nums) * fator
+    
+    # Ruído controlado para diversidade genética
+    return final * (1 + np.random.normal(0, 0.01))
 
 def main():
     supabase = get_supabase()
-    
-    # Garante fuso de Brasília
     fuso = pytz.timezone('America/Sao_Paulo')
     hoje = datetime.now(fuso).date().isoformat()
 
-    print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
+    print(f"\n🚀 Gerador {VERSAO} iniciado")
 
-    # Busca último concurso com blindagem de tipo
+    # Dados do último concurso
     res = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(1).execute().data[0]
     concurso_base = int(str(res["concurso"]).strip())
     concurso_ref = concurso_base + 1
     
-    dezenas = res["dezenas"]
-    if isinstance(dezenas, str):
-        ultimo = json.loads(dezenas)
-        if isinstance(ultimo, str): ultimo = json.loads(ultimo)
-    else:
-        ultimo = dezenas
+    ultimo = json.loads(res["dezenas"])
+    if isinstance(ultimo, str): ultimo = json.loads(ultimo)
     ultimo = [int(x) for x in ultimo]
-
-    print(f"📌 Gerando para concurso {concurso_ref} | Baseado no {concurso_base}")
 
     fator = obter_fator_aprendizado_global()["fator"]
     base_scores, rec_scores = calcular_score_combinacoes_reais()
 
-    pool = gerar_pool()
     candidatos = []
     vistos = set()
+    pool = gerar_pool()
 
-    print(f"🧠 Calculando {MAX_TENTATIVAS} combinações com Bayes Condicional...")
+    print(f"🧠 Executando Ensemble Model em {MAX_TENTATIVAS} iterações...")
 
     for _ in range(MAX_TENTATIVAS):
-        if len(candidatos) >= 4000: break # Aumentei o pool de candidatos
+        if len(candidatos) >= 5000: break
         
         jogo = gerar_jogo(pool)
         key = tuple(jogo)
         if key in vistos: continue
         vistos.add(key)
 
-        score = calcular_score_final(jogo, base_scores, rec_scores, fator, ultimo)
+        score = calcular_score_ensemble(jogo, base_scores, rec_scores, fator, ultimo)
         candidatos.append({"nums": jogo, "score": score})
 
+    # Ranking e Seleção por Diversidade
     candidatos.sort(key=lambda x: x["score"], reverse=True)
-    
     finais = []
     freq_global = Counter()
-    estruturas = set()
 
     for cand in candidatos:
         nums = cand["nums"]
-        est = estrutura_linhas(nums)
         
-        if est in estruturas: continue
-        
-        # Penalidade por repetição excessiva de números entre os 7 jogos
-        penalidade = 1.0
-        for n in nums:
-            if freq_global[n] >= 4: penalidade *= 0.90
+        # Filtro de distância Ensemble (mínimo 9 dezenas diferentes)
+        if any(len(set(nums) ^ set(f["nums"])) < 9 for f in finais):
+            continue
 
-        cand["score"] *= penalidade
-
-        if diversidade_ok(nums, [x["nums"] for x in finais]):
-            finais.append(cand)
-            estruturas.add(est)
-            for n in nums: freq_global[n] += 1
-        
+        finais.append(cand)
+        for n in nums: freq_global[n] += 1
         if len(finais) == QTD_FINAL: break
 
-    print("\n🏆 TOP 7 SELECIONADOS (v10.5):")
+    print("\n🏆 RESULTADO ENSEMBLE v11.0:")
     payload = []
     for i, p in enumerate(finais, start=1):
-        print(f"{i}º | score={p['score']:.6f} | {p['nums']}")
+        print(f"{i}º | Score: {p['score']:.6f} | {p['nums']}")
         pares, soma, _ = calcular_metricas(p["nums"])
         
         payload.append({
@@ -177,20 +139,16 @@ def main():
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
             "numeros": json.dumps(p["nums"]),
-            "pares": pares,
-            "impares": 15 - pares,
-            "soma_total": soma,
-            "acertos": None,
-            "processado": False,
-            "conferido": False,
+            "pares": pares, "impares": 15 - pares, "soma_total": soma,
+            "processado": False, "conferido": False,
             "versao_gerador": VERSAO,
-            "metricas": {"score_bayes": round(float(p["score"]), 6)}
+            "metricas": {"score_ensemble": round(float(p["score"]), 6)}
         })
 
-    # Limpeza e Salvamento
+    # Persistência
     supabase.table("palpites_validos").delete().eq("data_referencia", hoje).eq("concurso_referencia", concurso_ref).execute()
     supabase.table("palpites_validos").insert(payload).execute()
-    print(f"\n✅ v10.5 finalizada. {len(payload)} palpites salvos.")
+    print(f"\n✅ Pipeline v11.0 finalizado com sucesso.")
 
 if __name__ == "__main__":
     main()
