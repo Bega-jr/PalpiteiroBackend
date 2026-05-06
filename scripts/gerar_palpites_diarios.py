@@ -17,7 +17,7 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 60000
-VERSAO = "v9.9-anti-overfit"
+VERSAO = "v10.0-safe-storage"
 
 
 def gerar_pool():
@@ -28,7 +28,16 @@ def gerar_jogo(pool):
     return sorted(random.sample(pool, 15))
 
 
+def serializar_numeros(nums):
+    """
+    Força padrão histórico:
+    "[1, 2, 3, ...]"
+    """
+    return json.dumps(nums, ensure_ascii=False)
+
+
 def calcular_metricas(nums):
+
     pares = sum(n % 2 == 0 for n in nums)
     soma = sum(nums)
 
@@ -44,6 +53,7 @@ def calcular_metricas(nums):
 
 
 def score_validacao(nums):
+
     pares, soma, linhas = calcular_metricas(nums)
 
     score = 1.0
@@ -65,9 +75,12 @@ def distancia(a, b):
 
 
 def diversidade_ok(jogo, selecionados):
+
     for s in selecionados:
+
         if distancia(jogo, s) < 6:
             return False
+
     return True
 
 
@@ -82,20 +95,31 @@ def calcular_score_final(
     fator,
     ultimo_concurso
 ):
+
     chave = tuple(nums)
 
-    media_base = np.mean(list(base_scores.values())) if base_scores else 0.5
-    media_rec = np.mean(list(rec_scores.values())) if rec_scores else 0.5
+    media_base = (
+        np.mean(list(base_scores.values()))
+        if base_scores else 0.5
+    )
+
+    media_rec = (
+        np.mean(list(rec_scores.values()))
+        if rec_scores else 0.5
+    )
 
     base = base_scores.get(chave, media_base)
     rec = rec_scores.get(chave, media_rec)
 
     score = (base * 0.55) + (rec * 0.45)
 
-    repetidos = len(set(nums) & set(ultimo_concurso))
+    repetidos = len(
+        set(nums) & set(ultimo_concurso)
+    )
 
     if repetidos >= 10:
         score *= 0.80
+
     elif repetidos >= 8:
         score *= 0.90
 
@@ -103,7 +127,9 @@ def calcular_score_final(
 
     score *= fator
 
-    score *= (1 + np.random.normal(0, 0.02))
+    score *= (
+        1 + np.random.normal(0, 0.02)
+    )
 
     return max(score, 0.01)
 
@@ -114,9 +140,11 @@ def main():
 
     hoje = datetime.now().date().isoformat()
 
-    print(f"\n🚀 Gerador {VERSAO} iniciado em {hoje}")
+    print(
+        f"\n🚀 Gerador {VERSAO} iniciado em {hoje}"
+    )
 
-    concurso = (
+    ultimo_concurso_db = (
         supabase
         .table("lotofacil_concursos")
         .select("concurso,dezenas")
@@ -126,24 +154,39 @@ def main():
         .data
     )[0]
 
-    concurso_ref = concurso["concurso"]
+    concurso_base = int(
+        ultimo_concurso_db["concurso"]
+    )
 
-    dezenas = concurso["dezenas"]
+    # Próximo concurso
+    concurso_ref = concurso_base + 1
+
+    dezenas = ultimo_concurso_db["dezenas"]
 
     if isinstance(dezenas, str):
         ultimo = json.loads(dezenas)
     else:
         ultimo = dezenas
 
-    ultimo = [int(x) for x in ultimo]
+    ultimo = [
+        int(x) for x in ultimo
+    ]
 
-    print(f"📌 Concurso: {concurso_ref}")
+    print(
+        f"📌 Gerando para concurso {concurso_ref}"
+    )
 
-    fator = obter_fator_aprendizado_global()["fator"]
+    fator = (
+        obter_fator_aprendizado_global()["fator"]
+    )
 
-    print(f"🧠 Fator: {fator}")
+    print(
+        f"🧠 Fator: {fator}"
+    )
 
-    base_scores, rec_scores = calcular_score_combinacoes_reais()
+    base_scores, rec_scores = (
+        calcular_score_combinacoes_reais()
+    )
 
     pool = gerar_pool()
 
@@ -200,6 +243,7 @@ def main():
         penalidade = 1.0
 
         for n in nums:
+
             if freq_global[n] >= 3:
                 penalidade *= 0.96
 
@@ -220,19 +264,12 @@ def main():
         if len(finais) == QTD_FINAL:
             break
 
-    usados = set()
-
-    for p in finais:
-        usados.update(p["nums"])
-
-    faltantes = set(range(1, 26)) - usados
-
-    if faltantes:
-        print(f"♻️ Ajustando cobertura: {sorted(faltantes)}")
-
     print("\n🏆 FINAL:")
 
-    for i, p in enumerate(finais, start=1):
+    for i, p in enumerate(
+        finais,
+        start=1
+    ):
 
         print(
             f"{i}º | score={round(p['score'],4)} | {p['nums']}"
@@ -242,25 +279,62 @@ def main():
 
     payload = []
 
-    for i, p in enumerate(finais, start=1):
+    for i, p in enumerate(
+        finais,
+        start=1
+    ):
 
-        pares, soma, _ = calcular_metricas(
-            p["nums"]
+        pares, soma, _ = (
+            calcular_metricas(
+                p["nums"]
+            )
         )
 
         payload.append({
-            "data_referencia": hoje,
-            "concurso_referencia": concurso_ref,
-            "indice_palpite": i,
-            "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": p["nums"],
-            "pares": pares,
-            "impares": 15 - pares,
-            "soma_total": soma,
-            "acertos": None,
-            "versao_gerador": VERSAO,
+
+            "data_referencia":
+                hoje,
+
+            "concurso_referencia":
+                concurso_ref,
+
+            "indice_palpite":
+                i,
+
+            "tipo":
+                "fixo"
+                if i == 1
+                else "estatistico",
+
+            # PADRÃO DEFINITIVO
+            "numeros":
+                serializar_numeros(
+                    p["nums"]
+                ),
+
+            "pares":
+                pares,
+
+            "impares":
+                15 - pares,
+
+            "soma_total":
+                soma,
+
+            "acertos":
+                None,
+
+            "versao_gerador":
+                VERSAO,
+
             "metricas": {
-                "score": round(float(p["score"]), 6)
+                "score":
+                    round(
+                        float(
+                            p["score"]
+                        ),
+                        6
+                    )
             }
         })
 
@@ -268,7 +342,10 @@ def main():
         supabase
         .table("palpites_validos")
         .delete()
-        .eq("concurso_referencia", concurso_ref)
+        .eq(
+            "concurso_referencia",
+            concurso_ref
+        )
         .execute()
     )
 
@@ -279,8 +356,13 @@ def main():
         .execute()
     )
 
-    print(f"✅ {len(payload)} palpites gravados")
-    print(f"\n✅ {VERSAO} concluída")
+    print(
+        f"✅ {len(payload)} palpites gravados"
+    )
+
+    print(
+        f"\n✅ {VERSAO} concluída"
+    )
 
 
 if __name__ == "__main__":
