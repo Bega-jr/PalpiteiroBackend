@@ -35,7 +35,6 @@ def peso_acerto(acertos):
         14: 10,
         15: 15
     }
-
     return pesos.get(acertos, 0)
 
 
@@ -55,9 +54,11 @@ def parse_numeros(valor):
 
 
 def obter_versao(p):
+    metricas = p.get("metricas") or {}
+
     return (
         p.get("versao_gerador")
-        or p.get("metricas", {}).get("versao")
+        or metricas.get("versao")
         or "legacy"
     )
 
@@ -68,6 +69,7 @@ def main():
 
     print("🏁 Conferindo resultados...")
 
+    # concurso mais recente
     concursos = (
         supabase
         .table("lotofacil_concursos")
@@ -87,20 +89,26 @@ def main():
     dezenas_raw = concursos[0]["dezenas"]
 
     if isinstance(dezenas_raw, str):
-        dezenas_oficiais = set(json.loads(dezenas_raw))
+        dezenas_oficiais = set(
+            int(x) for x in json.loads(dezenas_raw)
+        )
     else:
-        dezenas_oficiais = set(dezenas_raw)
+        dezenas_oficiais = set(
+            int(x) for x in dezenas_raw
+        )
 
+    # busca todos os palpites pendentes
     palpites = (
         supabase
         .table("palpites_validos")
         .select("*")
         .is_("acertos", None)
+        .order("concurso_referencia")
         .execute()
         .data
     )
 
-    # só confere concursos anteriores
+    # confere apenas concursos anteriores
     palpites = [
         p for p in palpites
         if p["concurso_referencia"] < concurso_atual
@@ -119,7 +127,7 @@ def main():
         try:
 
             numeros = parse_numeros(
-                p["numeros"]
+                p.get("numeros")
             )
 
             if not numeros:
@@ -137,9 +145,11 @@ def main():
                 acertos
             )
 
-            versao = obter_versao(p)
+            versao = obter_versao(
+                p
+            )
 
-            # 1. Atualiza palpite
+            # 1. atualiza palpite conferido
             (
                 supabase
                 .table("palpites_validos")
@@ -150,11 +160,11 @@ def main():
                 .execute()
             )
 
-            # 2. Atualiza memória
+            # 2. atualiza memória estrutural
             memoria_payload = {
                 **estrutura,
                 "vezes_gerado": 1,
-                "score_medio_real": peso,
+                "score_medio_real": float(peso),
                 "ultima_aparicao": datetime.now().date().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }
@@ -169,23 +179,23 @@ def main():
                 .execute()
             )
 
-            # 3. Grava performance real
-           resultado_payload = {
+            # 3. grava desempenho real
+            resultado_payload = {
                 "data_referencia": p["data_referencia"],
                 "concurso_inicio": p["concurso_referencia"],
                 "concurso_fim": p["concurso_referencia"],
-                "versao_gerador": p.get("versao_gerador", "desconhecido"),
+                "versao_gerador": versao,
                 "qtd_palpites": 1,
-            
+
                 "acertos_11": 1 if acertos == 11 else 0,
                 "acertos_12": 1 if acertos == 12 else 0,
                 "acertos_13": 1 if acertos == 13 else 0,
                 "acertos_14": 1 if acertos == 14 else 0,
                 "acertos_15": 1 if acertos == 15 else 0,
-            
+
                 "score_ponderado": float(peso),
                 "eficiencia": 1 if acertos >= 11 else 0,
-            
+
                 "taxa_15": 1 if acertos == 15 else 0,
                 "taxa_14": 1 if acertos == 14 else 0,
                 "taxa_13": 1 if acertos == 13 else 0,
@@ -195,18 +205,28 @@ def main():
             (
                 supabase
                 .table("palpites_resultados_reais")
-                .insert(resultado_payload)
+                .upsert(
+                    resultado_payload,
+                    on_conflict="data_referencia,versao_gerador,concurso_inicio"
+                )
                 .execute()
+            )
+
+            print(
+                f"✅ {versao} | concurso {p['concurso_referencia']} | {acertos} acertos"
             )
 
             processados += 1
 
         except Exception as e:
+
             print(
                 f"❌ Erro no palpite {p.get('id')}: {e}"
             )
 
-    print(f"✅ {processados} palpites conferidos")
+    print(
+        f"✅ {processados} palpites conferidos"
+    )
 
 
 if __name__ == "__main__":
