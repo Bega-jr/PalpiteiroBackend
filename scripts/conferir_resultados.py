@@ -48,10 +48,18 @@ def parse_numeros(valor):
         if isinstance(valor, str):
             return [int(x) for x in json.loads(valor)]
 
-    except:
+    except Exception:
         return None
 
     return None
+
+
+def obter_versao(p):
+    return (
+        p.get("versao_gerador")
+        or p.get("metricas", {}).get("versao")
+        or "legacy"
+    )
 
 
 def main():
@@ -69,6 +77,10 @@ def main():
         .execute()
         .data
     )
+
+    if not concursos:
+        print("❌ Nenhum concurso encontrado")
+        return
 
     concurso_atual = concursos[0]["concurso"]
 
@@ -88,6 +100,7 @@ def main():
         .data
     )
 
+    # só confere concursos anteriores
     palpites = [
         p for p in palpites
         if p["concurso_referencia"] < concurso_atual
@@ -103,72 +116,92 @@ def main():
 
     for p in palpites:
 
-        numeros = parse_numeros(
-            p["numeros"]
-        )
+        try:
 
-        if not numeros:
-            continue
-
-        acertos = len(
-            set(numeros) & dezenas_oficiais
-        )
-
-        estrutura = extrair_estrutura(
-            numeros
-        )
-
-        peso = peso_acerto(
-            acertos
-        )
-
-        (
-            supabase
-            .table("palpites_validos")
-            .update({
-                "acertos": acertos
-            })
-            .eq("id", p["id"])
-            .execute()
-        )
-
-        memoria_payload = {
-            **estrutura,
-            "vezes_gerado": 1,
-            "score_medio_real": peso,
-            "ultima_aparicao": datetime.now().date().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
-
-        (
-            supabase
-            .table("memoria_cenarios")
-            .upsert(
-                memoria_payload,
-                on_conflict="soma_faixa,pares,primos,linhas"
+            numeros = parse_numeros(
+                p["numeros"]
             )
-            .execute()
-        )
 
-        resultado_payload = {
-            "data_referencia": p["data_referencia"],
-            "versao_gerador": p["versao_gerador"],
-            "qtd_palpites": 1,
-            "acertos_11": 1 if acertos == 11 else 0,
-            "acertos_12": 1 if acertos == 12 else 0,
-            "acertos_13": 1 if acertos == 13 else 0,
-            "acertos_14": 1 if acertos == 14 else 0,
-            "acertos_15": 1 if acertos == 15 else 0
-        }
+            if not numeros:
+                continue
 
-        (
-            supabase
-            .table("palpites_resultados_reais")
-            .insert(resultado_payload)
-            .execute()
-        )
+            acertos = len(
+                set(numeros) & dezenas_oficiais
+            )
 
-        processados += 1
+            estrutura = extrair_estrutura(
+                numeros
+            )
+
+            peso = peso_acerto(
+                acertos
+            )
+
+            versao = obter_versao(p)
+
+            # 1. Atualiza palpite
+            (
+                supabase
+                .table("palpites_validos")
+                .update({
+                    "acertos": acertos
+                })
+                .eq("id", p["id"])
+                .execute()
+            )
+
+            # 2. Atualiza memória
+            memoria_payload = {
+                **estrutura,
+                "vezes_gerado": 1,
+                "score_medio_real": peso,
+                "ultima_aparicao": datetime.now().date().isoformat(),
+                "updated_at": datetime.now().isoformat()
+            }
+
+            (
+                supabase
+                .table("memoria_cenarios")
+                .upsert(
+                    memoria_payload,
+                    on_conflict="soma_faixa,pares,primos,linhas"
+                )
+                .execute()
+            )
+
+            # 3. Grava performance real
+            resultado_payload = {
+                "data_referencia": p["data_referencia"],
+
+                "concurso_inicio": p["concurso_referencia"],
+                "concurso_fim": concurso_atual,
+
+                "versao_gerador": versao,
+
+                "qtd_palpites": 1,
+
+                "acertos_11": 1 if acertos == 11 else 0,
+                "acertos_12": 1 if acertos == 12 else 0,
+                "acertos_13": 1 if acertos == 13 else 0,
+                "acertos_14": 1 if acertos == 14 else 0,
+                "acertos_15": 1 if acertos == 15 else 0,
+
+                "score_ponderado": peso
+            }
+
+            (
+                supabase
+                .table("palpites_resultados_reais")
+                .insert(resultado_payload)
+                .execute()
+            )
+
+            processados += 1
+
+        except Exception as e:
+            print(
+                f"❌ Erro no palpite {p.get('id')}: {e}"
+            )
 
     print(f"✅ {processados} palpites conferidos")
 
