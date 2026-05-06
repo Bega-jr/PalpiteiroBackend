@@ -170,13 +170,11 @@ def main():
 
         print("✅ Memória estrutural atualizada")
 
-        # ==================================================
-        # NOVO: SALVAR MEMÓRIA DE REGIMES (DETERMINA O "CLIMA")
+               # ==================================================
+        # NOVO: SALVAR MEMÓRIA DE REGIMES (CORRIGIDO)
         # ==================================================
         faltantes, ciclo = calcular_ciclo_historico_completo(historico)
         
-        # Cálculo do Regime: Quente vs Frio
-        # Se as dezenas sorteadas tinham score alto, regime de Expansão
         media_score_sorteados = df[df["numero"].isin(dezenas)]["score"].mean()
         
         regime_tipo = "NEUTRO"
@@ -193,12 +191,16 @@ def main():
             "media_pares": int(estrutura_atual["pares"])
         }
 
-        # Upsert para não duplicar se rodar o mesmo concurso 2x
-        supabase.table("memoria_regimes") \
-            .upsert(payload_regime, on_conflict="concurso") \
-            .execute()
-
-        print(f"📡 Memória de Regimes atualizada: {regime_tipo} (Score: {media_score_sorteados:.4f})")
+        try:
+            # Tenta inserir. Se já existir o concurso, ele vai dar erro de chave 
+            # e o except vai ignorar, mantendo o processo vivo.
+            supabase.table("memoria_regimes").insert(payload_regime).execute()
+            print(f"📡 Memória de Regimes atualizada: {regime_tipo} (Score: {media_score_sorteados:.4f})")
+        except Exception as e:
+            if "23505" in str(e): # Código de erro para Duplicidade no Postgres
+                print(f"ℹ️ Regime do concurso {concurso} já registrado. Pulando...")
+            else:
+                print(f"⚠️ Aviso ao salvar regime: {e}")
 
         # ==================================================
         # FINALIZAÇÃO
