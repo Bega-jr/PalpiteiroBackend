@@ -68,13 +68,43 @@ def dezenas_validas(valor):
     return set(dezenas)
 
 
+def resultado_ja_existe(
+    supabase,
+    data_referencia,
+    concurso,
+    tipo_palpite
+):
+
+    resultado = (
+        supabase
+        .table("palpites_resultados_reais")
+        .select("id")
+        .eq(
+            "data_referencia",
+            data_referencia
+        )
+        .eq(
+            "concurso_inicio",
+            concurso
+        )
+        .eq(
+            "tipo_palpite",
+            tipo_palpite
+        )
+        .limit(1)
+        .execute()
+        .data
+    )
+
+    return len(resultado) > 0
+
+
 def main():
 
     supabase = get_supabase()
 
     print("🏁 Conferindo resultados...")
 
-    # Apenas palpites ainda não conferidos
     palpites = (
         supabase
         .table("palpites_validos")
@@ -85,40 +115,41 @@ def main():
     )
 
     if not palpites:
+
         print("⚠️ Nada para conferir")
         return
 
-    print(f"📌 {len(palpites)} palpites pendentes")
+    print(
+        f"📌 {len(palpites)} palpites pendentes"
+    )
 
-    concursos_necessarios = sorted(
-        list(
-            set(
-                p["concurso_referencia"]
-                for p in palpites
-            )
+    concursos_ids = list(
+        set(
+            p["concurso_referencia"]
+            for p in palpites
         )
     )
 
-    # Busca todos concursos de uma vez
-    concursos_db = (
+    concursos = (
         supabase
         .table("lotofacil_concursos")
         .select("concurso,dezenas")
-        .in_("concurso", concursos_necessarios)
+        .in_("concurso", concursos_ids)
         .execute()
         .data
     )
 
-    mapa_resultados = {}
+    mapa_concursos = {}
 
-    for c in concursos_db:
+    for c in concursos:
 
         dezenas = dezenas_validas(
             c.get("dezenas")
         )
 
         if dezenas:
-            mapa_resultados[
+
+            mapa_concursos[
                 c["concurso"]
             ] = dezenas
 
@@ -134,7 +165,7 @@ def main():
             ]
 
             dezenas_oficiais = (
-                mapa_resultados.get(
+                mapa_concursos.get(
                     concurso
                 )
             )
@@ -142,7 +173,7 @@ def main():
             if not dezenas_oficiais:
 
                 print(
-                    f"⚠️ Concurso {concurso} sem dezenas válidas"
+                    f"⚠️ Concurso {concurso} sem resultado válido"
                 )
 
                 ignorados += 1
@@ -154,10 +185,6 @@ def main():
 
             if not numeros:
 
-                print(
-                    f"⚠️ Palpite {p['id']} inválido"
-                )
-
                 continue
 
             metricas = parse_metricas(
@@ -167,7 +194,6 @@ def main():
             versao = (
                 p.get("versao_gerador")
                 or metricas.get("v")
-                or metricas.get("versao")
                 or "legacy"
             )
 
@@ -186,7 +212,75 @@ def main():
                 acertos
             )
 
-            # Atualiza origem
+            if not resultado_ja_existe(
+                supabase,
+                p["data_referencia"],
+                concurso,
+                tipo_palpite
+            ):
+
+                payload = {
+
+                    "data_referencia":
+                        p["data_referencia"],
+
+                    "concurso_inicio":
+                        concurso,
+
+                    "concurso_fim":
+                        concurso,
+
+                    "tipo_palpite":
+                        tipo_palpite,
+
+                    "versao_gerador":
+                        versao,
+
+                    "qtd_palpites": 1,
+
+                    "acertos_11":
+                        1 if acertos == 11 else 0,
+
+                    "acertos_12":
+                        1 if acertos == 12 else 0,
+
+                    "acertos_13":
+                        1 if acertos == 13 else 0,
+
+                    "acertos_14":
+                        1 if acertos == 14 else 0,
+
+                    "acertos_15":
+                        1 if acertos == 15 else 0,
+
+                    "score_ponderado":
+                        float(peso),
+
+                    "eficiencia":
+                        1 if acertos >= 11 else 0,
+
+                    "taxa_15":
+                        1 if acertos == 15 else 0,
+
+                    "taxa_14":
+                        1 if acertos == 14 else 0,
+
+                    "taxa_13":
+                        1 if acertos == 13 else 0,
+
+                    "taxa_12":
+                        1 if acertos == 12 else 0
+                }
+
+                (
+                    supabase
+                    .table(
+                        "palpites_resultados_reais"
+                    )
+                    .insert(payload)
+                    .execute()
+                )
+
             (
                 supabase
                 .table("palpites_validos")
@@ -196,70 +290,6 @@ def main():
                     "processado": True
                 })
                 .eq("id", p["id"])
-                .execute()
-            )
-
-            payload = {
-
-                "data_referencia":
-                    p["data_referencia"],
-
-                "concurso_inicio":
-                    concurso,
-
-                "concurso_fim":
-                    concurso,
-
-                "tipo_palpite":
-                    tipo_palpite,
-
-                "versao_gerador":
-                    versao,
-
-                "qtd_palpites": 1,
-
-                "acertos_11":
-                    1 if acertos == 11 else 0,
-
-                "acertos_12":
-                    1 if acertos == 12 else 0,
-
-                "acertos_13":
-                    1 if acertos == 13 else 0,
-
-                "acertos_14":
-                    1 if acertos == 14 else 0,
-
-                "acertos_15":
-                    1 if acertos == 15 else 0,
-
-                "score_ponderado":
-                    float(peso),
-
-                "eficiencia":
-                    1 if acertos >= 11 else 0,
-
-                "taxa_15":
-                    1 if acertos == 15 else 0,
-
-                "taxa_14":
-                    1 if acertos == 14 else 0,
-
-                "taxa_13":
-                    1 if acertos == 13 else 0,
-
-                "taxa_12":
-                    1 if acertos == 12 else 0
-            }
-
-            # evita duplicidade futura
-            (
-                supabase
-                .table("palpites_resultados_reais")
-                .upsert(
-                    payload,
-                    on_conflict="data_referencia,concurso_inicio,tipo_palpite"
-                )
                 .execute()
             )
 
@@ -275,10 +305,10 @@ def main():
         f"✅ {processados} palpites conferidos"
     )
 
-    if ignorados > 0:
+    if ignorados:
 
         print(
-            f"⚠️ {ignorados} ignorados por dados inválidos"
+            f"⚠️ {ignorados} ignorados"
         )
 
 
