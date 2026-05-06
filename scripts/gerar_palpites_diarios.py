@@ -14,7 +14,6 @@ from app.services.supabase_service import get_supabase
 from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
 
-# Importando suas lógicas de Memória e Ciclo
 from scripts.processamento_diario_lotofacil import (
     carregar_historico, 
     calcular_ciclo_historico_completo,
@@ -23,57 +22,63 @@ from scripts.processamento_diario_lotofacil import (
 )
 
 QTD_FINAL = 7
-MAX_TENTATIVAS = 80000
-VERSAO = "v12.6-full-integrated-brain"
+MAX_TENTATIVAS = 90000 # Aumentado para compensar os filtros mais rígidos
+VERSAO = "v13.0-safety-filters"
 
-def calcular_metricas_local(nums):
+def calcular_metricas_v13(nums):
     pares = sum(n % 2 == 0 for n in nums)
+    impares = 15 - pares
     soma = sum(nums)
-    dist = [sum(1 for n in nums if i <= n < i+5) for i in range(1, 26, 5)]
-    primos = sum(1 for n in nums if n in {2,3,5,7,11,13,17,19,23})
-    return pares, soma, dist, primos
+    # Calcula maior sequência de números seguidos
+    seq_max = 1
+    atual = 1
+    for i in range(len(nums)-1):
+        if nums[i+1] == nums[i] + 1:
+            atual += 1
+            seq_max = max(seq_max, atual)
+        else:
+            atual = 1
+    return pares, impares, soma, seq_max
 
-def get_score_ciclo(nums, pendentes_ciclo):
-    if not pendentes_ciclo or len(pendentes_ciclo) > 15: return 1.0
-    encontradas = len(set(nums) & set(pendentes_ciclo))
-    total_pendentes = len(pendentes_ciclo)
-    if total_pendentes <= 5:
-        return 1.6 if (encontradas / total_pendentes) >= 0.8 else 0.4
-    return 1.0 + (encontradas * 0.05)
+def score_seguranca(nums):
+    pares, impares, soma, seq_max = calcular_metricas_v13(nums)
+    score = 1.0
+    
+    # Filtro Estrito de Soma (Ideal 165-215)
+    if soma < 160 or soma > 220:
+        score *= 0.20 # Corte pesado para somas extremas
+    
+    # Filtro de Paridade (Ideal 7-8-9 ímpares)
+    if impares > 10 or impares < 5:
+        score *= 0.30
+        
+    # Filtro de Sequências Longas
+    if seq_max > 5:
+        score *= 0.50
 
-# --- INTEGRAÇÃO COM MEMÓRIA DE REGIMES ---
-def obter_ajuste_regime(supabase):
-    """Analisa o último regime para ajustar a agressividade da IA."""
-    try:
-        res = supabase.table("memoria_regimes").select("tipo_regime").order("concurso", desc=True).limit(1).execute()
-        if not res.data: return 1.0
-        regime = res.data[0]["tipo_regime"]
-        # Se o regime é de Expansão de Quentes, bônus para scores altos
-        if "QUENTES" in regime: return 1.10
-        if "FRIAS" in regime: return 0.95
-        return 1.0
-    except: return 1.0
+    return score
 
 def main():
     supabase = get_supabase()
     fuso = pytz.timezone('America/Sao_Paulo')
     hoje = datetime.now(fuso).date().isoformat()
 
-    print(f"🧠 {VERSAO} | Iniciando Motores...")
+    print(f"🛡️ {VERSAO} | Aplicando filtros de segurança estritos...")
 
-    # 1. Contexto Histórico e Ciclo
     historico = carregar_historico()
     ultimo_real = historico[-1]
     pendentes_ciclo, num_ciclo = calcular_ciclo_historico_completo(historico)
     concurso_ref = int(ultimo_real["concurso"]) + 1
     
-    # 2. IA e Regimes
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
-    ajuste_regime = obter_ajuste_regime(supabase)
 
-    print(f"📊 Ajuste de Regime Detectado: {ajuste_regime}")
-    print(f"🚲 Ciclo {num_ciclo} | Pendentes: {len(pendentes_ciclo)}")
+    # Busca o último ajuste de regime
+    try:
+        reg_db = supabase.table("memoria_regimes").select("tipo_regime").order("concurso", desc=True).limit(1).execute().data[0]
+        ajuste_regime = 1.15 if "QUENTES" in reg_db["tipo_regime"] else 1.0
+    except:
+        ajuste_regime = 1.0
 
     candidatos = []
     pool = list(range(1, 26))
@@ -81,30 +86,35 @@ def main():
     for _ in range(MAX_TENTATIVAS):
         if len(candidatos) >= 5000: break
         
-        jogo = gerar_jogo = sorted(random.sample(pool, 15))
+        jogo = sorted(random.sample(pool, 15))
         
-        # 1. Score Bayesiano (Média de probabilidades individuais)
+        # 1. Base IA
         s_base = np.mean([base_scores.get(tuple([n]), 0.5) for n in jogo])
         
-        # 2. Lógica de Memória de Cenários (Seu código original)
+        # 2. Match de Memória (Bônus para o que já funcionou)
         est = extrair_estrutura(jogo)
         mem = buscar_cenario_similar(supabase, est)
         s_memoria = 1.0
+        match_real = False
         if mem:
             score_real = float(mem.get("score_medio_real", 0))
-            if score_real >= 4: s_memoria = 1.20
-            elif score_real <= 1: s_memoria = 0.80
+            if score_real > 0: 
+                s_memoria = 1.25 # Bônus de confiança
+                match_real = True
 
-        # 3. Ciclo e Momentum
-        s_ciclo = get_score_ciclo(jogo, pendentes_ciclo)
+        # 3. Filtros Estritos v13
+        s_safety = score_seguranca(jogo)
+
+        # 4. Momentum (9 repetidas é o alvo)
         repetidos = len(set(jogo) & set(ultimo_real["numeros"]))
-        s_momentum = 1.25 if repetidos == 9 else (1.0 if 8 <= repetidos <= 10 else 0.7)
+        s_momentum = 1.2 if repetidos == 9 else 1.0
 
-        # SCORE FINAL CONSOLIDADO
-        score_final = s_base * s_ciclo * s_memoria * s_momentum * fator_global * ajuste_regime
-        candidatos.append({"nums": jogo, "score": score_final, "est": est})
+        score_final = s_base * s_memoria * s_safety * s_momentum * fator_global * ajuste_regime
+        
+        if score_final > 0.05: # Só aceita se passar pelo filtro básico
+            candidatos.append({"nums": jogo, "score": score_final, "match": match_real})
 
-    # Seleção Final por Diversidade
+    # Seleção Final
     candidatos.sort(key=lambda x: x["score"], reverse=True)
     finais = []
     for cand in candidatos:
@@ -112,30 +122,28 @@ def main():
         finais.append(cand)
         if len(finais) == QTD_FINAL: break
 
-    print("\n🚀 Salvando Palpites v12.6...")
+    print(f"\n💾 Salvando {len(finais)} palpites blindados...")
     payload = []
     for i, p in enumerate(finais, start=1):
-        pares, soma, dist, primos = calcular_metricas_local(p["nums"])
+        pares, impares, soma, _ = calcular_metricas_v13(p["nums"])
         payload.append({
             "data_referencia": hoje, "concurso_referencia": concurso_ref, "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico", "numeros": json.dumps(p["nums"]),
-            "pares": pares, "impares": 15 - pares, "soma_total": soma,
+            "pares": pares, "impares": impares, "soma_total": soma,
             "processado": False, "conferido": False, "versao_gerador": VERSAO,
             "metricas": {
-                "score_final": round(p['score'], 6),
-                "ciclo": num_ciclo,
-                "regime_ajuste": ajuste_regime,
-                "memoria_match": True if p['score'] > 0.5 else False
+                "score": round(p['score'], 6),
+                "memoria_match": p['match'],
+                "soma_total": soma
             }
         })
 
-    # Upsert final
     supabase.table("palpites_validos").delete().eq("data_referencia", hoje).eq("concurso_referencia", concurso_ref).execute()
     supabase.table("palpites_validos").insert(payload).execute()
-    
-    print(f"✅ Pipeline v12.6 finalizado. Boa sorte para o concurso {concurso_ref}!")
+    print(f"✅ v13.0 concluída. Somas e paridades estabilizadas.")
 
 if __name__ == "__main__":
     main()
+
 
 
