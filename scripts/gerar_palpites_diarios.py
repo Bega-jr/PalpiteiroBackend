@@ -15,8 +15,8 @@ from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
 
 QTD_FINAL = 7
-MAX_TENTATIVAS = 70000 # Aumentado para explorar mais estados
-VERSAO = "v11.5-markov-temporal"
+MAX_TENTATIVAS = 75000
+VERSAO = "v12.0-rl-dynamic-weights"
 
 def gerar_pool():
     return list(range(1, 26))
@@ -27,62 +27,61 @@ def gerar_jogo(pool):
 def calcular_metricas(nums):
     pares = sum(n % 2 == 0 for n in nums)
     soma = sum(nums)
-    linhas = [sum(1 for n in nums if i <= n < i+5) for i in range(1, 26, 5)]
-    return pares, soma, linhas
+    # Distribuição por linhas (1-5, 6-10, etc)
+    dist = [sum(1 for n in nums if i <= n < i+5) for i in range(1, 26, 5)]
+    return pares, soma, dist
 
 def score_validacao(nums):
-    pares, soma, linhas = calcular_metricas(nums)
+    pares, soma, dist = calcular_metricas(nums)
     score = 1.0
-    if not (7 <= pares <= 9): score *= 0.85
-    if not (175 <= soma <= 210): score *= 0.85
-    if max(linhas) > 5: score *= 0.75
+    if not (7 <= pares <= 9): score *= 0.80
+    if not (175 <= soma <= 215): score *= 0.85
+    if max(dist) > 5: score *= 0.70
     return score
 
-# --- MODELO 1: BAYESIANO (Co-ocorrência) ---
+# --- ESPECIALISTAS (SUB-MODELOS) ---
 def get_score_bayes(nums, base_scores):
     if not base_scores: return 0.5
-    scores_presentes = [base_scores.get(tuple([n]), 0.5) for n in nums]
-    return float(np.mean(scores_presentes))
+    scores = [base_scores.get(tuple([n]), 0.5) for n in nums]
+    return float(np.mean(scores))
 
-# --- MODELO 2: MOMENTUM (Repetição) ---
-def get_score_momentum(nums, ultimo_concurso):
-    repetidos = len(set(nums) & set(ultimo_concurso))
-    if repetidos == 9: return 1.2
-    if repetidos in [8, 10]: return 1.0
-    return 0.7
+def get_score_momentum(nums, ultimo):
+    repetidos = len(set(nums) & set(ultimo))
+    return 1.2 if repetidos == 9 else (1.0 if repetidos in [8, 10] else 0.7)
 
-# --- NOVO MODELO 3: CADEIA DE MARKOV (Memória Temporal) ---
-def get_score_markov(nums, historico_recente):
-    """
-    Analisa a probabilidade de transição baseado nos últimos estados das dezenas.
-    historico_recente: Lista de sets dos últimos 5 concursos.
-    """
-    score_markov = 0
+def get_score_markov(nums, hist):
+    score = 0
     for n in nums:
         atraso = 0
-        for i, concurso in enumerate(historico_recente):
-            if n in concurso:
-                break
+        for concurso in hist:
+            if n in concurso: break
             atraso += 1
-        
-        # Lógica de Reentrada: Números com atraso 1 ou 2 têm pico de retorno
-        if atraso == 1: score_markov += 1.1  # Pula 1 concurso e volta (Frequente)
-        elif atraso == 0: score_markov += 1.0 # Saiu no último (Manutenção)
-        elif atraso >= 3: score_markov += 0.8 # Dezenas "frias" demais demoram a voltar
-        else: score_markov += 0.9
-            
-    return score_markov / 15
+        score += 1.1 if atraso == 1 else (1.0 if atraso == 0 else 0.8)
+    return score / 15
 
-def calcular_score_ensemble_markov(nums, base_scores, rec_scores, fator, ultimo, hist_recente):
-    s_bayes = get_score_bayes(nums, base_scores)
-    s_momentum = get_score_momentum(nums, ultimo)
-    s_markov = get_score_markov(nums, hist_recente)
+# --- NOVO: AGENTE DE REINFORCEMENT LEARNING (v12.0) ---
+def auditoria_pesos_dinamicos(ultimo_real, base_scores, hist_recente):
+    """
+    Simula os modelos contra o sorteio real de ontem para definir os pesos de hoje.
+    """
+    print("🧠 Agente RL: Auditando performance do último sorteio...")
     
-    # Integração v11.5: Adicionando peso temporal
-    score_base = (s_bayes * 0.40) + (s_momentum * 0.30) + (s_markov * 0.30)
+    # 1. Qual dezena o Bayes sugeriria? (Top 15 com maior score individual)
+    top_bayes = sorted(range(1, 26), key=lambda n: base_scores.get(tuple([n]), 0), reverse=True)[:15]
+    acerto_bayes = len(set(top_bayes) & set(ultimo_real))
     
-    final = score_base * score_validacao(nums) * fator
-    return final * (1 + np.random.normal(0, 0.01))
+    # 2. Qual dezena o Markov sugeriria? (Foco em atraso 1)
+    acerto_markov = len(set(n for n in range(1, 26) if n not in list(hist_recente)[0]) & set(ultimo_real))
+
+    # Normalização de Recompensa (Softmax simplificado)
+    total = acerto_bayes + acerto_markov + 1e-6
+    w_bayes = max(0.20, acerto_bayes / total) # Mínimo de 20% para não atrofiar o modelo
+    w_markov = 1.0 - w_bayes
+    
+    print(f"   📈 Recompensa Bayes: {acerto_bayes} | Markov: {acerto_markov}")
+    print(f"   ⚖️ Novos Pesos -> Bayes: {w_bayes:.2f} | Markov: {w_markov:.2f}")
+    
+    return w_bayes, w_markov
 
 def main():
     supabase = get_supabase()
@@ -91,79 +90,70 @@ def main():
 
     print(f"\n🚀 Gerador {VERSAO} iniciado")
 
-    # Busca últimos 5 concursos para a Cadeia de Markov
+    # Busca histórico para Auditoria
     res_db = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(5).execute().data
     
-    if not res_db:
-        print("❌ Erro: Histórico insuficiente.")
-        return
-
-    # Processa histórico recente
     hist_recente = []
     for r in res_db:
-        d = r["dezenas"]
-        if isinstance(d, str): d = json.loads(d)
-        if isinstance(d, str): d = json.loads(d)
+        d = json.loads(r["dezenas"]) if isinstance(r["dezenas"], str) else r["dezenas"]
         hist_recente.append(set(int(x) for x in d))
 
-    ultimo = list(hist_recente[0])
-    concurso_base = int(str(res_db[0]["concurso"]).strip())
-    concurso_ref = concurso_base + 1
+    ultimo_real = list(hist_recente)[0]
+    concurso_ref = int(str(res_db[0]["concurso"]).strip()) + 1
 
-    print(f"📌 Analisando transições de estado para concurso {concurso_ref}")
-
-    fator = obter_fator_aprendizado_global()["fator"]
+    fator_global = obter_fator_aprendizado_global()["fator"]
     base_scores, rec_scores = calcular_score_combinacoes_reais()
+
+    # ACIONA O CÉREBRO RL
+    w_bayes, w_markov = auditoria_pesos_dinamicos(ultimo_real, base_scores, hist_recente)
 
     candidatos = []
     vistos = set()
     pool = gerar_pool()
 
-    print(f"🧠 Executando Markov-Ensemble ({MAX_TENTATIVAS} iterações)...")
-
     for _ in range(MAX_TENTATIVAS):
         if len(candidatos) >= 5000: break
-        
         jogo = gerar_jogo(pool)
         key = tuple(jogo)
         if key in vistos: continue
         vistos.add(key)
 
-        score = calcular_score_ensemble_markov(jogo, base_scores, rec_scores, fator, ultimo, hist_recente)
-        candidatos.append({"nums": jogo, "score": score})
+        # Lógica de Ensemble Dinâmico
+        s_bayes = get_score_bayes(jogo, base_scores)
+        s_momentum = get_score_momentum(jogo, ultimo_real)
+        s_markov = get_score_markov(jogo, hist_recente)
+        
+        # Pesos decididos pelo Agente RL
+        score_base = (s_bayes * w_bayes) + (s_markov * w_markov)
+        score_base *= s_momentum # Momentum age como multiplicador de tendência
+        
+        final = score_base * score_validacao(jogo) * fator_global
+        candidatos.append({"nums": jogo, "score": final})
 
     candidatos.sort(key=lambda x: x["score"], reverse=True)
     finais = []
-
     for cand in candidatos:
-        nums = cand["nums"]
-        # Diversidade v11.5: Mantendo distância 9
-        if any(len(set(nums) ^ set(f["nums"])) < 9 for f in finais):
-            continue
+        if any(len(set(cand["nums"]) ^ set(f["nums"])) < 9 for f in finais): continue
         finais.append(cand)
         if len(finais) == QTD_FINAL: break
 
-    print("\n🏆 RESULTADO MARKOV-ENSEMBLE v11.5:")
+    print("\n🏆 RESULTADO RL v12.0:")
     payload = []
     for i, p in enumerate(finais, start=1):
         print(f"{i}º | Score: {p['score']:.6f} | {p['nums']}")
         pares, soma, _ = calcular_metricas(p["nums"])
-        
         payload.append({
-            "data_referencia": hoje,
-            "concurso_referencia": concurso_ref,
-            "indice_palpite": i,
-            "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(p["nums"]),
-            "pares": pares, "impares": 15 - pares, "soma_total": soma,
-            "processado": False, "conferido": False,
-            "versao_gerador": VERSAO,
-            "metricas": {"score_markov_ensemble": round(float(p["score"]), 6)}
+            "data_referencia": hoje, "concurso_referencia": concurso_ref, "indice_palpite": i,
+            "tipo": "fixo" if i == 1 else "estatistico", "numeros": json.dumps(p["nums"]),
+            "pares": pares, "impares": 15-pares, "soma_total": soma,
+            "processado": False, "conferido": False, "versao_gerador": VERSAO,
+            "metricas": {"pesos": {"bayes": w_bayes, "markov": w_markov}, "score": p['score']}
         })
 
     supabase.table("palpites_validos").delete().eq("data_referencia", hoje).eq("concurso_referencia", concurso_ref).execute()
     supabase.table("palpites_validos").insert(payload).execute()
-    print(f"\n✅ Pipeline v11.5 finalizado.")
+    print(f"\n✅ v12.0 concluída. Pesos calibrados com sucesso.")
 
 if __name__ == "__main__":
     main()
+
