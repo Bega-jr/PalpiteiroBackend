@@ -79,7 +79,6 @@ def buscar_cenario_similar(supabase, estrutura):
     if not res.data:
         return None
 
-    # filtro mais próximo por linhas
     melhor = None
     menor_diff = 999
 
@@ -95,25 +94,15 @@ def buscar_cenario_similar(supabase, estrutura):
 # AJUSTE DE PESO POR MEMÓRIA REAL
 # ======================================================
 def ajustar_por_memoria(df, memoria):
-
     if not memoria:
         print("🧠 Sem memória")
         return df
 
-    score_real = float(
-        memoria.get(
-            "score_medio_real",
-            0
-        )
-    )
-
-    print(
-        f"🧠 score_real={score_real}"
-    )
+    score_real = float(memoria.get("score_medio_real", 0))
+    print(f"🧠 score_real={score_real}")
 
     if score_real >= 5:
         df["score"] *= 1.10
-
     elif score_real <= 1:
         df["score"] *= 0.90
 
@@ -137,8 +126,7 @@ def main():
         print(f"📌 Concurso {concurso} | Data {data}")
 
         df = obter_estatisticas_com_score()
-        medias = calcular_medias_recentes()
-
+        
         df.loc[df["numero"].isin(dezenas), "atraso"] = 0
 
         df["tendencia"] = df["numero"].apply(
@@ -166,9 +154,7 @@ def main():
 
         df = ajustar_por_memoria(df, memoria)
 
-        # ==================================================
         # SALVAR MEMÓRIA (UPSERT)
-        # ==================================================
         payload_memoria = {
             "soma_faixa": estrutura_atual["soma_faixa"],
             "pares": estrutura_atual["pares"],
@@ -185,11 +171,38 @@ def main():
         print("✅ Memória estrutural atualizada")
 
         # ==================================================
-        # RESTO DO PROCESSAMENTO
+        # NOVO: SALVAR MEMÓRIA DE REGIMES (DETERMINA O "CLIMA")
         # ==================================================
-        listas = obter_top_listas(df)
         faltantes, ciclo = calcular_ciclo_historico_completo(historico)
+        
+        # Cálculo do Regime: Quente vs Frio
+        # Se as dezenas sorteadas tinham score alto, regime de Expansão
+        media_score_sorteados = df[df["numero"].isin(dezenas)]["score"].mean()
+        
+        regime_tipo = "NEUTRO"
+        if media_score_sorteados > 0.55: regime_tipo = "EXPANSAO_QUENTES"
+        elif media_score_sorteados < 0.45: regime_tipo = "CONTRACAO_FRIAS"
 
+        payload_regime = {
+            "data_referencia": data,
+            "concurso": int(concurso),
+            "numero_ciclo": int(ciclo),
+            "tipo_regime": regime_tipo,
+            "score_global": float(media_score_sorteados),
+            "media_soma": float(sum(dezenas)),
+            "media_pares": int(estrutura_atual["pares"])
+        }
+
+        # Upsert para não duplicar se rodar o mesmo concurso 2x
+        supabase.table("memoria_regimes") \
+            .upsert(payload_regime, on_conflict="concurso") \
+            .execute()
+
+        print(f"📡 Memória de Regimes atualizada: {regime_tipo} (Score: {media_score_sorteados:.4f})")
+
+        # ==================================================
+        # FINALIZAÇÃO
+        # ==================================================
         print("✅ Estatísticas prontas")
         print(f"🎯 Ciclo {ciclo}")
 
