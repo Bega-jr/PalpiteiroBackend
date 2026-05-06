@@ -1,7 +1,7 @@
 import sys
 import json
 from pathlib import Path
-from datetime import datetime
+from collections import defaultdict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
@@ -53,42 +53,53 @@ def peso_acerto(acertos):
     return pesos.get(acertos, 0)
 
 
+def obter_resultados_oficiais(supabase):
+
+    concursos = (
+        supabase
+        .table("lotofacil_concursos")
+        .select("concurso,dezenas")
+        .execute()
+        .data
+    )
+
+    mapa = {}
+
+    for c in concursos:
+
+        dezenas = c["dezenas"]
+
+        if isinstance(dezenas, str):
+            dezenas = json.loads(dezenas)
+
+        mapa[c["concurso"]] = set(dezenas)
+
+    return mapa
+
+
 def main():
 
     supabase = get_supabase()
 
     print("🏁 Conferindo resultados...")
 
-    concursos = (
+    resultados_oficiais = obter_resultados_oficiais(
         supabase
-        .table("lotofacil_concursos")
-        .select("concurso,dezenas")
-        .order("concurso", desc=True)
-        .limit(1)
-        .execute()
-        .data
     )
 
-    if not concursos:
-        print("❌ Sem concursos")
+    if not resultados_oficiais:
+        print("❌ Sem concursos oficiais")
         return
-
-    concurso_atual = concursos[0]["concurso"]
-
-    dezenas_raw = concursos[0]["dezenas"]
-
-    dezenas_oficiais = (
-        set(json.loads(dezenas_raw))
-        if isinstance(dezenas_raw, str)
-        else set(dezenas_raw)
-    )
 
     palpites = (
         supabase
         .table("palpites_validos")
         .select("*")
-        .is_("acertos", None)
-        .lt("concurso_referencia", concurso_atual)
+        .eq("conferido", False)
+        .eq("processado", False)
+        .order("concurso_referencia")
+        .order("indice_palpite")
+        .limit(500)
         .execute()
         .data
     )
@@ -97,122 +108,190 @@ def main():
         print("⚠️ Nada para conferir")
         return
 
-    print(f"📌 {len(palpites)} palpites pendentes")
+    print(
+        f"📌 {len(palpites)} palpites pendentes"
+    )
 
-    processados = 0
+    grupos = defaultdict(list)
 
     for p in palpites:
 
-        try:
+        concurso = p.get(
+            "concurso_referencia"
+        )
 
-            numeros = parse_numeros(
-                p["numeros"]
+        grupos[concurso].append(
+            p
+        )
+
+    processados = 0
+
+    for concurso, apostas in grupos.items():
+
+        dezenas_oficiais = (
+            resultados_oficiais.get(
+                concurso
             )
+        )
 
-            if not numeros:
-                continue
-
-            metricas = parse_metricas(
-                p.get("metricas")
-            )
-
-            versao = (
-                p.get("versao_gerador")
-                or metricas.get("versao")
-                or "legacy"
-            )
-
-            tipo_palpite = (
-                p.get("tipo_palpite")
-                or "estatistico"
-            )
-
-            acertos = len(
-                set(numeros) & dezenas_oficiais
-            )
-
-            peso = peso_acerto(
-                acertos
-            )
-
-            # atualiza palpite
-            (
-                supabase
-                .table("palpites_validos")
-                .update({
-                    "acertos": acertos
-                })
-                .eq("id", p["id"])
-                .execute()
-            )
-
-            payload = {
-
-                "data_referencia":
-                    p["data_referencia"],
-
-                "concurso_inicio":
-                    p["concurso_referencia"],
-
-                "concurso_fim":
-                    p["concurso_referencia"],
-
-                "tipo_palpite":
-                    tipo_palpite,
-
-                "versao_gerador":
-                    versao,
-
-                "qtd_palpites": 1,
-
-                "acertos_11":
-                    1 if acertos == 11 else 0,
-
-                "acertos_12":
-                    1 if acertos == 12 else 0,
-
-                "acertos_13":
-                    1 if acertos == 13 else 0,
-
-                "acertos_14":
-                    1 if acertos == 14 else 0,
-
-                "acertos_15":
-                    1 if acertos == 15 else 0,
-
-                "score_ponderado":
-                    float(peso),
-
-                "eficiencia":
-                    1 if acertos >= 11 else 0,
-
-                "taxa_15":
-                    1 if acertos == 15 else 0,
-
-                "taxa_14":
-                    1 if acertos == 14 else 0,
-
-                "taxa_13":
-                    1 if acertos == 13 else 0,
-
-                "taxa_12":
-                    1 if acertos == 12 else 0
-            }
-
-            (
-                supabase
-                .table("palpites_resultados_reais")
-                .insert(payload)
-                .execute()
-            )
-
-            processados += 1
-
-        except Exception as e:
+        if not dezenas_oficiais:
 
             print(
-                f"❌ Erro no palpite {p['id']}: {e}"
+                f"⚠️ Concurso {concurso} ainda sem resultado oficial"
             )
+
+            continue
+
+        print(
+            f"📌 Concurso {concurso}: {len(apostas)} palpites"
+        )
+
+        for p in apostas:
+
+            try:
+
+                numeros = parse_numeros(
+                    p["numeros"]
+                )
+
+                if not numeros:
+                    continue
+
+                metricas = parse_metricas(
+                    p.get(
+                        "metricas"
+                    )
+                )
+
+                versao = (
+                    p.get(
+                        "versao_gerador"
+                    )
+                    or metricas.get(
+                        "versao"
+                    )
+                    or metricas.get(
+                        "v"
+                    )
+                    or "legacy"
+                )
+
+                tipo_palpite = (
+                    p.get(
+                        "tipo"
+                    )
+                    or p.get(
+                        "tipo_palpite"
+                    )
+                    or "estatistico"
+                )
+
+                acertos = len(
+                    set(numeros)
+                    & dezenas_oficiais
+                )
+
+                peso = peso_acerto(
+                    acertos
+                )
+
+                # atualiza origem
+                (
+                    supabase
+                    .table(
+                        "palpites_validos"
+                    )
+                    .update({
+                        "acertos":
+                            acertos,
+                        "conferido":
+                            True,
+                        "processado":
+                            True
+                    })
+                    .eq(
+                        "id",
+                        p["id"]
+                    )
+                    .execute()
+                )
+
+                payload = {
+
+                    "data_referencia":
+                        p[
+                            "data_referencia"
+                        ],
+
+                    "concurso_inicio":
+                        concurso,
+
+                    "concurso_fim":
+                        concurso,
+
+                    "tipo_palpite":
+                        tipo_palpite,
+
+                    "versao_gerador":
+                        versao,
+
+                    "qtd_palpites":
+                        1,
+
+                    "acertos_11":
+                        1 if acertos == 11 else 0,
+
+                    "acertos_12":
+                        1 if acertos == 12 else 0,
+
+                    "acertos_13":
+                        1 if acertos == 13 else 0,
+
+                    "acertos_14":
+                        1 if acertos == 14 else 0,
+
+                    "acertos_15":
+                        1 if acertos == 15 else 0,
+
+                    "score_ponderado":
+                        float(
+                            peso
+                        ),
+
+                    "eficiencia":
+                        1 if acertos >= 11 else 0,
+
+                    "taxa_15":
+                        1 if acertos == 15 else 0,
+
+                    "taxa_14":
+                        1 if acertos == 14 else 0,
+
+                    "taxa_13":
+                        1 if acertos == 13 else 0,
+
+                    "taxa_12":
+                        1 if acertos == 12 else 0
+                }
+
+                (
+                    supabase
+                    .table(
+                        "palpites_resultados_reais"
+                    )
+                    .insert(
+                        payload
+                    )
+                    .execute()
+                )
+
+                processados += 1
+
+            except Exception as e:
+
+                print(
+                    f"❌ Erro no palpite {p['id']}: {e}"
+                )
 
     print(
         f"✅ {processados} palpites conferidos"
