@@ -9,25 +9,39 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-def extrair_estrutura(nums):
-    return {
-        "soma_faixa": int(round(sum(nums) / 10) * 10),
-        "pares": sum(1 for n in nums if n % 2 == 0),
-        "primos": sum(
-            1 for n in nums
-            if n in {2, 3, 5, 7, 11, 13, 17, 19, 23}
-        ),
-        "linhas": [
-            sum(1 for n in nums if 1 <= n <= 5),
-            sum(1 for n in nums if 6 <= n <= 10),
-            sum(1 for n in nums if 11 <= n <= 15),
-            sum(1 for n in nums if 16 <= n <= 20),
-            sum(1 for n in nums if 21 <= n <= 25),
-        ]
-    }
+def parse_numeros(valor):
+
+    if isinstance(valor, list):
+        return [int(x) for x in valor]
+
+    if isinstance(valor, str):
+        try:
+            return [int(x) for x in json.loads(valor)]
+        except:
+            return None
+
+    return None
+
+
+def parse_metricas(metricas):
+
+    if not metricas:
+        return {}
+
+    if isinstance(metricas, dict):
+        return metricas
+
+    if isinstance(metricas, str):
+        try:
+            return json.loads(metricas)
+        except:
+            return {}
+
+    return {}
 
 
 def peso_acerto(acertos):
+
     pesos = {
         11: 1,
         12: 2,
@@ -35,53 +49,8 @@ def peso_acerto(acertos):
         14: 10,
         15: 15
     }
+
     return pesos.get(acertos, 0)
-
-
-def parse_numeros(valor):
-    try:
-        if isinstance(valor, list):
-            return [int(x) for x in valor]
-
-        if isinstance(valor, str):
-            return [int(x) for x in json.loads(valor)]
-
-    except Exception:
-        return None
-
-    return None
-
-
-def obter_versao(p):
-    metricas = p.get("metricas") or {}
-
-    return (
-        p.get("versao_gerador")
-        or metricas.get("versao")
-        or "legacy"
-    )
-
-
-def obter_resultado_oficial(supabase, concurso):
-    resultado = (
-        supabase
-        .table("lotofacil_concursos")
-        .select("dezenas")
-        .eq("concurso", concurso)
-        .limit(1)
-        .execute()
-        .data
-    )
-
-    if not resultado:
-        return None
-
-    dezenas_raw = resultado[0]["dezenas"]
-
-    if isinstance(dezenas_raw, str):
-        return set(json.loads(dezenas_raw))
-
-    return set(dezenas_raw)
 
 
 def main():
@@ -90,11 +59,36 @@ def main():
 
     print("🏁 Conferindo resultados...")
 
+    concursos = (
+        supabase
+        .table("lotofacil_concursos")
+        .select("concurso,dezenas")
+        .order("concurso", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+
+    if not concursos:
+        print("❌ Sem concursos")
+        return
+
+    concurso_atual = concursos[0]["concurso"]
+
+    dezenas_raw = concursos[0]["dezenas"]
+
+    dezenas_oficiais = (
+        set(json.loads(dezenas_raw))
+        if isinstance(dezenas_raw, str)
+        else set(dezenas_raw)
+    )
+
     palpites = (
         supabase
         .table("palpites_validos")
         .select("*")
         .is_("acertos", None)
+        .lt("concurso_referencia", concurso_atual)
         .execute()
         .data
     )
@@ -118,34 +112,30 @@ def main():
             if not numeros:
                 continue
 
-            concurso_ref = p["concurso_referencia"]
-
-            dezenas_oficiais = obter_resultado_oficial(
-                supabase,
-                concurso_ref
+            metricas = parse_metricas(
+                p.get("metricas")
             )
 
-            if not dezenas_oficiais:
-                print(
-                    f"⚠️ Concurso {concurso_ref} ainda não existe"
-                )
-                continue
+            versao = (
+                p.get("versao_gerador")
+                or metricas.get("versao")
+                or "legacy"
+            )
+
+            tipo_palpite = (
+                p.get("tipo_palpite")
+                or "estatistico"
+            )
 
             acertos = len(
                 set(numeros) & dezenas_oficiais
-            )
-
-            estrutura = extrair_estrutura(
-                numeros
             )
 
             peso = peso_acerto(
                 acertos
             )
 
-            versao = obter_versao(p)
-
-            # Atualiza palpite
+            # atualiza palpite
             (
                 supabase
                 .table("palpites_validos")
@@ -156,66 +146,64 @@ def main():
                 .execute()
             )
 
-            # Atualiza memória
-            memoria_payload = {
-                **estrutura,
-                "vezes_gerado": 1,
-                "score_medio_real": peso,
-                "ultima_aparicao": datetime.now().date().isoformat(),
-                "updated_at": datetime.now().isoformat()
+            payload = {
+
+                "data_referencia":
+                    p["data_referencia"],
+
+                "concurso_inicio":
+                    p["concurso_referencia"],
+
+                "concurso_fim":
+                    p["concurso_referencia"],
+
+                "tipo_palpite":
+                    tipo_palpite,
+
+                "versao_gerador":
+                    versao,
+
+                "qtd_palpites": 1,
+
+                "acertos_11":
+                    1 if acertos == 11 else 0,
+
+                "acertos_12":
+                    1 if acertos == 12 else 0,
+
+                "acertos_13":
+                    1 if acertos == 13 else 0,
+
+                "acertos_14":
+                    1 if acertos == 14 else 0,
+
+                "acertos_15":
+                    1 if acertos == 15 else 0,
+
+                "score_ponderado":
+                    float(peso),
+
+                "eficiencia":
+                    1 if acertos >= 11 else 0,
+
+                "taxa_15":
+                    1 if acertos == 15 else 0,
+
+                "taxa_14":
+                    1 if acertos == 14 else 0,
+
+                "taxa_13":
+                    1 if acertos == 13 else 0,
+
+                "taxa_12":
+                    1 if acertos == 12 else 0
             }
 
             (
                 supabase
-                .table("memoria_cenarios")
-                .upsert(
-                    memoria_payload,
-                    on_conflict="soma_faixa,pares,primos,linhas"
-                )
-                .execute()
-            )
-
-            # Verifica se já existe resultado
-            existe = (
-                supabase
                 .table("palpites_resultados_reais")
-                .select("id")
-                .eq("data_referencia", p["data_referencia"])
-                .eq("versao_gerador", versao)
-                .eq("concurso_inicio", concurso_ref)
-                .limit(1)
+                .insert(payload)
                 .execute()
-                .data
-            )
-
-            if not existe:
-
-                resultado_payload = {
-                    "data_referencia": p["data_referencia"],
-                    "concurso_inicio": concurso_ref,
-                    "concurso_fim": concurso_ref,
-                    "versao_gerador": versao,
-
-                    "qtd_palpites": 1,
-
-                    "acertos_11": 1 if acertos == 11 else 0,
-                    "acertos_12": 1 if acertos == 12 else 0,
-                    "acertos_13": 1 if acertos == 13 else 0,
-                    "acertos_14": 1 if acertos == 14 else 0,
-                    "acertos_15": 1 if acertos == 15 else 0,
-
-                    "eficiencia": 1 if acertos >= 11 else 0
-                }
-
-                (
-                    supabase
-                    .table("palpites_resultados_reais")
-                    .insert(resultado_payload)
-                    .execute()
-                )
-
-            print(
-                f"✅ Concurso {concurso_ref} | {acertos} acertos"
             )
 
             processados += 1
@@ -223,7 +211,7 @@ def main():
         except Exception as e:
 
             print(
-                f"❌ Erro no palpite {p.get('id')}: {e}"
+                f"❌ Erro no palpite {p['id']}: {e}"
             )
 
     print(
