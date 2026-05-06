@@ -38,41 +38,30 @@ def score_validacao(nums):
     if max(linhas) > 5: score *= 0.75
     return score
 
-# --- MODELO 1: BAYESIANO (Co-ocorrência) ---
 def get_score_bayes(nums, base_scores):
     if not base_scores: return 0.5
     scores_presentes = [base_scores.get(tuple([n]), 0.5) for n in nums]
     return float(np.mean(scores_presentes))
 
-# --- MODELO 2: MOMENTUM (Frequência Curta) ---
 def get_score_momentum(nums, ultimo_concurso):
-    # Dezenas que tendem a se manter (repetição do último)
     repetidos = len(set(nums) & set(ultimo_concurso))
     if repetidos == 9: return 1.2
     if repetidos in [8, 10]: return 1.0
     return 0.7
 
-# --- MODELO 3: REENTRADA (Lei das Médias) ---
 def get_score_reentrada(nums, ultimo_concurso):
-    # Foca em dezenas que NÃO saíram no último (geralmente voltam 5 a 6)
     ausentes_ultimo = set(range(1, 26)) - set(ultimo_concurso)
     presentes_ausentes = len(set(nums) & ausentes_ultimo)
     if presentes_ausentes in [5, 6]: return 1.1
     return 0.8
 
 def calcular_score_ensemble(nums, base_scores, rec_scores, fator, ultimo):
-    # Pesos do Ensemble
     s_bayes = get_score_bayes(nums, base_scores)
     s_momentum = get_score_momentum(nums, ultimo)
     s_reentrada = get_score_reentrada(nums, ultimo)
     
-    # Integração ponderada
     score_base = (s_bayes * 0.50) + (s_momentum * 0.25) + (s_reentrada * 0.25)
-    
-    # Validações estruturais e aprendizado global
     final = score_base * score_validacao(nums) * fator
-    
-    # Ruído controlado para diversidade genética
     return final * (1 + np.random.normal(0, 0.01))
 
 def main():
@@ -82,14 +71,28 @@ def main():
 
     print(f"\n🚀 Gerador {VERSAO} iniciado")
 
-    # Dados do último concurso
-    res = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(1).execute().data[0]
+    # Busca último concurso
+    res_db = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(1).execute().data
+    
+    if not res_db:
+        print("❌ Erro: Nenhum concurso encontrado no banco.")
+        return
+
+    res = res_db[0]
     concurso_base = int(str(res["concurso"]).strip())
     concurso_ref = concurso_base + 1
     
-    ultimo = json.loads(res["dezenas"])
-    if isinstance(ultimo, str): ultimo = json.loads(ultimo)
+    # PARSER ROBUSTO PARA LISTA OU JSON
+    dezenas_raw = res["dezenas"]
+    if isinstance(dezenas_raw, str):
+        ultimo = json.loads(dezenas_raw)
+        if isinstance(ultimo, str): ultimo = json.loads(ultimo)
+    else:
+        ultimo = dezenas_raw
+    
     ultimo = [int(x) for x in ultimo]
+
+    print(f"📌 Gerando para concurso {concurso_ref} (Base: {concurso_base})")
 
     fator = obter_fator_aprendizado_global()["fator"]
     base_scores, rec_scores = calcular_score_combinacoes_reais()
@@ -98,7 +101,7 @@ def main():
     vistos = set()
     pool = gerar_pool()
 
-    print(f"🧠 Executando Ensemble Model em {MAX_TENTATIVAS} iterações...")
+    print(f"🧠 Executando Ensemble em {MAX_TENTATIVAS} iterações...")
 
     for _ in range(MAX_TENTATIVAS):
         if len(candidatos) >= 5000: break
@@ -111,20 +114,15 @@ def main():
         score = calcular_score_ensemble(jogo, base_scores, rec_scores, fator, ultimo)
         candidatos.append({"nums": jogo, "score": score})
 
-    # Ranking e Seleção por Diversidade
     candidatos.sort(key=lambda x: x["score"], reverse=True)
     finais = []
-    freq_global = Counter()
 
     for cand in candidatos:
         nums = cand["nums"]
-        
-        # Filtro de distância Ensemble (mínimo 9 dezenas diferentes)
         if any(len(set(nums) ^ set(f["nums"])) < 9 for f in finais):
             continue
 
         finais.append(cand)
-        for n in nums: freq_global[n] += 1
         if len(finais) == QTD_FINAL: break
 
     print("\n🏆 RESULTADO ENSEMBLE v11.0:")
@@ -145,10 +143,9 @@ def main():
             "metricas": {"score_ensemble": round(float(p["score"]), 6)}
         })
 
-    # Persistência
     supabase.table("palpites_validos").delete().eq("data_referencia", hoje).eq("concurso_referencia", concurso_ref).execute()
     supabase.table("palpites_validos").insert(payload).execute()
-    print(f"\n✅ Pipeline v11.0 finalizado com sucesso.")
+    print(f"\n✅ Pipeline v11.0 finalizado.")
 
 if __name__ == "__main__":
     main()
