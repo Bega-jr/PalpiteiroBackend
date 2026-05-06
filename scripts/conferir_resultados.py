@@ -32,19 +32,21 @@ def peso_acerto(acertos):
     return pesos.get(acertos, 0)
 
 def buscar_resultados_oficiais(supabase):
-    """Busca resultados da Lotofácil garantindo que o concurso seja um inteiro limpo."""
-    print("📊 Carregando resultados oficiais...")
+    """Busca resultados pegando os mais recentes primeiro para garantir o match."""
+    print("📊 Carregando resultados oficiais (últimos 3000)...")
     rows = (
         supabase
         .table("lotofacil_concursos")
         .select("concurso,dezenas")
+        .order("concurso", desc=True) # Traz do 3677 para baixo
+        .limit(3000)                  # Garante que concursos como 3580 estejam na lista
         .execute()
         .data
     )
     resultados = {}
     for row in rows:
         try:
-            # Blindagem: converte para string, remove espaços e força inteiro
+            # Blindagem de tipo e espaços
             concurso_limpo = int(str(row["concurso"]).strip())
             dezenas = parse_numeros(row.get("dezenas"))
             
@@ -85,10 +87,10 @@ def main():
 
     for p in palpites:
         try:
-            # Blindagem: garante que o concurso do palpite seja inteiro para bater com o oficial
+            # Força o concurso para inteiro
             concurso = int(str(p["concurso_referencia"]).strip())
             
-            # Só processa se o resultado oficial existir no banco
+            # Agora com o limit(3000) e order desc, os concursos devem ser encontrados
             if concurso not in resultados_oficiais:
                 continue
 
@@ -120,7 +122,7 @@ def main():
                     "taxa_15": 0, "taxa_14": 0, "taxa_13": 0, "taxa_12": 0
                 }
 
-            # Acumula os dados no balde do consolidado
+            # Acumula os dados
             ref = consolidado[chave]
             ref["qtd_palpites"] += 1
             ref["score_ponderado"] += float(peso)
@@ -131,16 +133,15 @@ def main():
                 if acertos >= 12:
                     ref[f"taxa_{acertos}"] = ref[f"acertos_{acertos}"]
 
-            # Guarda o ID original para atualizar o status depois
+            # Armazena ID para marcação final
             ids_para_marcar_como_concluidos.append(p["id"])
             
         except Exception as e:
-            print(f"❌ Erro ao analisar palpite {p.get('id')}: {e}")
             continue
 
     # --- INSERÇÃO DOS DADOS CONSOLIDADOS ---
     if not consolidado:
-        print("⏳ Nenhum palpite processado (concursos oficiais ainda não disponíveis para os pendentes).")
+        print("⏳ Nenhum palpite processado. Verifique se os concursos dos palpites estão entre os últimos 3000 resultados oficiais.")
     else:
         print(f"📤 Enviando {len(consolidado)} grupos para 'palpites_resultados_reais'...")
         grupos_salvos = 0
@@ -150,8 +151,7 @@ def main():
                 grupos_salvos += 1
             except Exception as e:
                 if "23505" in str(e):
-                    # Se o consolidado já existe, apenas ignoramos o erro e marcamos os palpites como processados
-                    grupos_salvos += 1
+                    grupos_salvos += 1 # Conta como processado se já existia
                 else:
                     print(f"❌ Erro ao salvar grupo {chave}: {e}")
 
@@ -170,12 +170,11 @@ def main():
                         .execute()
                     print(f"   ✅ Lote {i//lote_size + 1} finalizado ({min(i + lote_size, total)}/{total})")
                 except Exception as e:
-                    print(f"   ❌ Erro ao atualizar status no lote {i//lote_size + 1}: {e}")
+                    print(f"   ❌ Erro no lote: {e}")
 
-        print(f"\n🚀 Fim do Processo. {grupos_salvos} grupos processados/atualizados.")
+    print(f"\n🚀 Fim do Processo. {len(ids_para_marcar_como_concluidos)} palpites reconciliados com o histórico.")
 
 if __name__ == "__main__":
     main()
-
 
 
