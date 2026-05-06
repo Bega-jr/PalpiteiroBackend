@@ -10,12 +10,23 @@ from app.services.supabase_service import get_supabase
 
 def parse_numeros(valor):
 
+    if not valor:
+        return None
+
     if isinstance(valor, list):
-        return [int(x) for x in valor]
+        try:
+            return [int(x) for x in valor]
+        except:
+            return None
 
     if isinstance(valor, str):
+
         try:
-            return [int(x) for x in json.loads(valor)]
+            parsed = json.loads(valor)
+
+            if isinstance(parsed, list):
+                return [int(x) for x in parsed]
+
         except:
             return None
 
@@ -31,8 +42,10 @@ def parse_metricas(metricas):
         return metricas
 
     if isinstance(metricas, str):
+
         try:
             return json.loads(metricas)
+
         except:
             return {}
 
@@ -66,12 +79,40 @@ def buscar_resultados_oficiais(supabase):
 
     for row in rows:
 
-        dezenas = row["dezenas"]
+        try:
 
-        if isinstance(dezenas, str):
-            dezenas = json.loads(dezenas)
+            concurso = int(
+                row["concurso"]
+            )
 
-        resultados[row["concurso"]] = set(dezenas)
+            dezenas = row.get(
+                "dezenas"
+            )
+
+            if not dezenas:
+                continue
+
+            if isinstance(
+                dezenas,
+                str
+            ):
+                dezenas = json.loads(
+                    dezenas
+                )
+
+            if not dezenas:
+                continue
+
+            if len(dezenas) != 15:
+                continue
+
+            resultados[concurso] = set(
+                int(x) for x in dezenas
+            )
+
+        except:
+
+            continue
 
     return resultados
 
@@ -88,10 +129,22 @@ def registro_ja_existe(
         supabase
         .table("palpites_resultados_reais")
         .select("id")
-        .eq("data_referencia", data_referencia)
-        .eq("concurso_inicio", concurso)
-        .eq("tipo_palpite", tipo_palpite)
-        .eq("versao_gerador", versao)
+        .eq(
+            "data_referencia",
+            data_referencia
+        )
+        .eq(
+            "concurso_inicio",
+            concurso
+        )
+        .eq(
+            "tipo_palpite",
+            tipo_palpite
+        )
+        .eq(
+            "versao_gerador",
+            versao
+        )
         .limit(1)
         .execute()
         .data
@@ -104,10 +157,14 @@ def main():
 
     supabase = get_supabase()
 
-    print("🏁 Conferindo resultados...")
+    print(
+        "🏁 Conferindo resultados..."
+    )
 
-    resultados_oficiais = buscar_resultados_oficiais(
-        supabase
+    resultados_oficiais = (
+        buscar_resultados_oficiais(
+            supabase
+        )
     )
 
     palpites = (
@@ -121,7 +178,10 @@ def main():
 
     if not palpites:
 
-        print("⚠️ Nada para conferir")
+        print(
+            "⚠️ Nada para conferir"
+        )
+
         return
 
     print(
@@ -134,7 +194,19 @@ def main():
 
         try:
 
-            concurso = p["concurso_referencia"]
+            try:
+
+                concurso = int(
+                    p["concurso_referencia"]
+                )
+
+            except:
+
+                print(
+                    f"⚠️ Concurso inválido no palpite {p['id']}"
+                )
+
+                continue
 
             if concurso not in resultados_oficiais:
 
@@ -144,30 +216,49 @@ def main():
 
                 continue
 
-            dezenas_oficiais = (
-                resultados_oficiais[concurso]
-            )
-
             numeros = parse_numeros(
                 p["numeros"]
             )
 
             if not numeros:
+
+                print(
+                    f"⚠️ Números inválidos no palpite {p['id']}"
+                )
+
                 continue
+
+            dezenas_oficiais = (
+                resultados_oficiais[
+                    concurso
+                ]
+            )
 
             metricas = parse_metricas(
                 p.get("metricas")
             )
 
             versao = (
-                p.get("versao_gerador")
-                or metricas.get("versao")
+                p.get(
+                    "versao_gerador"
+                )
+                or metricas.get(
+                    "versao"
+                )
                 or "legacy"
             )
 
             tipo_palpite = (
-                p.get("tipo_palpite")
+                p.get(
+                    "tipo_palpite"
+                )
                 or "estatistico"
+            )
+
+            acertos = len(
+                set(numeros)
+                &
+                dezenas_oficiais
             )
 
             if registro_ja_existe(
@@ -184,19 +275,21 @@ def main():
 
                 (
                     supabase
-                    .table("palpites_validos")
+                    .table(
+                        "palpites_validos"
+                    )
                     .update({
-                        "acertos": 0
+                        "acertos":
+                            acertos
                     })
-                    .eq("id", p["id"])
+                    .eq(
+                        "id",
+                        p["id"]
+                    )
                     .execute()
                 )
 
                 continue
-
-            acertos = len(
-                set(numeros) & dezenas_oficiais
-            )
 
             peso = peso_acerto(
                 acertos
@@ -205,7 +298,9 @@ def main():
             payload = {
 
                 "data_referencia":
-                    p["data_referencia"],
+                    p[
+                        "data_referencia"
+                    ],
 
                 "concurso_inicio":
                     concurso,
@@ -261,18 +356,28 @@ def main():
 
             (
                 supabase
-                .table("palpites_resultados_reais")
-                .insert(payload)
+                .table(
+                    "palpites_resultados_reais"
+                )
+                .insert(
+                    payload
+                )
                 .execute()
             )
 
             (
                 supabase
-                .table("palpites_validos")
+                .table(
+                    "palpites_validos"
+                )
                 .update({
-                    "acertos": acertos
+                    "acertos":
+                        acertos
                 })
-                .eq("id", p["id"])
+                .eq(
+                    "id",
+                    p["id"]
+                )
                 .execute()
             )
 
