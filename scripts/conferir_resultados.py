@@ -13,24 +13,40 @@ def parse_numeros(valor):
     if not valor:
         return None
 
-    if isinstance(valor, list):
-        try:
-            return [int(x) for x in valor]
-        except:
+    try:
+
+        # lista python / jsonb
+        if isinstance(valor, list):
+
+            numeros = [
+                int(x)
+                for x in valor
+            ]
+
+        # string json
+        elif isinstance(valor, str):
+
+            numeros = json.loads(
+                valor
+            )
+
+            numeros = [
+                int(x)
+                for x in numeros
+            ]
+
+        else:
+
             return None
 
-    if isinstance(valor, str):
-
-        try:
-            parsed = json.loads(valor)
-
-            if isinstance(parsed, list):
-                return [int(x) for x in parsed]
-
-        except:
+        if len(numeros) != 15:
             return None
 
-    return None
+        return sorted(numeros)
+
+    except:
+
+        return None
 
 
 def parse_metricas(metricas):
@@ -38,16 +54,25 @@ def parse_metricas(metricas):
     if not metricas:
         return {}
 
-    if isinstance(metricas, dict):
-        return metricas
+    try:
 
-    if isinstance(metricas, str):
+        if isinstance(
+            metricas,
+            dict
+        ):
+            return metricas
 
-        try:
-            return json.loads(metricas)
+        if isinstance(
+            metricas,
+            str
+        ):
+            return json.loads(
+                metricas
+            )
 
-        except:
-            return {}
+    except:
+
+        pass
 
     return {}
 
@@ -62,15 +87,24 @@ def peso_acerto(acertos):
         15: 15
     }
 
-    return pesos.get(acertos, 0)
+    return pesos.get(
+        acertos,
+        0
+    )
 
 
-def buscar_resultados_oficiais(supabase):
+def buscar_resultados_oficiais(
+    supabase
+):
 
     rows = (
         supabase
-        .table("lotofacil_concursos")
-        .select("concurso,dezenas")
+        .table(
+            "lotofacil_concursos"
+        )
+        .select(
+            "concurso,dezenas"
+        )
         .execute()
         .data
     )
@@ -85,29 +119,17 @@ def buscar_resultados_oficiais(supabase):
                 row["concurso"]
             )
 
-            dezenas = row.get(
-                "dezenas"
+            dezenas = parse_numeros(
+                row["dezenas"]
             )
 
             if not dezenas:
                 continue
 
-            if isinstance(
-                dezenas,
-                str
-            ):
-                dezenas = json.loads(
-                    dezenas
-                )
-
-            if not dezenas:
-                continue
-
-            if len(dezenas) != 15:
-                continue
-
-            resultados[concurso] = set(
-                int(x) for x in dezenas
+            resultados[
+                concurso
+            ] = set(
+                dezenas
             )
 
         except:
@@ -121,14 +143,18 @@ def registro_ja_existe(
     supabase,
     data_referencia,
     concurso,
-    tipo_palpite,
+    tipo,
     versao
 ):
 
-    row = (
+    rows = (
         supabase
-        .table("palpites_resultados_reais")
-        .select("id")
+        .table(
+            "palpites_resultados_reais"
+        )
+        .select(
+            "id"
+        )
         .eq(
             "data_referencia",
             data_referencia
@@ -139,7 +165,7 @@ def registro_ja_existe(
         )
         .eq(
             "tipo_palpite",
-            tipo_palpite
+            tipo
         )
         .eq(
             "versao_gerador",
@@ -150,7 +176,9 @@ def registro_ja_existe(
         .data
     )
 
-    return len(row) > 0
+    return len(
+        rows
+    ) > 0
 
 
 def main():
@@ -169,9 +197,14 @@ def main():
 
     palpites = (
         supabase
-        .table("palpites_validos")
+        .table(
+            "palpites_validos"
+        )
         .select("*")
-        .is_("acertos", None)
+        .is_(
+            "acertos",
+            None
+        )
         .execute()
         .data
     )
@@ -194,19 +227,11 @@ def main():
 
         try:
 
-            try:
-
-                concurso = int(
-                    p["concurso_referencia"]
-                )
-
-            except:
-
-                print(
-                    f"⚠️ Concurso inválido no palpite {p['id']}"
-                )
-
-                continue
+            concurso = int(
+                p[
+                    "concurso_referencia"
+                ]
+            )
 
             if concurso not in resultados_oficiais:
 
@@ -217,13 +242,15 @@ def main():
                 continue
 
             numeros = parse_numeros(
-                p["numeros"]
+                p[
+                    "numeros"
+                ]
             )
 
             if not numeros:
 
                 print(
-                    f"⚠️ Números inválidos no palpite {p['id']}"
+                    f"⚠️ Palpite inválido: {p['id']}"
                 )
 
                 continue
@@ -234,8 +261,12 @@ def main():
                 ]
             )
 
-            metricas = parse_metricas(
-                p.get("metricas")
+            metricas = (
+                parse_metricas(
+                    p.get(
+                        "metricas"
+                    )
+                )
             )
 
             versao = (
@@ -248,24 +279,32 @@ def main():
                 or "legacy"
             )
 
-            tipo_palpite = (
+            # compatível com versões antigas e novas
+            tipo = (
                 p.get(
+                    "tipo"
+                )
+                or p.get(
                     "tipo_palpite"
                 )
                 or "estatistico"
             )
 
             acertos = len(
-                set(numeros)
+                set(
+                    numeros
+                )
                 &
                 dezenas_oficiais
             )
 
             if registro_ja_existe(
                 supabase,
-                p["data_referencia"],
+                p[
+                    "data_referencia"
+                ],
                 concurso,
-                tipo_palpite,
+                tipo,
                 versao
             ):
 
@@ -312,7 +351,7 @@ def main():
                     1,
 
                 "tipo_palpite":
-                    tipo_palpite,
+                    tipo,
 
                 "versao_gerador":
                     versao,
@@ -336,7 +375,9 @@ def main():
                     1 if acertos == 15 else 0,
 
                 "score_ponderado":
-                    float(peso),
+                    float(
+                        peso
+                    ),
 
                 "eficiencia":
                     1 if acertos >= 11 else 0,
@@ -379,6 +420,10 @@ def main():
                     p["id"]
                 )
                 .execute()
+            )
+
+            print(
+                f"✅ Concurso {concurso} | {acertos} acertos"
             )
 
             processados += 1
