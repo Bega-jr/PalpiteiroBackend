@@ -339,13 +339,10 @@ def main():
         })
 
     (
-        supabase
+       supabase
         .table("palpites_validos")
         .delete()
-        .eq(
-            "concurso_referencia",
-            concurso_ref
-        )
+        .eq("data_referencia", hoje)
         .execute()
     )
 
