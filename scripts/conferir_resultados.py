@@ -8,8 +8,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-
-# Importa sua função de extrair estrutura do script diário
 from scripts.processamento_diario_lotofacil import extrair_estrutura
 
 def parse_numeros(valor):
@@ -24,10 +22,12 @@ def parse_numeros(valor):
 def atualizar_memoria_com_acerto(supabase, palpite, acertos):
     """Atualiza a performance do cenário na tabela de memória."""
     nums = parse_numeros(palpite["numeros"])
+    if not nums: return
     est = extrair_estrutura(nums)
+    
+    # Peso ponderado
     peso = {11: 1, 12: 2, 13: 5, 14: 10, 15: 15}.get(acertos, 0)
 
-    # Busca registro atual para média móvel
     res = supabase.table("memoria_cenarios").select("*") \
         .eq("soma_faixa", est["soma_faixa"]) \
         .eq("pares", est["pares"]) \
@@ -48,7 +48,7 @@ def atualizar_memoria_com_acerto(supabase, palpite, acertos):
 
 def main():
     supabase = get_supabase()
-    print("🏁 Conferindo Resultados e Atualizando Memória...")
+    print("🏁 Conferindo Resultados, Atualizando Memória e Consolidando...")
 
     # 1. Busca resultados oficiais recentes
     oficiais_db = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(500).execute().data
@@ -61,6 +61,9 @@ def main():
         print("⚠️ Sem palpites pendentes.")
         return
 
+    # Dicionário para consolidar os resultados para a tabela 'palpites_resultados_reais'
+    consolidado = {}
+
     for p in pendentes:
         conc = int(str(p["concurso_referencia"]).strip())
         if conc not in resultados: continue
@@ -68,16 +71,45 @@ def main():
         nums = parse_numeros(p["numeros"])
         acertos = len(set(nums) & resultados[conc])
         
-        # Grava acertos no palpite
+        # --- Lógica de Consolidação (Para a tabela palpites_resultados_reais) ---
+        tipo = p.get("tipo") or "estatistico"
+        versao = p.get("versao_gerador") or "legacy"
+        chave = (conc, tipo, versao)
+
+        if chave not in consolidado:
+            consolidado[chave] = {
+                "data_referencia": p["data_referencia"],
+                "concurso_inicio": conc, "concurso_fim": conc,
+                "tipo_palpite": tipo, "versao_gerador": versao,
+                "qtd_palpites": 0, "total_concursos": 1,
+                "acertos_11": 0, "acertos_12": 0, "acertos_13": 0, "acertos_14": 0, "acertos_15": 0,
+                "score_ponderado": 0.0
+            }
+        
+        ref = consolidado[chave]
+        ref["qtd_palpites"] += 1
+        if acertos >= 11:
+            ref[f"acertos_{acertos}"] += 1
+            ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(acertos, 0))
+
+        # 3. Atualiza o palpite individual
         supabase.table("palpites_validos").update({
             "acertos": acertos,
             "processado": True,
             "conferido": True
         }).eq("id", p["id"]).execute()
 
-        # ALIMENTA A MEMÓRIA ESTRUTURAL
+        # 4. Alimenta a Memória
         atualizar_memoria_com_acerto(supabase, p, acertos)
-        print(f"✅ Palpite {p['id']} conferido: {acertos} acertos. Memória atualizada.")
+        print(f"✅ Palpite {p['id']} (Conc {conc}) conferido: {acertos} acertos.")
+
+    # 5. Salva os resultados consolidados na tabela 'palpites_resultados_reais'
+    for chave, payload in consolidado.items():
+        try:
+            supabase.table("palpites_resultados_reais").insert(payload).execute()
+            print(f"📊 Consolidado salvo para {chave[1]} - Concurso {chave[0]}")
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar consolidado {chave}: {e}")
 
 if __name__ == "__main__":
     main()
