@@ -170,8 +170,8 @@ def main():
 
         print("✅ Memória estrutural atualizada")
 
-               # ==================================================
-        # NOVO: SALVAR MEMÓRIA DE REGIMES (CORRIGIDO)
+        # ==================================================
+        # SALVAR MEMÓRIA DE REGIMES (ANTI-DUPLICATA)
         # ==================================================
         faltantes, ciclo = calcular_ciclo_historico_completo(historico)
         
@@ -181,26 +181,33 @@ def main():
         if media_score_sorteados > 0.55: regime_tipo = "EXPANSAO_QUENTES"
         elif media_score_sorteados < 0.45: regime_tipo = "CONTRACAO_FRIAS"
 
-        payload_regime = {
-            "data_referencia": data,
-            "concurso": int(concurso),
-            "numero_ciclo": int(ciclo),
-            "tipo_regime": regime_tipo,
-            "score_global": float(media_score_sorteados),
-            "media_soma": float(sum(dezenas)),
-            "media_pares": int(estrutura_atual["pares"])
-        }
+        # Verificação preventiva contra duplicatas
+        check_exists = supabase.table("memoria_regimes") \
+            .select("id") \
+            .eq("concurso", int(concurso)) \
+            .execute()
 
-        try:
-            # Tenta inserir. Se já existir o concurso, ele vai dar erro de chave 
-            # e o except vai ignorar, mantendo o processo vivo.
-            supabase.table("memoria_regimes").insert(payload_regime).execute()
-            print(f"📡 Memória de Regimes atualizada: {regime_tipo} (Score: {media_score_sorteados:.4f})")
-        except Exception as e:
-            if "23505" in str(e): # Código de erro para Duplicidade no Postgres
-                print(f"ℹ️ Regime do concurso {concurso} já registrado. Pulando...")
-            else:
-                print(f"⚠️ Aviso ao salvar regime: {e}")
+        if not check_exists.data:
+            payload_regime = {
+                "data_referencia": data,
+                "concurso": int(concurso),
+                "numero_ciclo": int(ciclo),
+                "tipo_regime": regime_tipo,
+                "score_global": float(media_score_sorteados),
+                "media_soma": float(sum(dezenas)),
+                "media_pares": int(estrutura_atual["pares"])
+            }
+            try:
+                supabase.table("memoria_regimes").insert(payload_regime).execute()
+                print(f"📡 Memória de Regimes atualizada: {regime_tipo} (Score: {media_score_sorteados:.4f})")
+            except Exception as e:
+                # Código 23505 é duplicidade no Postgres
+                if "23505" in str(e):
+                    print(f"ℹ️ Regime do concurso {concurso} já registrado durante o insert.")
+                else:
+                    print(f"⚠️ Erro ao salvar regime: {e}")
+        else:
+            print(f"ℹ️ Regime do concurso {concurso} já existe na base. Pulando registro.")
 
         # ==================================================
         # FINALIZAÇÃO
