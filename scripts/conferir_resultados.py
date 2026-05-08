@@ -16,12 +16,12 @@ def parse_numeros(valor):
 
 def main():
     supabase = get_supabase()
-    print("🏁 [v3.2] Sincronização Final com Constraint v2...")
+    print("🏁 [v3.3] Sincronização Unificada...")
 
     oficiais = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(500).execute().data
     res_map = {int(str(r["concurso"]).strip()): set(parse_numeros(r["dezenas"])) for r in oficiais}
 
-    # 1. Conferência
+    # 1. Conferência individual
     pendentes = supabase.table("palpites_validos").select("*").eq("processado", False).execute().data
     if pendentes:
         for p in pendentes:
@@ -30,24 +30,26 @@ def main():
                 acertos = len(set(parse_numeros(p["numeros"])) & res_map[conc])
                 supabase.table("palpites_validos").update({"acertos": acertos, "processado": True, "conferido": True}).eq("id", p["id"]).execute()
 
-    # 2. Consolidação
+    # 2. Consolidação (Agrupa os 6 estatísticos e separa o fixo)
     todos = supabase.table("palpites_validos").select("data_referencia, concurso_referencia, tipo, versao_gerador, acertos").not_.is_("acertos", "null").execute().data
 
     consolidado = {}
     for p in todos:
-        data_ref = str(p["data_referencia"]).split(' ')[0] # Garante apenas YYYY-MM-DD
         conc = int(p["concurso_referencia"])
         tipo = (p.get("tipo") or "estatistico").strip()
         versao = (p.get("versao_gerador") or "legacy").strip()
         
-        chave = (data_ref, conc, tipo, versao)
+        # Chave simplificada: Concurso + Tipo + Versão
+        chave = (conc, tipo, versao)
 
         if chave not in consolidado:
             consolidado[chave] = {
-                "data_referencia": data_ref, "concurso_inicio": conc, "concurso_fim": conc,
-                "tipo_palpite": tipo, "versao_gerador": versao, "qtd_palpites": 0,
+                "data_referencia": str(p["data_referencia"]).split(' ')[0],
+                "concurso_inicio": conc, "concurso_fim": conc,
+                "tipo_palpite": tipo, "versao_gerador": versao,
+                "qtd_palpites": 0, "total_concursos": 1,
                 "acertos_11": 0, "acertos_12": 0, "acertos_13": 0, "acertos_14": 0, "acertos_15": 0,
-                "score_ponderado": 0.0, "total_concursos": 1
+                "score_ponderado": 0.0
             }
         
         ref = consolidado[chave]
@@ -57,19 +59,19 @@ def main():
             ref[f"acertos_{ac}"] += 1
             ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(ac, 0))
 
-    # 3. Upsert
+    # 3. Upsert com a nova constraint unificada
     items = list(consolidado.values())
-    print(f"🚀 Enviando {len(items)} registros...")
+    print(f"🚀 Enviando {len(items)} registros consolidados...")
     for i in range(0, len(items), 50):
         try:
             supabase.table("palpites_resultados_reais").upsert(
                 items[i:i+50], 
-                on_conflict="data_referencia,concurso_inicio,versao_gerador,tipo_palpite"
+                on_conflict="concurso_inicio,tipo_palpite,versao_gerador"
             ).execute()
         except Exception as e:
             print(f"⚠️ Erro no lote: {e}")
 
-    print("✅ Pipeline finalizado!")
+    print("✅ Pipeline concluído com sucesso!")
 
 if __name__ == "__main__":
     main()
