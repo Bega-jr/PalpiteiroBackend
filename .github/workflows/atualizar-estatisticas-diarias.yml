@@ -2,7 +2,7 @@ name: Pipeline Lotofácil 2026 - IA Evolutiva
 
 on:
   schedule:
-    # 21:45 Brasil = 00:45 UTC (Garante que o resultado oficial já saiu)
+    # 21:45 Brasil = 00:45 UTC
     - cron: "45 0 * * *"
   workflow_dispatch:
 
@@ -29,7 +29,7 @@ jobs:
           pip install pandas numpy requests python-dotenv supabase pytz
 
       - name: 🌐 1. Buscar Resultados Oficiais (CAIXA)
-        run: python scripts/atualizar_historico.py
+        run: python scripts/atualizar_lotofacil.py
 
       - name: 🏁 2. Conferir e Alimentar Inteligência (Memória)
         run: python scripts/conferir_resultados.py
