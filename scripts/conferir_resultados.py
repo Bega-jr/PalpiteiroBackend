@@ -17,29 +17,15 @@ def parse_numeros(valor):
         return [int(x) for x in parsed]
     except: return None
 
-def atualizar_memoria_com_acerto(supabase, palpite, acertos):
-    nums = parse_numeros(palpite["numeros"])
-    if not nums: return
-    est = extrair_estrutura(nums)
-    peso = {11: 1, 12: 2, 13: 5, 14: 10, 15: 15}.get(acertos, 0)
-    res = supabase.table("memoria_cenarios").select("*").eq("soma_faixa", est["soma_faixa"]).eq("pares", est["pares"]).eq("primos", est["primos"]).execute()
-    if res.data:
-        mem = res.data[0]
-        vezes = mem.get("vezes_gerado", 0) + 1
-        update_data = {"vezes_gerado": vezes, "score_medio_real": (float(mem.get("score_medio_real", 0)) + peso) / 2}
-        if acertos >= 11:
-            col = f"acertos_{acertos}"
-            update_data[col] = mem.get(col, 0) + 1
-        supabase.table("memoria_cenarios").update(update_data).eq("id", mem["id"]).execute()
-
 def main():
     supabase = get_supabase()
-    print("🏁 [v2.3] Sincronização por Substituição (Resolvendo Constraints)...")
+    print("🏁 [v2.5] Reprocessamento Total Pós-Limpeza...")
 
+    # 1. Carrega resultados oficiais
     oficiais_db = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(500).execute().data
     resultados_map = {int(str(r["concurso"]).strip()): set(parse_numeros(r["dezenas"])) for r in oficiais_db}
 
-    # 1. CONFERÊNCIA Individual
+    # 2. CONFERÊNCIA Individual (Garante que tudo na 'palpites_validos' tenha acertos)
     pendentes = supabase.table("palpites_validos").select("*").eq("processado", False).execute().data
     if pendentes:
         print(f"🔍 Conferindo {len(pendentes)} novos palpites...")
@@ -49,10 +35,9 @@ def main():
             nums = parse_numeros(p["numeros"])
             acertos = len(set(nums) & resultados_map[conc_ref])
             supabase.table("palpites_validos").update({"acertos": acertos, "processado": True, "conferido": True}).eq("id", p["id"]).execute()
-            atualizar_memoria_com_acerto(supabase, p, acertos)
 
-    # 2. CONSOLIDAÇÃO EM MEMÓRIA
-    print("📊 Agrupando palpites conferidos...")
+    # 3. CONSOLIDAÇÃO (Lê tudo e agrupa)
+    print("📊 Gerando novos consolidados...")
     todos_conferidos = supabase.table("palpites_validos").select("data_referencia, concurso_referencia, tipo, versao_gerador, acertos").not_.is_("acertos", "null").execute().data
 
     consolidado = {}
@@ -60,11 +45,14 @@ def main():
         conc = int(p["concurso_referencia"])
         tipo = (p.get("tipo") or "estatistico").strip()
         versao = (p.get("versao_gerador") or "legacy").strip()
-        chave = (conc, tipo, versao)
+        # Usamos apenas a parte da data YYYY-MM-DD
+        data_ref = str(p["data_referencia"]).split(' ')[0]
+        
+        chave = (data_ref, conc, tipo, versao)
 
         if chave not in consolidado:
             consolidado[chave] = {
-                "data_referencia": p["data_referencia"],
+                "data_referencia": data_ref,
                 "concurso_inicio": conc, "concurso_fim": conc,
                 "tipo_palpite": tipo, "versao_gerador": versao,
                 "qtd_palpites": 0, "total_concursos": 1,
@@ -74,28 +62,24 @@ def main():
         
         ref = consolidado[chave]
         ref["qtd_palpites"] += 1
-        if p["acertos"] >= 11:
-            ref[f"acertos_{p['acertos']}"] += 1
-            ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(p["acertos"], 0))
+        ac = p["acertos"]
+        if ac >= 11:
+            ref[f"acertos_{ac}"] += 1
+            ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(ac, 0))
 
-    # 3. SINCRONIZAÇÃO (Delete + Insert para evitar conflitos de múltiplas chaves)
-    print(f"🚀 Sincronizando {len(consolidado)} grupos...")
-    for chave, payload in consolidado.items():
+    # 4. INSERÇÃO (Como limpamos a tabela, usamos upsert apenas por segurança)
+    print(f"🚀 Inserindo {len(consolidado)} grupos...")
+    items = list(consolidado.values())
+    
+    # Inserção em lotes de 50 para ser mais rápido
+    for i in range(0, len(items), 50):
+        batch = items[i:i+50]
         try:
-            # Remove o registro antigo que causaria conflito em qualquer uma das constraints
-            supabase.table("palpites_resultados_reais") \
-                .delete() \
-                .eq("concurso_inicio", payload["concurso_inicio"]) \
-                .eq("tipo_palpite", payload["tipo_palpite"]) \
-                .eq("versao_gerador", payload["versao_gerador"]) \
-                .execute()
-
-            # Insere o novo consolidado limpo
-            supabase.table("palpites_resultados_reais").insert(payload).execute()
+            supabase.table("palpites_resultados_reais").upsert(batch).execute()
         except Exception as e:
-            print(f"⚠️ Erro ao sincronizar {chave}: {e}")
+            print(f"⚠️ Erro no lote: {e}")
 
-    print("✅ Sincronização concluída com sucesso!")
+    print("✅ Tabela reprocessada com sucesso!")
 
 if __name__ == "__main__":
     main()
