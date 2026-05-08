@@ -16,12 +16,13 @@ def parse_numeros(valor):
 
 def main():
     supabase = get_supabase()
-    print("🏁 [v3.3] Sincronização Unificada...")
+    print("🏁 [v3.3] Sincronização Unificada e Limpa...")
 
+    # 1. Resultados oficiais
     oficiais = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(500).execute().data
     res_map = {int(str(r["concurso"]).strip()): set(parse_numeros(r["dezenas"])) for r in oficiais}
 
-    # 1. Conferência individual
+    # 2. Conferência pendente
     pendentes = supabase.table("palpites_validos").select("*").eq("processado", False).execute().data
     if pendentes:
         for p in pendentes:
@@ -30,7 +31,8 @@ def main():
                 acertos = len(set(parse_numeros(p["numeros"])) & res_map[conc])
                 supabase.table("palpites_validos").update({"acertos": acertos, "processado": True, "conferido": True}).eq("id", p["id"]).execute()
 
-    # 2. Consolidação (Agrupa os 6 estatísticos e separa o fixo)
+    # 3. Consolidação (Cada concurso/tipo/versão = 1 linha)
+    print("📊 Consolidando grupos...")
     todos = supabase.table("palpites_validos").select("data_referencia, concurso_referencia, tipo, versao_gerador, acertos").not_.is_("acertos", "null").execute().data
 
     consolidado = {}
@@ -38,8 +40,6 @@ def main():
         conc = int(p["concurso_referencia"])
         tipo = (p.get("tipo") or "estatistico").strip()
         versao = (p.get("versao_gerador") or "legacy").strip()
-        
-        # Chave simplificada: Concurso + Tipo + Versão
         chave = (conc, tipo, versao)
 
         if chave not in consolidado:
@@ -59,7 +59,7 @@ def main():
             ref[f"acertos_{ac}"] += 1
             ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(ac, 0))
 
-    # 3. Upsert com a nova constraint unificada
+    # 4. Upsert (Sincronização)
     items = list(consolidado.values())
     print(f"🚀 Enviando {len(items)} registros consolidados...")
     for i in range(0, len(items), 50):
