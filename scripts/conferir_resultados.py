@@ -14,13 +14,14 @@ from app.services.supabase_service import get_supabase
 def parse_numeros(valor):
     if not valor: return None
     try:
+        # Se já for lista (jsonb), retorna direto
         if isinstance(valor, list): return [int(x) for x in valor]
+        # Se for string, tenta carregar como JSON
         parsed = json.loads(valor)
         return [int(x) for x in (parsed if isinstance(parsed, list) else json.loads(parsed))]
     except: return None
 
 def extrair_estrutura(nums):
-    """Necessário para identificar o cenário na memória."""
     return {
         "soma_faixa": int(round(sum(nums) / 10) * 10),
         "pares": sum(1 for n in nums if n % 2 == 0),
@@ -35,14 +36,12 @@ def extrair_estrutura(nums):
     }
 
 def atualizar_memoria_com_acerto(supabase, palpite, acertos):
-    """ALIMENTA O CÉREBRO: Atualiza o score real para o processamento diário."""
     nums = parse_numeros(palpite["numeros"])
     if not nums: return
     
     est = extrair_estrutura(nums)
     peso = {11: 1, 12: 2, 13: 5, 14: 10, 15: 15}.get(acertos, 0)
 
-    # Busca o cenário existente
     res = supabase.table("memoria_cenarios").select("*") \
         .eq("soma_faixa", est["soma_faixa"]) \
         .eq("pares", est["pares"]) \
@@ -51,38 +50,35 @@ def atualizar_memoria_com_acerto(supabase, palpite, acertos):
 
     if res.data:
         mem = res.data[0]
-        # Cálculo de média móvel simples para o score real
-        novo_score = (float(mem.get("score_medio_real", 0)) + peso) / 2 if mem.get("score_medio_real") else peso
+        # Média ponderada simples
+        score_antigo = float(mem.get("score_medio_real", 0))
+        vezes = mem.get("vezes_gerado", 0) + 1
+        novo_score = ((score_antigo * (vezes - 1)) + peso) / vezes
         
         update_data = {
-            "vezes_gerado": mem.get("vezes_gerado", 0) + 1,
-            "score_medio_real": novo_score,
+            "vezes_gerado": vezes,
+            "score_medio_real": round(novo_score, 4),
             "updated_at": datetime.now().isoformat()
         }
-        
-        # Incrementa contador de acertos na memória
         if acertos >= 11:
             col = f"acertos_{acertos}"
             update_data[col] = mem.get(col, 0) + 1
             
         supabase.table("memoria_cenarios").update(update_data).eq("id", mem["id"]).execute()
 
-# ======================================================
-# MAIN
-# ======================================================
 def main():
     supabase = get_supabase()
-    print("🏁 [v5.0-FINAL] Conferência, Memória e Eficiência...")
+    print("🏁 [v5.6-DEFINITIVO] Sincronização de Performance e Memória...")
 
-    # 1. Carrega resultados oficiais
+    # 1. Mapa de Resultados
     oficiais = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(500).execute().data
     res_map = {int(str(r["concurso"]).strip()): set(parse_numeros(r["dezenas"])) for r in oficiais}
 
-    # 2. Conferência Individual e Atualização de Memória
+    # 2. Conferência Individual
     pendentes = supabase.table("palpites_validos").select("*").eq("processado", False).execute().data
     
     if pendentes:
-        print(f"🔍 Conferindo {len(pendentes)} novos palpites e alimentando memória...")
+        print(f"🔍 Conferindo {len(pendentes)} palpites e atualizando cérebro...")
         for p in pendentes:
             conc_ref = int(str(p["concurso_referencia"]).strip())
             if conc_ref not in res_map: continue
@@ -90,17 +86,14 @@ def main():
             nums = parse_numeros(p["numeros"])
             acertos = len(set(nums) & res_map[conc_ref])
             
-            # Atualiza palpite individual
             supabase.table("palpites_validos").update({
                 "acertos": acertos, "processado": True, "conferido": True
             }).eq("id", p["id"]).execute()
 
-            # ALIMENTA O SCORE REAL DA MEMÓRIA
             atualizar_memoria_com_acerto(supabase, p, acertos)
-        print("✅ Memória e conferência individual concluídas.")
 
-    # 3. Consolidação (Agrupamento para Tabela de Resultados)
-    print("📊 Consolidando grupos de performance...")
+    # 3. Consolidação (Agrupamento por Concurso + Tipo + Versão)
+    print("📊 Agrupando resultados por categoria...")
     todos = supabase.table("palpites_validos").select("data_referencia, concurso_referencia, tipo, versao_gerador, acertos").not_.is_("acertos", "null").execute().data
 
     consolidado = {}
@@ -111,8 +104,10 @@ def main():
         chave = (conc, tipo, versao)
 
         if chave not in consolidado:
+            # Proteção na data_referencia
+            data_str = str(p.get("data_referencia", datetime.now().date())).split(' ')[0]
             consolidado[chave] = {
-                "data_referencia": str(p["data_referencia"]).split(' ')[0],
+                "data_referencia": data_str,
                 "concurso_inicio": conc, "concurso_fim": conc,
                 "tipo_palpite": tipo, "versao_gerador": versao,
                 "qtd_palpites": 0, "total_concursos": 1,
@@ -127,18 +122,18 @@ def main():
             ref[f"acertos_{ac}"] += 1
             ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(ac, 0))
 
-    # 4. Cálculo de Eficiência e Taxas
+    # 4. Cálculo de Eficiência
     for ref in consolidado.values():
         qtd = ref["qtd_palpites"]
         if qtd > 0:
-            premiados = sum([ref[f"acertos_{i}"] for i in range(11, 16)])
+            premiados = sum([ref.get(f"acertos_{i}", 0) for i in range(11, 16)])
             ref["eficiencia"] = str(round((premiados / qtd) * 100, 2))
             for i in range(12, 16):
-                ref[f"taxa_{i}"] = str(round((ref[f"acertos_{i}"] / qtd) * 100, 2))
+                ref[f"taxa_{i}"] = str(round((ref.get(f"acertos_{i}", 0) / qtd) * 100, 2))
 
     # 5. Upsert Final
     items = list(consolidado.values())
-    print(f"🚀 Enviando {len(items)} registros consolidados...")
+    print(f"🚀 Enviando {len(items)} grupos para o banco...")
     for i in range(0, len(items), 50):
         try:
             supabase.table("palpites_resultados_reais").upsert(
@@ -146,9 +141,9 @@ def main():
                 on_conflict="concurso_inicio,tipo_palpite,versao_gerador"
             ).execute()
         except Exception as e:
-            print(f"⚠️ Erro no lote: {e}")
+            print(f"⚠️ Erro ao sincronizar resumo: {e}")
 
-    print("✅ Tudo sincronizado! Memória alimentada e Métricas calculadas.")
+    print("✅ Tudo sincronizado!")
 
 if __name__ == "__main__":
     main()
