@@ -133,7 +133,11 @@ def main():
 
     # Persistência
     supabase.table("palpites_validos").delete().eq("data_referencia", hoje).eq("concurso_referencia", concurso_ref).execute()
-    supabase.table("palpites_validos").upsert(payload).execute()
+    supabase.table("palpites_validos").upsert(
+    payload, 
+    on_conflict="data_referencia,indice_palpite"
+).execute()
+
     print(f"\n✅ v13.5 finalizada. Filtros Pro + Anti-Plágio aplicados.")
 
 if __name__ == "__main__":
