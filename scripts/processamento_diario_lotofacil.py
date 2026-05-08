@@ -8,9 +8,7 @@ sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
 from app.services.estatisticas_service import (
-    calcular_medias_recentes,
     obter_estatisticas_com_score,
-    obter_top_listas,
     carregar_historico
 )
 
@@ -74,19 +72,18 @@ def buscar_cenario_similar(supabase, estrutura):
 
 def ajustar_por_memoria(df, memoria):
     if not memoria:
-        print("🧠 Score Real: 0.0 (Novo Cenário)")
+        print("🧠 Sem memória prévia (Novo Cenário). Score Real: 0.0")
         return df
 
     score_real = float(memoria.get("score_medio_real", 0))
     vezes = memoria.get("vezes_gerado", 0)
     
-    print(f"🧠 Score Real: {score_real:.2f} | Vezes Testado: {vezes}")
+    print(f"🧠 Memória Ativa | Score Real: {score_real:.2f} | Testado: {vezes}x")
 
-    # Lógica de Ajuste Baseada em Performance Real
-    if score_real >= 5: # Equivalente a média de 13 acertos+
+    if score_real >= 5:
         print("🔥 BÔNUS: Cenário de alta performance detectado (+15%)")
         df["score"] *= 1.15
-    elif score_real >= 1: # Pelo menos 11 acertos constante
+    elif score_real >= 1:
         print("📈 BÔNUS: Cenário consistente (+5%)")
         df["score"] *= 1.05
     elif vezes > 5 and score_real == 0:
@@ -100,7 +97,7 @@ def ajustar_por_memoria(df, memoria):
 # ======================================================
 def main():
     supabase = get_supabase()
-    print("🚀 [v4.0] Processamento com Feedback Real iniciado")
+    print("🚀 [v4.1] Processamento Inteligente Iniciado")
 
     try:
         historico = carregar_historico()
@@ -113,29 +110,27 @@ def main():
         df.loc[df["numero"].isin(dezenas), "atraso"] = 0
         df["tendencia"] = df["numero"].apply(lambda n: calcular_tendencia(historico, n))
 
-        # Normalização de Pesos
+        # Normalização
         df["freq_norm"] = normalizar(df["frequencia"])
         df["atraso_norm"] = 1 - normalizar(df["atraso"])
         df["tendencia_norm"] = normalizar(df["tendencia"])
         df["score_norm"] = normalizar(df["score"])
 
-        # Score Base
+        # Cálculo do Score Base
         df["score"] = (df["freq_norm"] * 0.35 + df["tendencia_norm"] * 0.30 +
                        df["atraso_norm"] * 0.20 + df["score_norm"] * 0.15)
 
-        # Aplicar Inteligência de Memória
+        # Inteligência de Memória
         est = extrair_estrutura(dezenas)
         memoria = buscar_cenario_similar(supabase, est)
         df = ajustar_por_memoria(df, memoria)
 
-        # Salvar Memória (UPSERT preservando estatísticas de acerto)
+        # Upsert Memória Estrutural
         payload_memoria = {
             "soma_faixa": est["soma_faixa"], "pares": est["pares"],
             "primos": est["primos"], "linhas": est["linhas"],
             "ultima_aparicao": data, "updated_at": datetime.now().isoformat()
         }
-        # Se já existe, o Supabase mantém o score_medio_real antigo no DB 
-        # a menos que o conferir_resultados o atualize.
         supabase.table("memoria_cenarios").upsert(payload_memoria, on_conflict="soma_faixa,pares,primos,linhas").execute()
         print("✅ Memória estrutural atualizada")
 
@@ -147,7 +142,7 @@ def main():
         if media_score > 0.55: regime = "EXPANSAO_QUENTES"
         elif media_score < 0.45: regime = "CONTRACAO_FRIAS"
 
-        # Salvar Regime com proteção contra duplicatas
+        # Memória de Regimes
         check = supabase.table("memoria_regimes").select("id").eq("concurso", int(concurso)).execute()
         if not check.data:
             payload_regime = {
@@ -157,11 +152,12 @@ def main():
                 "media_pares": int(est["pares"])
             }
             supabase.table("memoria_regimes").insert(payload_regime).execute()
-            print(f"📡 Regime: {regime} (Score: {media_score:.4f})")
+            print(f"📡 Memória de Regimes atualizada: {regime} (Score Global: {media_score:.4f})")
         else:
-            print(f"ℹ️ Regime do concurso {concurso} já registrado.")
+            print(f"ℹ️ Regime do concurso {concurso} já existe na base. Pulando registro.")
 
-        print("✅ Estatísticas prontas | 🎯 Ciclo", ciclo)
+        print("✅ Estatísticas prontas")
+        print(f"🎯 Ciclo {ciclo}")
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
