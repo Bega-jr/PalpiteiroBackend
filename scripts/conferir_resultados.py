@@ -17,13 +17,13 @@ def parse_numeros(valor):
 
 def main():
     supabase = get_supabase()
-    print("🏁 [v2.8] Agrupamento por Concurso (Fixo vs Estatístico)...")
+    print("🏁 [v2.9] Sincronização por Substituição (Foco no Concurso)...")
 
     # 1. Resultados oficiais
     oficiais_db = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(500).execute().data
     resultados_map = {int(str(r["concurso"]).strip()): set(parse_numeros(r["dezenas"])) for r in oficiais_db}
 
-    # 2. Conferência individual pendente
+    # 2. Conferência pendente
     pendentes = supabase.table("palpites_validos").select("*").eq("processado", False).execute().data
     if pendentes:
         print(f"🔍 Conferindo {len(pendentes)} novos palpites...")
@@ -34,8 +34,8 @@ def main():
             acertos = len(set(nums) & resultados_map[conc_ref])
             supabase.table("palpites_validos").update({"acertos": acertos, "processado": True, "conferido": True}).eq("id", p["id"]).execute()
 
-    # 3. Consolidação BASEADA NO CONCURSO
-    print("📊 Agrupando registros por concurso e tipo...")
+    # 3. Consolidação (Cada concurso/tipo/versão gera apenas 1 linha)
+    print("📊 Agrupando registros por concurso...")
     todos = supabase.table("palpites_validos").select("data_referencia, concurso_referencia, tipo, versao_gerador, acertos").not_.is_("acertos", "null").execute().data
 
     consolidado = {}
@@ -44,19 +44,16 @@ def main():
         tipo = (p.get("tipo") or "estatistico").strip()
         versao = (p.get("versao_gerador") or "legacy").strip()
         
-        # CHAVE: Agora focada no Concurso, Tipo e Versão
-        # Isso garante que seus 6 estatísticos virem 1 linha e o fixo vire outra.
         chave = (conc, tipo, versao)
 
         if chave not in consolidado:
+            # Pegamos apenas a parte YYYY-MM-DD da data para evitar erros de timestamp
+            data_limpa = str(p["data_referencia"]).split(' ')[0]
             consolidado[chave] = {
-                "data_referencia": p["data_referencia"], # Mantém a data do primeiro encontrado
-                "concurso_inicio": conc, 
-                "concurso_fim": conc,
-                "tipo_palpite": tipo, 
-                "versao_gerador": versao,
-                "qtd_palpites": 0, 
-                "total_concursos": 1,
+                "data_referencia": data_limpa,
+                "concurso_inicio": conc, "concurso_fim": conc,
+                "tipo_palpite": tipo, "versao_gerador": versao,
+                "qtd_palpites": 0, "total_concursos": 1,
                 "acertos_11": 0, "acertos_12": 0, "acertos_13": 0, "acertos_14": 0, "acertos_15": 0,
                 "score_ponderado": 0.0
             }
@@ -68,20 +65,25 @@ def main():
             ref[f"acertos_{ac}"] += 1
             ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(ac, 0))
 
-    # 4. Upsert (Sincronização com o banco)
+    # 4. Sincronização: Deletar Antigo + Inserir Novo (Evita erro 23505)
     print(f"🚀 Sincronizando {len(consolidado)} grupos...")
-    items = list(consolidado.values())
-    for i in range(0, len(items), 60):
-        batch = items[i:i+60]
+    for payload in consolidado.values():
         try:
-            # Sincroniza usando a chave lógica de concurso e versão
+            # Remove qualquer registro existente para este concurso/tipo/versão
+            # Isso mata o problema da constraint 'idx_resultados_unico'
             supabase.table("palpites_resultados_reais") \
-                .upsert(batch, on_conflict="concurso_inicio,concurso_fim,tipo_palpite,versao_gerador") \
+                .delete() \
+                .eq("concurso_inicio", payload["concurso_inicio"]) \
+                .eq("tipo_palpite", payload["tipo_palpite"]) \
+                .eq("versao_gerador", payload["versao_gerador"]) \
                 .execute()
-        except Exception as e:
-            print(f"⚠️ Erro ao sincronizar: {e}")
 
-    print("✅ Concluído! Os 6 estatísticos e o fixo foram consolidados separadamente.")
+            # Insere o dado fresquinho e consolidado
+            supabase.table("palpites_resultados_reais").insert(payload).execute()
+        except Exception as e:
+            print(f"⚠️ Erro no concurso {payload['concurso_inicio']}: {e}")
+
+    print("✅ Concluído! Tabela de resultados sincronizada sem duplicatas.")
 
 if __name__ == "__main__":
     main()
