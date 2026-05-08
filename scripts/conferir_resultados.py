@@ -16,13 +16,12 @@ def parse_numeros(valor):
 
 def main():
     supabase = get_supabase()
-    print("🏁 [v3.3] Sincronização Unificada e Limpa...")
+    print("🏁 [v3.4] Sincronização com Cálculo de Eficiência...")
 
-    # 1. Resultados oficiais
     oficiais = supabase.table("lotofacil_concursos").select("concurso,dezenas").order("concurso", desc=True).limit(500).execute().data
     res_map = {int(str(r["concurso"]).strip()): set(parse_numeros(r["dezenas"])) for r in oficiais}
 
-    # 2. Conferência pendente
+    # 1. Conferência Individual
     pendentes = supabase.table("palpites_validos").select("*").eq("processado", False).execute().data
     if pendentes:
         for p in pendentes:
@@ -31,8 +30,8 @@ def main():
                 acertos = len(set(parse_numeros(p["numeros"])) & res_map[conc])
                 supabase.table("palpites_validos").update({"acertos": acertos, "processado": True, "conferido": True}).eq("id", p["id"]).execute()
 
-    # 3. Consolidação (Cada concurso/tipo/versão = 1 linha)
-    print("📊 Consolidando grupos...")
+    # 2. Consolidação
+    print("📊 Agrupando e calculando métricas...")
     todos = supabase.table("palpites_validos").select("data_referencia, concurso_referencia, tipo, versao_gerador, acertos").not_.is_("acertos", "null").execute().data
 
     consolidado = {}
@@ -59,9 +58,22 @@ def main():
             ref[f"acertos_{ac}"] += 1
             ref["score_ponderado"] += float({11:1, 12:2, 13:5, 14:10, 15:15}.get(ac, 0))
 
-    # 4. Upsert (Sincronização)
+    # 3. Cálculo Matemático de Eficiência e Taxas
+    for ref in consolidado.values():
+        qtd = ref["qtd_palpites"]
+        if qtd > 0:
+            premiados = ref["acertos_11"] + ref["acertos_12"] + ref["acertos_13"] + ref["acertos_14"] + ref["acertos_15"]
+            # % de palpites que tiveram pelo menos 11 acertos
+            ref["eficiencia"] = str(round((premiados / qtd) * 100, 2))
+            # % específica por faixa
+            ref["taxa_15"] = str(round((ref["acertos_15"] / qtd) * 100, 2))
+            ref["taxa_14"] = str(round((ref["acertos_14"] / qtd) * 100, 2))
+            ref["taxa_13"] = str(round((ref["acertos_13"] / qtd) * 100, 2))
+            ref["taxa_12"] = str(round((ref["acertos_12"] / qtd) * 100, 2))
+
+    # 4. Upsert
     items = list(consolidado.values())
-    print(f"🚀 Enviando {len(items)} registros consolidados...")
+    print(f"🚀 Enviando {len(items)} registros com métricas...")
     for i in range(0, len(items), 50):
         try:
             supabase.table("palpites_resultados_reais").upsert(
@@ -71,7 +83,7 @@ def main():
         except Exception as e:
             print(f"⚠️ Erro no lote: {e}")
 
-    print("✅ Pipeline concluído com sucesso!")
+    print("✅ Pipeline concluído com métricas atualizadas!")
 
 if __name__ == "__main__":
     main()
