@@ -24,7 +24,6 @@ def normalizar(col):
 
 
 def calcular_tendencia(historico, numero, janela=25):
-
     ultimos = historico[-janela:]
 
     presencas = [
@@ -43,10 +42,10 @@ def calcular_ciclo_historico_completo(historico):
 
     ciclo = 1
 
-    for conc in historico:
+    for concurso in historico:
 
         sorteados.update(
-            conc["numeros"]
+            concurso["numeros"]
         )
 
         if sorteados == todos_25:
@@ -55,12 +54,12 @@ def calcular_ciclo_historico_completo(historico):
 
             ciclo += 1
 
-    faltam = sorted(
+    faltantes = sorted(
         todos_25 - sorteados
     )
 
     return (
-        faltam if faltam else list(range(1, 26)),
+        faltantes if faltantes else list(range(1, 26)),
         ciclo
     )
 
@@ -97,7 +96,7 @@ def extrair_estrutura(nums):
 
 
 # ======================================================
-# MEMÓRIA REAL (NOVA + FALLBACK)
+# MEMÓRIA
 # ======================================================
 
 def buscar_memoria_real(
@@ -105,9 +104,9 @@ def buscar_memoria_real(
     estrutura
 ):
 
-    # -----------------------------
-    # 1. MATCH EXATO (modelo novo)
-    # -----------------------------
+    # --------------------------------------------------
+    # 1. Match exato
+    # --------------------------------------------------
     exato = supabase.table(
         "memoria_cenarios"
     ).select(
@@ -131,9 +130,9 @@ def buscar_memoria_real(
     if exato.data:
         return exato.data[0]
 
-    # -----------------------------
-    # 2. FALLBACK (modelo híbrido)
-    # -----------------------------
+    # --------------------------------------------------
+    # 2. Fallback inteligente
+    # --------------------------------------------------
     similares = supabase.table(
         "memoria_cenarios"
     ).select(
@@ -154,7 +153,7 @@ def buscar_memoria_real(
 
     melhor = None
 
-    menor_diff = 999
+    melhor_ranking = (999, 999, 999)
 
     for item in similares.data:
 
@@ -174,16 +173,36 @@ def buscar_memoria_real(
             )
         )
 
-        if diff < menor_diff:
+        vezes = int(
+            item.get(
+                "vezes_gerado",
+                0
+            )
+        )
 
-            menor_diff = diff
+        score_real = float(
+            item.get(
+                "score_medio_real",
+                0
+            )
+        )
+
+        ranking = (
+            diff,
+            -vezes,
+            -score_real
+        )
+
+        if ranking < melhor_ranking:
+
+            melhor_ranking = ranking
 
             melhor = item
 
     return melhor
 
 
-# Compatibilidade com scripts antigos
+# Retrocompatibilidade
 buscar_cenario_similar = buscar_memoria_real
 
 
@@ -224,8 +243,7 @@ def ajustar_por_memoria(
     if score_real >= 5:
 
         print(
-            "🔥 Alta performance "
-            "(+15%)"
+            "🔥 Alta performance (+15%)"
         )
 
         df["score"] *= 1.15
@@ -233,8 +251,7 @@ def ajustar_por_memoria(
     elif score_real >= 1:
 
         print(
-            "📈 Cenário consistente "
-            "(+5%)"
+            "📈 Cenário consistente (+5%)"
         )
 
         df["score"] *= 1.05
@@ -242,8 +259,7 @@ def ajustar_por_memoria(
     elif vezes >= 5 and score_real == 0:
 
         print(
-            "❄️ Cenário improdutivo "
-            "(-15%)"
+            "❄️ Cenário improdutivo (-15%)"
         )
 
         df["score"] *= 0.85
@@ -260,7 +276,7 @@ def main():
     supabase = get_supabase()
 
     print(
-        "🚀 [v4.3-STABLE] "
+        "🚀 [v4.4-STABLE] "
         "Processamento Inteligente"
     )
 
@@ -343,16 +359,21 @@ def main():
             memoria
         )
 
-        # Upsert memória
+        # Atualização da memória
         payload_memoria = {
+
             "soma_faixa": est["soma_faixa"],
+
             "pares": est["pares"],
+
             "primos": est["primos"],
 
             "linhas": est["linhas"],
+
             "hash_estrutura": est["hash_estrutura"],
 
             "ultima_aparicao": data,
+
             "updated_at": datetime.now().isoformat()
         }
 
@@ -368,7 +389,7 @@ def main():
         )
 
         # Regimes
-        faltantes, ciclo = calcular_ciclo_historico_completo(
+        _, ciclo = calcular_ciclo_historico_completo(
             historico
         )
 
@@ -398,7 +419,9 @@ def main():
         if not check.data:
 
             payload_regime = {
+
                 "data_referencia": data,
+
                 "concurso": int(concurso),
 
                 "numero_ciclo": int(ciclo),
@@ -455,4 +478,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
