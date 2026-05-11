@@ -4,11 +4,14 @@ import random
 import numpy as np
 import pytz
 
+from itertools import combinations
 from pathlib import Path
 from datetime import datetime
 
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
+
 
 from app.services.supabase_service import get_supabase
 
@@ -27,11 +30,12 @@ from scripts.processamento_diario_lotofacil import (
 )
 
 
-VERSAO = "v13.6-pro-memory-dynamic"
+VERSAO = "v13.7.1-hybrid-memory-regime"
 
 QTD_FINAL = 7
 
 MAX_TENTATIVAS = 100000
+
 
 NUMEROS_PRIMOS = {
     2, 3, 5, 7, 11, 13, 17, 19, 23
@@ -43,6 +47,72 @@ MOLDURA = {
     16, 20, 21,
     22, 23, 24, 25
 }
+
+
+# ======================================================
+# REGIME
+# ======================================================
+
+def buscar_regime_atual(
+    supabase
+):
+
+    try:
+
+        res = (
+
+            supabase
+
+            .table(
+                "memoria_regimes"
+            )
+
+            .select("*")
+
+            .order(
+                "concurso",
+                desc=True
+            )
+
+            .limit(1)
+
+            .execute()
+
+        )
+
+        if not res.data:
+
+            return None
+
+        return res.data[0]
+
+    except:
+
+        return None
+
+
+def multiplicador_regime(
+    regime
+):
+
+    if not regime:
+
+        return 1.0
+
+    tipo = regime.get(
+        "tipo_regime",
+        "NEUTRO"
+    )
+
+    if tipo == "EXPANSAO_QUENTES":
+
+        return 1.08
+
+    if tipo == "CONTRACAO_FRIAS":
+
+        return 1.05
+
+    return 1.0
 
 
 # ======================================================
@@ -77,11 +147,12 @@ def calcular_filtros_pro(
     )
 
     seq_max = 1
+
     atual = 1
 
-    for i in range(len(nums) - 1):
+    for i in range(len(nums)-1):
 
-        if nums[i + 1] == nums[i] + 1:
+        if nums[i+1] == nums[i] + 1:
 
             atual += 1
 
@@ -140,6 +211,7 @@ def validar_jogo_pro(
         return False
 
     if filtros["seq_max"] > 4:
+
         return False
 
     return True
@@ -154,25 +226,105 @@ def calcular_bonus_memoria(
 ):
 
     if not memoria:
+
         return 1.0
 
     score_real = float(
+
         memoria.get(
             "score_medio_real",
             0
         )
+
     )
 
+    vezes = int(
+
+        memoria.get(
+            "vezes_gerado",
+            0
+        )
+
+    )
+
+    bonus = 1.0
+
+    # recompensa
     if score_real >= 5:
-        return 1.25
+
+        bonus *= 1.25
 
     elif score_real >= 2:
-        return 1.15
+
+        bonus *= 1.15
 
     elif score_real > 0:
-        return 1.05
 
-    return 1.0
+        bonus *= 1.05
+
+    # saturação
+    if vezes >= 8 and score_real == 0:
+
+        bonus *= 0.85
+
+    return bonus
+
+
+# ======================================================
+# SCORE HÍBRIDO
+# ======================================================
+
+def calcular_score_hibrido(
+    jogo,
+    base_scores
+):
+
+    dezenas_score = float(
+
+        np.mean([
+
+            base_scores.get(
+                tuple([n]),
+                0.5
+            )
+
+            for n in jogo
+
+        ])
+
+    )
+
+    pares = list(
+
+        combinations(
+            jogo,
+            2
+        )
+
+    )
+
+    pares_score = float(
+
+        np.mean([
+
+            base_scores.get(
+                tuple(sorted(p)),
+                0.5
+            )
+
+            for p in pares
+
+        ])
+
+    )
+
+    return (
+
+        dezenas_score * 0.40 +
+
+        pares_score * 0.60
+
+    )
 
 
 # ======================================================
@@ -183,6 +335,10 @@ def main():
 
     supabase = get_supabase()
 
+    print(
+        f"🛡️ {VERSAO}"
+    )
+
     fuso = pytz.timezone(
         "America/Sao_Paulo"
     )
@@ -191,15 +347,9 @@ def main():
         fuso
     ).date().isoformat()
 
-    print(
-        f"🛡️ {VERSAO}"
-    )
-
     historico = carregar_historico()
 
-    ultimo_real = historico[-1][
-        "numeros"
-    ]
+    ultimo_real = historico[-1]["numeros"]
 
     concurso_ref = int(
         historico[-1]["concurso"]
@@ -210,13 +360,22 @@ def main():
         f"{concurso_ref}"
     )
 
-    # IA BASE
     base_scores, _ = calcular_score_combinacoes_reais()
 
     fator_global = float(
+
         obter_fator_aprendizado_global()[
             "fator"
         ]
+
+    )
+
+    regime = buscar_regime_atual(
+        supabase
+    )
+
+    fator_regime = multiplicador_regime(
+        regime
     )
 
     print(
@@ -227,12 +386,15 @@ def main():
     candidatos = []
 
     vistos_historico = set(
+
         tuple(
             sorted(
                 h["numeros"]
             )
         )
+
         for h in historico
+
     )
 
     pool = list(
@@ -240,10 +402,6 @@ def main():
     )
 
     validos = 0
-
-    print(
-        "🎯 Gerando candidatos..."
-    )
 
     for _ in range(
         MAX_TENTATIVAS
@@ -255,22 +413,26 @@ def main():
             break
 
         jogo = sorted(
+
             random.sample(
                 pool,
                 15
             )
+
         )
 
-        # Anti-plágio
+        # anti-plágio
         if tuple(jogo) in vistos_historico:
+
             continue
 
         filtros = calcular_filtros_pro(
+
             jogo,
             ultimo_real
+
         )
 
-        # Filtros
         if not validar_jogo_pro(
             filtros
         ):
@@ -278,25 +440,22 @@ def main():
 
         validos += 1
 
-        # Score base
-        score_base = float(
-            np.mean([
-                base_scores.get(
-                    tuple([n]),
-                    0.5
-                )
-                for n in jogo
-            ])
+        score_base = calcular_score_hibrido(
+
+            jogo,
+            base_scores
+
         )
 
-        # Memória
         estrutura = extrair_estrutura(
             jogo
         )
 
         memoria = buscar_cenario_similar(
+
             supabase,
             estrutura
+
         )
 
         bonus_memoria = calcular_bonus_memoria(
@@ -309,7 +468,10 @@ def main():
 
             bonus_memoria *
 
-            fator_global
+            fator_global *
+
+            fator_regime
+
         )
 
         candidatos.append({
@@ -326,10 +488,12 @@ def main():
         })
 
     universo_estimado = int(
+
         (
             validos /
             MAX_TENTATIVAS
         ) * 3268760
+
     )
 
     print(
@@ -337,30 +501,35 @@ def main():
         f"{universo_estimado}"
     )
 
-    # Ranking
     candidatos.sort(
+
         key=lambda x:
         x["score"],
+
         reverse=True
+
     )
 
     finais = []
 
     for candidato in candidatos:
 
-        # Diversidade mínima
         if any(
 
             len(
+
                 set(
                     candidato["nums"]
                 ) ^
+
                 set(
                     f["nums"]
                 )
+
             ) < 10
 
             for f in finais
+
         ):
             continue
 
@@ -373,35 +542,31 @@ def main():
         ) >= QTD_FINAL:
             break
 
-    if not finais:
-
-        raise Exception(
-            "Nenhum candidato válido gerado."
-        )
-
-    # Persistência
-    payload = []
-
     print(
-        f"\n🏆 TOP "
-        f"{len(finais)}"
+        f"🏆 TOP {len(finais)}"
     )
 
+    payload = []
+
     for i, item in enumerate(
+
         finais,
         start=1
+
     ):
 
         nums = item["nums"]
 
-        filtros = item[
-            "filtros"
-        ]
+        filtros = item["filtros"]
 
         print(
+
             f"{i}º | "
+
             f"{item['score']:.4f} | "
+
             f"{nums}"
+
         )
 
         payload.append({
@@ -422,18 +587,14 @@ def main():
                 nums
             ),
 
-            "pares": filtros[
-                "pares"
-            ],
+            "pares": filtros["pares"],
 
             "impares": (
                 15 -
                 filtros["pares"]
             ),
 
-            "soma_total": filtros[
-                "soma"
-            ],
+            "soma_total": filtros["soma"],
 
             "processado": False,
 
@@ -467,8 +628,11 @@ def main():
     supabase.table(
         "palpites_validos"
     ).upsert(
+
         payload,
+
         on_conflict="data_referencia,indice_palpite"
+
     ).execute()
 
     print(
@@ -478,5 +642,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
