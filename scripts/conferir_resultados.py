@@ -9,10 +9,6 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-# ======================================================
-# CONFIG
-# ======================================================
-
 PESO_ACERTOS = {
     11: 1,
     12: 2,
@@ -42,13 +38,12 @@ def parse_numeros(valor):
             return [int(x) for x in parsed]
 
         if isinstance(parsed, str):
-            parsed2 = json.loads(parsed)
-            return [int(x) for x in parsed2]
+            return [int(x) for x in json.loads(parsed)]
 
         return None
 
     except Exception as e:
-        print(f"⚠️ Erro parseando números: {valor} -> {e}")
+        print(f"⚠️ Parse inválido: {e}")
         return None
 
 
@@ -86,15 +81,15 @@ def gerar_chave_memoria(est):
 
 def carregar_memoria(supabase):
 
-    print("🧠 Carregando memória em cache...")
+    print("🧠 Carregando memória...")
 
     memoria = {}
 
-    res = supabase.table("memoria_cenarios") \
-        .select("*") \
-        .execute()
+    registros = supabase.table(
+        "memoria_cenarios"
+    ).select("*").execute()
 
-    for item in (res.data or []):
+    for item in (registros.data or []):
 
         chave = (
             item["soma_faixa"],
@@ -111,6 +106,8 @@ def carregar_memoria(supabase):
 
 
 def atualizar_memoria_local(memoria_cache, nums, acertos):
+
+    agora = datetime.now().isoformat()
 
     est = extrair_estrutura(nums)
 
@@ -138,7 +135,10 @@ def atualizar_memoria_local(memoria_cache, nums, acertos):
             "acertos_14": 0,
             "acertos_15": 0,
 
-            "score_medio_real": 0.0
+            "score_medio_real": 0,
+
+            "created_at": agora,
+            "updated_at": agora
         }
 
     mem = memoria_cache[chave]
@@ -154,21 +154,19 @@ def atualizar_memoria_local(memoria_cache, nums, acertos):
         )
     )
 
-    novo_score = (
-        (
-            score_antigo * (vezes - 1)
-        ) + peso
-    ) / vezes
-
     mem["score_medio_real"] = round(
-        novo_score,
+        (
+            (
+                score_antigo * (vezes - 1)
+            ) + peso
+        ) / vezes,
         4
     )
 
     if acertos >= 11:
         mem[f"acertos_{acertos}"] += 1
 
-    mem["updated_at"] = datetime.now().isoformat()
+    mem["updated_at"] = agora
 
 
 def sincronizar_memoria(
@@ -186,22 +184,15 @@ def sincronizar_memoria(
         if mem.get("id"):
             updates.append(mem)
         else:
-            item = mem.copy()
-            item.pop("id", None)
-            inserts.append(item)
+            payload = mem.copy()
+            payload.pop("id", None)
+            inserts.append(payload)
 
     if inserts:
 
-        print(
-            f"➕ Inserindo "
-            f"{len(inserts)} novos cenários"
-        )
+        print(f"➕ Inserindo {len(inserts)} cenários")
 
-        for i in range(
-            0,
-            len(inserts),
-            50
-        ):
+        for i in range(0, len(inserts), 50):
 
             supabase.table(
                 "memoria_cenarios"
@@ -211,10 +202,7 @@ def sincronizar_memoria(
 
     if updates:
 
-        print(
-            f"🔄 Atualizando "
-            f"{len(updates)} cenários"
-        )
+        print(f"🔄 Atualizando {len(updates)} cenários")
 
         for item in updates:
 
@@ -242,13 +230,9 @@ def main():
     supabase = get_supabase()
 
     print(
-        "🏁 [v5.7.1-STABLE] "
+        "🏁 [v5.7.2-STABLE] "
         "Conferência Inteligente iniciada"
     )
-
-    # ==================================================
-    # RESULTADOS OFICIAIS
-    # ==================================================
 
     oficiais = supabase.table(
         "lotofacil_concursos"
@@ -276,27 +260,16 @@ def main():
             ] = set(nums)
 
     print(
-        f"📊 {len(resultado_map)} "
-        f"concursos carregados"
+        f"📊 {len(resultado_map)} concursos carregados"
     )
-
-    # ==================================================
-    # MEMÓRIA
-    # ==================================================
 
     memoria_cache = carregar_memoria(
         supabase
     )
 
-    # ==================================================
-    # PALPITES PENDENTES
-    # ==================================================
-
     pendentes = supabase.table(
         "palpites_validos"
-    ).select(
-        "*"
-    ).eq(
+    ).select("*").eq(
         "processado",
         False
     ).execute()
@@ -306,8 +279,7 @@ def main():
     )
 
     print(
-        f"📌 {len(pendentes)} "
-        f"palpites pendentes"
+        f"📌 {len(pendentes)} palpites pendentes"
     )
 
     updates_palpites = []
@@ -330,12 +302,6 @@ def main():
             )
 
             if not nums:
-
-                print(
-                    f"⚠️ Palpite inválido "
-                    f"ID={p['id']}"
-                )
-
                 continue
 
             acertos = len(
@@ -362,21 +328,15 @@ def main():
         except Exception as e:
 
             print(
-                f"⚠️ Erro ID="
-                f"{p.get('id')} "
+                f"⚠️ ID={p.get('id')} "
                 f"-> {e}"
             )
-
-    # ==================================================
-    # UPDATE PALPITES
-    # ==================================================
 
     if updates_palpites:
 
         print(
             f"🔄 Atualizando "
-            f"{len(updates_palpites)} "
-            f"palpites"
+            f"{len(updates_palpites)} palpites"
         )
 
         for item in updates_palpites:
@@ -399,23 +359,12 @@ def main():
                 item_id
             ).execute()
 
-    # ==================================================
-    # SINCRONIZA MEMÓRIA
-    # ==================================================
-
     sincronizar_memoria(
         supabase,
         memoria_cache
     )
 
-    # ==================================================
-    # CONSOLIDAÇÃO
-    # ==================================================
-
-    print(
-        "📊 Consolidando "
-        "resultados..."
-    )
+    print("📊 Consolidando...")
 
     todos = supabase.table(
         "palpites_validos"
@@ -444,9 +393,7 @@ def main():
         ).strip()
 
         versao = (
-            p.get(
-                "versao_gerador"
-            )
+            p.get("versao_gerador")
             or "legacy"
         ).strip()
 
@@ -465,9 +412,7 @@ def main():
                 or datetime.now().date()
             ).split(" ")[0]
 
-            consolidado[
-                chave
-            ] = {
+            consolidado[chave] = {
 
                 "data_referencia": data_ref,
 
@@ -478,8 +423,10 @@ def main():
                 "versao_gerador": versao,
 
                 "qtd_palpites": 0,
+                "total_concursos": 1,
 
                 "score_ponderado": 0,
+                "score_medio": 0,
 
                 "acertos_11": 0,
                 "acertos_12": 0,
@@ -490,70 +437,48 @@ def main():
 
         ref = consolidado[chave]
 
-        ref[
-            "qtd_palpites"
-        ] += 1
+        ref["qtd_palpites"] += 1
 
         acertos = p["acertos"]
 
         if acertos >= 11:
 
-            ref[
-                f"acertos_{acertos}"
-            ] += 1
+            ref[f"acertos_{acertos}"] += 1
 
-            ref[
-                "score_ponderado"
-            ] += PESO_ACERTOS.get(
-                acertos,
-                0
+            ref["score_ponderado"] += (
+                PESO_ACERTOS.get(
+                    acertos,
+                    0
+                )
             )
 
     items = []
 
     for ref in consolidado.values():
 
-        qtd = ref[
-            "qtd_palpites"
-        ]
+        qtd = ref["qtd_palpites"]
 
         premiados = sum(
             ref.get(
                 f"acertos_{i}",
                 0
             )
-            for i in range(
-                11,
-                16
-            )
+            for i in range(11, 16)
         )
 
-        ref[
-            "eficiencia"
-        ] = round(
-            (
-                premiados / qtd
-            ) * 100,
+        ref["eficiencia"] = round(
+            (premiados / qtd) * 100,
             2
         ) if qtd else 0
 
-        ref[
-            "score_medio"
-        ] = round(
-            ref[
-                "score_ponderado"
-            ] / qtd,
+        ref["score_medio"] = round(
+            ref["score_ponderado"] / qtd,
             4
         ) if qtd else 0
 
-        for i in range(
-            12,
-            16
-        ):
+        for i in range(12, 16):
 
-            ref[
-                f"taxa_{i}"
-            ] = round(
+            ref[f"taxa_{i}"] = round(
                 (
                     ref.get(
                         f"acertos_{i}",
@@ -566,15 +491,10 @@ def main():
         items.append(ref)
 
     print(
-        f"🚀 Enviando "
-        f"{len(items)} grupos"
+        f"🚀 Enviando {len(items)} grupos"
     )
 
-    for i in range(
-        0,
-        len(items),
-        50
-    ):
+    for i in range(0, len(items), 50):
 
         try:
 
@@ -588,18 +508,11 @@ def main():
         except Exception as e:
 
             print(
-                f"⚠️ Erro "
-                f"consolidando: "
-                f"{e}"
+                f"⚠️ Consolidação: {e}"
             )
 
-    print(
-        "✅ Processo "
-        "concluído "
-        "com sucesso"
-    )
+    print("✅ Processo concluído")
 
 
 if __name__ == "__main__":
     main()
-
