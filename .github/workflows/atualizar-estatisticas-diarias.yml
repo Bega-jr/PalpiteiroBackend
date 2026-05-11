@@ -1,4 +1,4 @@
-name: Pipeline Lotofácil 2026 - IA Evolutiva
+name: Pipeline Lotofácil 2026 - IA Evolutiva v14
 
 on:
   schedule:
@@ -8,12 +8,16 @@ on:
 
 jobs:
   pipeline-lotofacil:
+
     runs-on: ubuntu-latest
+
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       PYTHONPATH: .
+
     steps:
+
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
@@ -28,18 +32,44 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas numpy requests python-dotenv supabase pytz
 
-      - name: 🌐 1. Buscar Resultados Oficiais (CAIXA)
-        run: python scripts/atualizar_lotofacil.py
+      # -----------------------------------------
+      # 1. Resultados oficiais
+      # -----------------------------------------
+      - name: 🌐 Atualizar resultados oficiais
+        run: |
+          python scripts/atualizar_lotofacil.py
 
-      - name: 🏁 2. Conferir e Alimentar Inteligência (Memória)
-        run: python scripts/conferir_resultados.py
+      # -----------------------------------------
+      # 2. Aprendizado real
+      # Atualiza score real, acertos,
+      # histórico de performance
+      # -----------------------------------------
+      - name: 🧠 Conferir resultados e aprender
+        run: |
+          python scripts/conferir_resultados.py
 
-      - name: 📊 3. Processamento Diário e Score Real
-        run: python scripts/processamento_diario_lotofacil.py
+      # -----------------------------------------
+      # 3. Processamento estrutural
+      # Atualiza:
+      # - hash_estrutura
+      # - saturação
+      # - tendência
+      # - regimes
+      # -----------------------------------------
+      - name: 📊 Processamento estrutural
+        run: |
+          python scripts/processamento_diario_lotofacil.py
 
-      - name: 🎯 4. Gerar novos palpites (IA Evolutiva)
-        run: python scripts/gerar_palpites_diarios.py
+      # -----------------------------------------
+      # 4. Geração dos novos jogos
+      # -----------------------------------------
+      - name: 🎯 Gerar novos palpites
+        run: |
+          python scripts/gerar_palpites_diarios.py
 
+      # -----------------------------------------
+      # Final
+      # -----------------------------------------
       - name: ✅ Finalização
-        run: echo "Pipeline executado com sucesso em $(date)"
-
+        run: |
+          echo "Pipeline executado com sucesso em $(date)"
