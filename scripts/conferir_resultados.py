@@ -1,5 +1,6 @@
 import sys
 import json
+
 from pathlib import Path
 from datetime import datetime
 
@@ -9,42 +10,27 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-PESO_ACERTOS = {
-    11: 1,
-    12: 2,
-    13: 5,
-    14: 10,
-    15: 15
-}
-
-NUMEROS_PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
+PRIMOS = {2,3,5,7,11,13,17,19,23}
 
 
 # ======================================================
-# HELPERS
+# AUX
 # ======================================================
-
 def parse_numeros(valor):
+
     if not valor:
-        return None
+        return []
 
-    try:
-        if isinstance(valor, list):
-            return [int(x) for x in valor]
+    if isinstance(valor, list):
+        return [int(x) for x in valor]
 
-        parsed = json.loads(valor)
+    if isinstance(valor, str):
+        try:
+            return [int(x) for x in json.loads(valor)]
+        except:
+            return []
 
-        if isinstance(parsed, list):
-            return [int(x) for x in parsed]
-
-        if isinstance(parsed, str):
-            return [int(x) for x in json.loads(parsed)]
-
-        return None
-
-    except Exception as e:
-        print(f"⚠️ Parse inválido: {e}")
-        return None
+    return []
 
 
 def extrair_estrutura(nums):
@@ -60,92 +46,71 @@ def extrair_estrutura(nums):
     return {
         "soma_faixa": int(round(sum(nums) / 10) * 10),
         "pares": sum(1 for n in nums if n % 2 == 0),
-        "primos": sum(1 for n in nums if n in NUMEROS_PRIMOS),
-        "linhas": linhas,
+        "primos": sum(1 for n in nums if n in PRIMOS),
         "hash_estrutura": "-".join(map(str, linhas))
     }
 
 
-def gerar_chave_memoria(est):
-    return (
-        est["soma_faixa"],
-        est["pares"],
-        est["primos"],
-        est["hash_estrutura"]
+# ======================================================
+# MEMORIA ESTRUTURAL
+# ======================================================
+def atualizar_memoria_estrutural(
+    supabase,
+    palpite,
+    acertos
+):
+
+    numeros = parse_numeros(
+        palpite["numeros"]
     )
 
+    if not numeros:
+        return
 
-# ======================================================
-# MEMÓRIA
-# ======================================================
+    estrutura = extrair_estrutura(
+        numeros
+    )
 
-def carregar_memoria(supabase):
-
-    print("🧠 Carregando memória...")
-
-    memoria = {}
-
-    registros = supabase.table(
+    row = supabase.table(
         "memoria_cenarios"
-    ).select("*").execute()
+    ).select("*") \
+     .eq(
+         "soma_faixa",
+         estrutura["soma_faixa"]
+     ) \
+     .eq(
+         "pares",
+         estrutura["pares"]
+     ) \
+     .eq(
+         "primos",
+         estrutura["primos"]
+     ) \
+     .eq(
+         "hash_estrutura",
+         estrutura["hash_estrutura"]
+     ) \
+     .execute()
 
-    for item in (registros.data or []):
+    if not row.data:
+        return
 
-        chave = (
-            item["soma_faixa"],
-            item["pares"],
-            item["primos"],
-            item.get("hash_estrutura", "")
+    mem = row.data[0]
+
+    peso = {
+        11: 1,
+        12: 2,
+        13: 5,
+        14: 10,
+        15: 15
+    }.get(acertos, 0)
+
+    vezes = int(
+        mem.get(
+            "vezes_gerado",
+            0
         )
-
-        memoria[chave] = item
-
-    print(f"✅ {len(memoria)} cenários carregados")
-
-    return memoria
-
-
-def atualizar_memoria_local(memoria_cache, nums, acertos):
-
-    agora = datetime.now().isoformat()
-
-    est = extrair_estrutura(nums)
-
-    chave = gerar_chave_memoria(est)
-
-    peso = PESO_ACERTOS.get(acertos, 0)
-
-    if chave not in memoria_cache:
-
-        memoria_cache[chave] = {
-            "id": None,
-
-            "soma_faixa": est["soma_faixa"],
-            "pares": est["pares"],
-            "primos": est["primos"],
-
-            "linhas": est["linhas"],
-            "hash_estrutura": est["hash_estrutura"],
-
-            "vezes_gerado": 0,
-
-            "acertos_11": 0,
-            "acertos_12": 0,
-            "acertos_13": 0,
-            "acertos_14": 0,
-            "acertos_15": 0,
-
-            "score_medio_real": 0,
-
-            "created_at": agora,
-            "updated_at": agora
-        }
-
-    mem = memoria_cache[chave]
-
-    mem["vezes_gerado"] += 1
-
-    vezes = mem["vezes_gerado"]
+    )
 
     score_antigo = float(
         mem.get(
@@ -154,84 +119,138 @@ def atualizar_memoria_local(memoria_cache, nums, acertos):
         )
     )
 
-    mem["score_medio_real"] = round(
-        (
-            (
-                score_antigo * (vezes - 1)
-            ) + peso
-        ) / vezes,
-        4
-    )
+    novo_total = vezes + 1
+
+    novo_score = (
+        (score_antigo * vezes) + peso
+    ) / novo_total
+
+    update = {
+        "vezes_gerado": novo_total,
+
+        "score_medio_real": round(
+            novo_score,
+            4
+        ),
+
+        "ultima_aparicao": datetime.now().date().isoformat(),
+
+        "updated_at": datetime.now().isoformat()
+    }
 
     if acertos >= 11:
-        mem[f"acertos_{acertos}"] += 1
 
-    mem["updated_at"] = agora
+        coluna = f"acertos_{acertos}"
+
+        update[coluna] = int(
+            mem.get(
+                coluna,
+                0
+            )
+        ) + 1
+
+    supabase.table(
+        "memoria_cenarios"
+    ).update(
+        update
+    ).eq(
+        "id",
+        mem["id"]
+    ).execute()
 
 
-def sincronizar_memoria(
+# ======================================================
+# MEMORIA POSICIONAL
+# ======================================================
+def atualizar_memoria_posicional(
     supabase,
-    memoria_cache
+    indice_palpite,
+    acertos
 ):
 
-    print("🧠 Sincronizando memória...")
+    row = supabase.table(
+        "memoria_posicional"
+    ).select("*") \
+     .eq(
+         "indice_palpite",
+         indice_palpite
+     ) \
+     .execute()
 
-    inserts = []
-    updates = []
+    if not row.data:
+        return
 
-    for mem in memoria_cache.values():
+    mem = row.data[0]
 
-        if mem.get("id"):
-            updates.append(mem)
-        else:
-            payload = mem.copy()
-            payload.pop("id", None)
-            inserts.append(payload)
+    peso = {
+        11: 1,
+        12: 2,
+        13: 5,
+        14: 10,
+        15: 15
+    }.get(acertos, 0)
 
-    if inserts:
+    vezes = int(
+        mem.get(
+            "vezes_gerado",
+            0
+        )
+    )
 
-        print(f"➕ Inserindo {len(inserts)} cenários")
+    score_antigo = float(
+        mem.get(
+            "score_medio_real",
+            0
+        )
+    )
 
-        for i in range(0, len(inserts), 50):
+    novo_total = vezes + 1
 
-            supabase.table(
-                "memoria_cenarios"
-            ).insert(
-                inserts[i:i+50]
-            ).execute()
+    novo_score = (
+        (score_antigo * vezes) + peso
+    ) / novo_total
 
-    if updates:
+    update = {
+        "vezes_gerado": novo_total,
 
-        print(f"🔄 Atualizando {len(updates)} cenários")
+        "score_medio_real": round(
+            novo_score,
+            4
+        ),
 
-        for item in updates:
+        "updated_at": datetime.now().isoformat()
+    }
 
-            item_id = item["id"]
+    if acertos >= 11:
 
-            payload = item.copy()
-            payload.pop("id", None)
+        coluna = f"acertos_{acertos}"
 
-            supabase.table(
-                "memoria_cenarios"
-            ).update(
-                payload
-            ).eq(
-                "id",
-                item_id
-            ).execute()
+        update[coluna] = int(
+            mem.get(
+                coluna,
+                0
+            )
+        ) + 1
+
+    supabase.table(
+        "memoria_posicional"
+    ).update(
+        update
+    ).eq(
+        "indice_palpite",
+        indice_palpite
+    ).execute()
 
 
 # ======================================================
 # MAIN
 # ======================================================
-
 def main():
 
     supabase = get_supabase()
 
     print(
-        "🏁 [v5.7.2-STABLE] "
-        "Conferência Inteligente iniciada"
+        "🏁 [v14.0] Conferência + Memória Posicional"
     )
 
     oficiais = supabase.table(
@@ -243,273 +262,72 @@ def main():
         desc=True
     ).limit(
         500
-    ).execute()
+    ).execute().data
 
-    resultado_map = {}
-
-    for item in (oficiais.data or []):
-
-        nums = parse_numeros(
-            item["dezenas"]
+    mapa = {
+        int(r["concurso"]): set(
+            parse_numeros(
+                r["dezenas"]
+            )
         )
-
-        if nums:
-
-            resultado_map[
-                int(item["concurso"])
-            ] = set(nums)
-
-    print(
-        f"📊 {len(resultado_map)} concursos carregados"
-    )
-
-    memoria_cache = carregar_memoria(
-        supabase
-    )
+        for r in oficiais
+    }
 
     pendentes = supabase.table(
         "palpites_validos"
-    ).select("*").eq(
+    ).select(
+        "*"
+    ).eq(
         "processado",
         False
-    ).execute()
-
-    pendentes = (
-        pendentes.data or []
-    )
+    ).execute().data
 
     print(
         f"📌 {len(pendentes)} palpites pendentes"
     )
 
-    updates_palpites = []
-
     for p in pendentes:
-
-        try:
-
-            concurso = int(
-                str(
-                    p["concurso_referencia"]
-                ).strip()
-            )
-
-            if concurso not in resultado_map:
-                continue
-
-            nums = parse_numeros(
-                p["numeros"]
-            )
-
-            if not nums:
-                continue
-
-            acertos = len(
-                set(nums)
-                &
-                resultado_map[
-                    concurso
-                ]
-            )
-
-            updates_palpites.append({
-                "id": p["id"],
-                "acertos": acertos,
-                "processado": True,
-                "conferido": True
-            })
-
-            atualizar_memoria_local(
-                memoria_cache,
-                nums,
-                acertos
-            )
-
-        except Exception as e:
-
-            print(
-                f"⚠️ ID={p.get('id')} "
-                f"-> {e}"
-            )
-
-    if updates_palpites:
-
-        print(
-            f"🔄 Atualizando "
-            f"{len(updates_palpites)} palpites"
-        )
-
-        for item in updates_palpites:
-
-            item_id = item["id"]
-
-            payload = item.copy()
-
-            payload.pop(
-                "id",
-                None
-            )
-
-            supabase.table(
-                "palpites_validos"
-            ).update(
-                payload
-            ).eq(
-                "id",
-                item_id
-            ).execute()
-
-    sincronizar_memoria(
-        supabase,
-        memoria_cache
-    )
-
-    print("📊 Consolidando...")
-
-    todos = supabase.table(
-        "palpites_validos"
-    ).select(
-        "data_referencia,"
-        "concurso_referencia,"
-        "tipo,"
-        "versao_gerador,"
-        "acertos"
-    ).not_.is_(
-        "acertos",
-        "null"
-    ).execute()
-
-    consolidado = {}
-
-    for p in (todos.data or []):
 
         concurso = int(
             p["concurso_referencia"]
         )
 
-        tipo = (
-            p.get("tipo")
-            or "estatistico"
-        ).strip()
+        if concurso not in mapa:
+            continue
 
-        versao = (
-            p.get("versao_gerador")
-            or "legacy"
-        ).strip()
-
-        chave = (
-            concurso,
-            tipo,
-            versao
+        numeros = parse_numeros(
+            p["numeros"]
         )
 
-        if chave not in consolidado:
-
-            data_ref = str(
-                p.get(
-                    "data_referencia"
-                )
-                or datetime.now().date()
-            ).split(" ")[0]
-
-            consolidado[chave] = {
-
-                "data_referencia": data_ref,
-
-                "concurso_inicio": concurso,
-                "concurso_fim": concurso,
-
-                "tipo_palpite": tipo,
-                "versao_gerador": versao,
-
-                "qtd_palpites": 0,
-                "total_concursos": 1,
-
-                "score_ponderado": 0,
-                "score_medio": 0,
-
-                "acertos_11": 0,
-                "acertos_12": 0,
-                "acertos_13": 0,
-                "acertos_14": 0,
-                "acertos_15": 0
-            }
-
-        ref = consolidado[chave]
-
-        ref["qtd_palpites"] += 1
-
-        acertos = p["acertos"]
-
-        if acertos >= 11:
-
-            ref[f"acertos_{acertos}"] += 1
-
-            ref["score_ponderado"] += (
-                PESO_ACERTOS.get(
-                    acertos,
-                    0
-                )
-            )
-
-    items = []
-
-    for ref in consolidado.values():
-
-        qtd = ref["qtd_palpites"]
-
-        premiados = sum(
-            ref.get(
-                f"acertos_{i}",
-                0
-            )
-            for i in range(11, 16)
+        acertos = len(
+            set(numeros) &
+            mapa[concurso]
         )
 
-        ref["eficiencia"] = round(
-            (premiados / qtd) * 100,
-            2
-        ) if qtd else 0
+        supabase.table(
+            "palpites_validos"
+        ).update({
+            "acertos": acertos,
+            "processado": True,
+            "conferido": True
+        }).eq(
+            "id",
+            p["id"]
+        ).execute()
 
-        ref["score_medio"] = round(
-            ref["score_ponderado"] / qtd,
-            4
-        ) if qtd else 0
+        atualizar_memoria_estrutural(
+            supabase,
+            p,
+            acertos
+        )
 
-        for i in range(12, 16):
-
-            ref[f"taxa_{i}"] = round(
-                (
-                    ref.get(
-                        f"acertos_{i}",
-                        0
-                    ) / qtd
-                ) * 100,
-                2
-            ) if qtd else 0
-
-        items.append(ref)
-
-    print(
-        f"🚀 Enviando {len(items)} grupos"
-    )
-
-    for i in range(0, len(items), 50):
-
-        try:
-
-            supabase.table(
-                "palpites_resultados_reais"
-            ).upsert(
-                items[i:i+50],
-                on_conflict="concurso_inicio,tipo_palpite,versao_gerador"
-            ).execute()
-
-        except Exception as e:
-
-            print(
-                f"⚠️ Consolidação: {e}"
-            )
+        atualizar_memoria_posicional(
+            supabase,
+            int(
+                p["indice_palpite"]
+            ),
+            acertos
+        )
 
     print("✅ Processo concluído")
 
