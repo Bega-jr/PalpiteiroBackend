@@ -24,6 +24,7 @@ def normalizar(col):
 
 
 def calcular_tendencia(historico, numero, janela=25):
+
     ultimos = historico[-janela:]
 
     presencas = [
@@ -96,7 +97,7 @@ def extrair_estrutura(nums):
 
 
 # ======================================================
-# MEMÓRIA
+# MEMÓRIA REAL
 # ======================================================
 
 def buscar_memoria_real(
@@ -104,25 +105,22 @@ def buscar_memoria_real(
     estrutura
 ):
 
-    # --------------------------------------------------
-    # 1. Match exato
-    # --------------------------------------------------
+    # -----------------------------------------
+    # 1. Busca principal por estrutura
+    # -----------------------------------------
     exato = supabase.table(
         "memoria_cenarios"
     ).select(
         "*"
     ).eq(
-        "soma_faixa",
-        estrutura["soma_faixa"]
-    ).eq(
-        "pares",
-        estrutura["pares"]
-    ).eq(
-        "primos",
-        estrutura["primos"]
-    ).eq(
         "hash_estrutura",
         estrutura["hash_estrutura"]
+    ).order(
+        "score_medio_real",
+        desc=True
+    ).order(
+        "vezes_gerado",
+        desc=True
     ).limit(
         1
     ).execute()
@@ -130,22 +128,13 @@ def buscar_memoria_real(
     if exato.data:
         return exato.data[0]
 
-    # --------------------------------------------------
-    # 2. Fallback inteligente
-    # --------------------------------------------------
+    # -----------------------------------------
+    # 2. Fallback por similaridade
+    # -----------------------------------------
     similares = supabase.table(
         "memoria_cenarios"
     ).select(
         "*"
-    ).eq(
-        "soma_faixa",
-        estrutura["soma_faixa"]
-    ).eq(
-        "pares",
-        estrutura["pares"]
-    ).eq(
-        "primos",
-        estrutura["primos"]
     ).execute()
 
     if not similares.data:
@@ -189,8 +178,8 @@ def buscar_memoria_real(
 
         ranking = (
             diff,
-            -vezes,
-            -score_real
+            -score_real,
+            -vezes
         )
 
         if ranking < melhor_ranking:
@@ -202,7 +191,7 @@ def buscar_memoria_real(
     return melhor
 
 
-# Retrocompatibilidade
+# Compatibilidade com scripts antigos
 buscar_cenario_similar = buscar_memoria_real
 
 
@@ -276,7 +265,7 @@ def main():
     supabase = get_supabase()
 
     print(
-        "🚀 [v4.4-STABLE] "
+        "🚀 [v4.5-STABLE] "
         "Processamento Inteligente"
     )
 
@@ -312,7 +301,6 @@ def main():
             )
         )
 
-        # Normalização
         df["freq_norm"] = normalizar(
             df["frequencia"]
         )
@@ -332,7 +320,6 @@ def main():
             df["score"]
         )
 
-        # Score base
         df["score"] = (
 
             df["freq_norm"] * 0.35 +
