@@ -24,11 +24,14 @@ def normalizar(col):
 
 
 def calcular_tendencia(historico, numero, janela=25):
+
     ultimos = historico[-janela:]
+
     presencas = [
         1 if numero in h["numeros"] else 0
         for h in ultimos
     ]
+
     return float(np.mean(presencas))
 
 
@@ -94,7 +97,7 @@ def extrair_estrutura(nums):
 
 
 # ======================================================
-# MEMÓRIA REAL
+# MEMÓRIA REAL (NOVA + FALLBACK)
 # ======================================================
 
 def buscar_memoria_real(
@@ -102,7 +105,10 @@ def buscar_memoria_real(
     estrutura
 ):
 
-    res = supabase.table(
+    # -----------------------------
+    # 1. MATCH EXATO (modelo novo)
+    # -----------------------------
+    exato = supabase.table(
         "memoria_cenarios"
     ).select(
         "*"
@@ -122,10 +128,63 @@ def buscar_memoria_real(
         1
     ).execute()
 
-    if not res.data:
+    if exato.data:
+        return exato.data[0]
+
+    # -----------------------------
+    # 2. FALLBACK (modelo híbrido)
+    # -----------------------------
+    similares = supabase.table(
+        "memoria_cenarios"
+    ).select(
+        "*"
+    ).eq(
+        "soma_faixa",
+        estrutura["soma_faixa"]
+    ).eq(
+        "pares",
+        estrutura["pares"]
+    ).eq(
+        "primos",
+        estrutura["primos"]
+    ).execute()
+
+    if not similares.data:
         return None
 
-    return res.data[0]
+    melhor = None
+
+    menor_diff = 999
+
+    for item in similares.data:
+
+        linhas_db = item.get(
+            "linhas",
+            []
+        )
+
+        if not linhas_db:
+            continue
+
+        diff = sum(
+            abs(a - b)
+            for a, b in zip(
+                linhas_db,
+                estrutura["linhas"]
+            )
+        )
+
+        if diff < menor_diff:
+
+            menor_diff = diff
+
+            melhor = item
+
+    return melhor
+
+
+# Compatibilidade com scripts antigos
+buscar_cenario_similar = buscar_memoria_real
 
 
 def ajustar_por_memoria(
@@ -201,7 +260,7 @@ def main():
     supabase = get_supabase()
 
     print(
-        "🚀 [v4.2-STABLE] "
+        "🚀 [v4.3-STABLE] "
         "Processamento Inteligente"
     )
 
@@ -269,7 +328,7 @@ def main():
             df["score_norm"] * 0.15
         )
 
-        # Memória real
+        # Memória
         est = extrair_estrutura(
             dezenas
         )
@@ -284,7 +343,7 @@ def main():
             memoria
         )
 
-        # Atualiza última aparição
+        # Upsert memória
         payload_memoria = {
             "soma_faixa": est["soma_faixa"],
             "pares": est["pares"],
@@ -308,7 +367,7 @@ def main():
             "✅ Memória atualizada"
         )
 
-        # Ciclos
+        # Regimes
         faltantes, ciclo = calcular_ciclo_historico_completo(
             historico
         )
@@ -327,7 +386,6 @@ def main():
         elif media_score < 0.45:
             regime = "CONTRACAO_FRIAS"
 
-        # Regimes
         check = supabase.table(
             "memoria_regimes"
         ).select(
