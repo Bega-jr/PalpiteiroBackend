@@ -76,7 +76,10 @@ def extrair_estrutura(nums):
     ]
 
     return {
-        "soma_faixa": int(round(sum(nums) / 10) * 10),
+
+        "soma_faixa": int(
+            round(sum(nums) / 10) * 10
+        ),
 
         "pares": sum(
             1 for n in nums
@@ -97,7 +100,7 @@ def extrair_estrutura(nums):
 
 
 # ======================================================
-# MEMÓRIA REAL
+# MEMÓRIA
 # ======================================================
 
 def buscar_memoria_real(
@@ -105,10 +108,7 @@ def buscar_memoria_real(
     estrutura
 ):
 
-    # -----------------------------------------
-    # 1. Busca principal por estrutura
-    # -----------------------------------------
-    exato = supabase.table(
+    busca = supabase.table(
         "memoria_cenarios"
     ).select(
         "*"
@@ -118,81 +118,52 @@ def buscar_memoria_real(
     ).order(
         "score_medio_real",
         desc=True
-    ).order(
-        "vezes_gerado",
-        desc=True
     ).limit(
         1
     ).execute()
 
-    if exato.data:
-        return exato.data[0]
+    if busca.data:
+        return busca.data[0]
 
-    # -----------------------------------------
-    # 2. Fallback por similaridade
-    # -----------------------------------------
-    similares = supabase.table(
-        "memoria_cenarios"
-    ).select(
-        "*"
-    ).execute()
-
-    if not similares.data:
-        return None
-
-    melhor = None
-
-    melhor_ranking = (999, 999, 999)
-
-    for item in similares.data:
-
-        linhas_db = item.get(
-            "linhas",
-            []
-        )
-
-        if not linhas_db:
-            continue
-
-        diff = sum(
-            abs(a - b)
-            for a, b in zip(
-                linhas_db,
-                estrutura["linhas"]
-            )
-        )
-
-        vezes = int(
-            item.get(
-                "vezes_gerado",
-                0
-            )
-        )
-
-        score_real = float(
-            item.get(
-                "score_medio_real",
-                0
-            )
-        )
-
-        ranking = (
-            diff,
-            -score_real,
-            -vezes
-        )
-
-        if ranking < melhor_ranking:
-
-            melhor_ranking = ranking
-
-            melhor = item
-
-    return melhor
+    return None
 
 
-# Compatibilidade com scripts antigos
+# compatibilidade com scripts antigos
 buscar_cenario_similar = buscar_memoria_real
+
+
+def calcular_saturacao(memoria):
+
+    if not memoria:
+        return 0.0
+
+    vezes = int(
+        memoria.get(
+            "vezes_gerado",
+            0
+        )
+    )
+
+    if vezes <= 2:
+        return 0.0
+
+    return min(
+        vezes / 20,
+        1.0
+    )
+
+
+def calcular_tendencia_memoria(memoria):
+
+    if not memoria:
+        return 0.0
+
+    return float(
+        memoria.get(
+            "score_medio_real",
+            0
+        )
+    )
 
 
 def ajustar_por_memoria(
@@ -248,7 +219,7 @@ def ajustar_por_memoria(
     elif vezes >= 5 and score_real == 0:
 
         print(
-            "❄️ Cenário improdutivo (-15%)"
+            "❄️ Cenário saturado (-15%)"
         )
 
         df["score"] *= 0.85
@@ -265,7 +236,7 @@ def main():
     supabase = get_supabase()
 
     print(
-        "🚀 [v4.5-STABLE] "
+        "🚀 [v4.6-STABLE] "
         "Processamento Inteligente"
     )
 
@@ -331,7 +302,9 @@ def main():
             df["score_norm"] * 0.15
         )
 
-        # Memória
+        # -----------------------------
+        # MEMÓRIA
+        # -----------------------------
         est = extrair_estrutura(
             dezenas
         )
@@ -346,36 +319,64 @@ def main():
             memoria
         )
 
-        # Atualização da memória
+        tendencia_memoria = calcular_tendencia_memoria(
+            memoria
+        )
+
+        saturacao = calcular_saturacao(
+            memoria
+        )
+
         payload_memoria = {
 
-            "soma_faixa": est["soma_faixa"],
+            "hash_estrutura":
+                est["hash_estrutura"],
 
-            "pares": est["pares"],
+            "soma_faixa":
+                est["soma_faixa"],
 
-            "primos": est["primos"],
+            "pares":
+                est["pares"],
 
-            "linhas": est["linhas"],
+            "primos":
+                est["primos"],
 
-            "hash_estrutura": est["hash_estrutura"],
+            "linhas":
+                est["linhas"],
 
-            "ultima_aparicao": data,
+            "tendencia":
+                round(
+                    tendencia_memoria,
+                    4
+                ),
 
-            "updated_at": datetime.now().isoformat()
+            "saturacao":
+                round(
+                    saturacao,
+                    4
+                ),
+
+            "ultima_aparicao":
+                data,
+
+            "updated_at":
+                datetime.now().isoformat()
         }
 
         supabase.table(
             "memoria_cenarios"
         ).upsert(
             payload_memoria,
-            on_conflict="soma_faixa,pares,primos,hash_estrutura"
+            on_conflict="hash_estrutura"
         ).execute()
 
         print(
             "✅ Memória atualizada"
         )
 
-        # Regimes
+        # -----------------------------
+        # REGIME
+        # -----------------------------
         _, ciclo = calcular_ciclo_historico_completo(
             historico
         )
@@ -405,34 +406,31 @@ def main():
 
         if not check.data:
 
-            payload_regime = {
-
-                "data_referencia": data,
-
-                "concurso": int(concurso),
-
-                "numero_ciclo": int(ciclo),
-
-                "tipo_regime": regime,
-
-                "score_global": float(
-                    media_score
-                ),
-
-                "media_soma": float(
-                    sum(dezenas)
-                ),
-
-                "media_pares": int(
-                    est["pares"]
-                )
-            }
-
             supabase.table(
                 "memoria_regimes"
-            ).insert(
-                payload_regime
-            ).execute()
+            ).insert({
+
+                "data_referencia":
+                    data,
+
+                "concurso":
+                    int(concurso),
+
+                "numero_ciclo":
+                    int(ciclo),
+
+                "tipo_regime":
+                    regime,
+
+                "score_global":
+                    float(media_score),
+
+                "media_soma":
+                    float(sum(dezenas)),
+
+                "media_pares":
+                    int(est["pares"])
+            }).execute()
 
             print(
                 f"📡 Regime salvo: "
