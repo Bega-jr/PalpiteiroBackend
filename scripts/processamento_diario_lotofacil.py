@@ -24,7 +24,6 @@ def normalizar(col):
 
 
 def calcular_tendencia(historico, numero, janela=25):
-
     ultimos = historico[-janela:]
 
     presencas = [
@@ -38,31 +37,19 @@ def calcular_tendencia(historico, numero, janela=25):
 def calcular_ciclo_historico_completo(historico):
 
     todos_25 = set(range(1, 26))
-
     sorteados = set()
-
     ciclo = 1
 
     for concurso in historico:
-
-        sorteados.update(
-            concurso["numeros"]
-        )
+        sorteados.update(concurso["numeros"])
 
         if sorteados == todos_25:
-
             sorteados = set()
-
             ciclo += 1
 
-    faltantes = sorted(
-        todos_25 - sorteados
-    )
+    faltantes = sorted(todos_25 - sorteados)
 
-    return (
-        faltantes if faltantes else list(range(1, 26)),
-        ciclo
-    )
+    return (faltantes if faltantes else list(range(1, 26)), ciclo)
 
 
 def extrair_estrutura(nums):
@@ -76,26 +63,11 @@ def extrair_estrutura(nums):
     ]
 
     return {
-
-        "soma_faixa": int(
-            round(sum(nums) / 10) * 10
-        ),
-
-        "pares": sum(
-            1 for n in nums
-            if n % 2 == 0
-        ),
-
-        "primos": sum(
-            1 for n in nums
-            if n in NUMEROS_PRIMOS
-        ),
-
+        "soma_faixa": int(round(sum(nums) / 10) * 10),
+        "pares": sum(1 for n in nums if n % 2 == 0),
+        "primos": sum(1 for n in nums if n in NUMEROS_PRIMOS),
         "linhas": linhas,
-
-        "hash_estrutura": "-".join(
-            map(str, linhas)
-        )
+        "hash_estrutura": "-".join(map(str, linhas))
     }
 
 
@@ -103,32 +75,17 @@ def extrair_estrutura(nums):
 # MEMÓRIA
 # ======================================================
 
-def buscar_memoria_real(
-    supabase,
-    estrutura
-):
+def buscar_memoria_real(supabase, estrutura):
 
-    busca = supabase.table(
-        "memoria_cenarios"
-    ).select(
-        "*"
-    ).eq(
-        "hash_estrutura",
-        estrutura["hash_estrutura"]
-    ).order(
-        "score_medio_real",
-        desc=True
-    ).limit(
-        1
-    ).execute()
+    resp = supabase.table("memoria_cenarios") \
+        .select("*") \
+        .eq("hash_estrutura", estrutura["hash_estrutura"]) \
+        .limit(1) \
+        .execute()
 
-    if busca.data:
-        return busca.data[0]
-
-    return None
+    return resp.data[0] if resp.data else None
 
 
-# compatibilidade com scripts antigos
 buscar_cenario_similar = buscar_memoria_real
 
 
@@ -137,20 +94,12 @@ def calcular_saturacao(memoria):
     if not memoria:
         return 0.0
 
-    vezes = int(
-        memoria.get(
-            "vezes_gerado",
-            0
-        )
-    )
+    vezes = int(memoria.get("vezes_gerado", 0))
 
     if vezes <= 2:
         return 0.0
 
-    return min(
-        vezes / 20,
-        1.0
-    )
+    return min(vezes / 20, 1.0)
 
 
 def calcular_tendencia_memoria(memoria):
@@ -158,71 +107,33 @@ def calcular_tendencia_memoria(memoria):
     if not memoria:
         return 0.0
 
-    return float(
-        memoria.get(
-            "score_medio_real",
-            0
-        )
-    )
+    return float(memoria.get("score_medio_real", 0))
 
 
-def ajustar_por_memoria(
-    df,
-    memoria
-):
+def ajustar_por_memoria(df, memoria):
 
     if not memoria:
-
-        print(
-            "🧠 Novo cenário "
-            "(sem histórico)"
-        )
-
+        print("🧠 Novo cenário (sem histórico)")
         return df
 
-    score_real = float(
-        memoria.get(
-            "score_medio_real",
-            0
-        )
-    )
-
-    vezes = int(
-        memoria.get(
-            "vezes_gerado",
-            0
-        )
-    )
+    score_real = float(memoria.get("score_medio_real", 0))
+    vezes = int(memoria.get("vezes_gerado", 0))
 
     print(
-        f"🧠 Memória Ativa | "
-        f"Score Real: {score_real:.2f} | "
-        f"Testado: {vezes}x"
+        f"🧠 Memória Ativa | Score Real: {score_real:.2f} | Testado: {vezes}x"
     )
 
     if score_real >= 5:
-
-        print(
-            "🔥 Alta performance (+15%)"
-        )
-
         df["score"] *= 1.15
+        print("🔥 Alta performance (+15%)")
 
     elif score_real >= 1:
-
-        print(
-            "📈 Cenário consistente (+5%)"
-        )
-
         df["score"] *= 1.05
+        print("📈 Cenário consistente (+5%)")
 
     elif vezes >= 5 and score_real == 0:
-
-        print(
-            "❄️ Cenário saturado (-15%)"
-        )
-
         df["score"] *= 0.85
+        print("❄️ Cenário saturado (-15%)")
 
     return df
 
@@ -235,14 +146,15 @@ def main():
 
     supabase = get_supabase()
 
-    print(
-        "🚀 [v4.6-STABLE] "
-        "Processamento Inteligente"
-    )
+    print("🚀 [v4.6-STABLE] Processamento Inteligente")
 
     try:
 
         historico = carregar_historico()
+
+        if not historico:
+            print("⚠️ Histórico vazio")
+            return
 
         ultimo = historico[-1]
 
@@ -250,127 +162,82 @@ def main():
         data = ultimo["data"]
         dezenas = ultimo["numeros"]
 
-        print(
-            f"📌 Concurso {concurso} "
-            f"| Data {data}"
-        )
+        print(f"📌 Concurso {concurso} | Data {data}")
 
         df = obter_estatisticas_com_score()
 
-        df.loc[
-            df["numero"].isin(dezenas),
-            "atraso"
-        ] = 0
+        df.loc[df["numero"].isin(dezenas), "atraso"] = 0
 
-        df["tendencia"] = df[
-            "numero"
-        ].apply(
-            lambda n:
-            calcular_tendencia(
-                historico,
-                n
-            )
+        df["tendencia"] = df["numero"].apply(
+            lambda n: calcular_tendencia(historico, n)
         )
 
-        df["freq_norm"] = normalizar(
-            df["frequencia"]
-        )
-
-        df["atraso_norm"] = (
-            1 -
-            normalizar(
-                df["atraso"]
-            )
-        )
-
-        df["tendencia_norm"] = normalizar(
-            df["tendencia"]
-        )
-
-        df["score_norm"] = normalizar(
-            df["score"]
-        )
+        df["freq_norm"] = normalizar(df["frequencia"])
+        df["atraso_norm"] = 1 - normalizar(df["atraso"])
+        df["tendencia_norm"] = normalizar(df["tendencia"])
+        df["score_norm"] = normalizar(df["score"])
 
         df["score"] = (
-
             df["freq_norm"] * 0.35 +
-
             df["tendencia_norm"] * 0.30 +
-
             df["atraso_norm"] * 0.20 +
-
             df["score_norm"] * 0.15
         )
 
-        # -----------------------------
+        # ==================================================
         # MEMÓRIA
-        # -----------------------------
-        est = extrair_estrutura(
-            dezenas
-        )
+        # ==================================================
 
-        memoria = buscar_memoria_real(
-            supabase,
-            est
-        )
+        estrutura = extrair_estrutura(dezenas)
 
-        df = ajustar_por_memoria(
-            df,
-            memoria
-        )
+        memoria = buscar_memoria_real(supabase, estrutura)
 
-        tendencia_memoria = calcular_tendencia_memoria(
-            memoria
-        )
+        df = ajustar_por_memoria(df, memoria)
 
-        saturacao = calcular_saturacao(
-            memoria
-        )
+        tendencia_memoria = calcular_tendencia_memoria(memoria)
+        saturacao = calcular_saturacao(memoria)
 
-        payload_memoria = {
-            "hash_estrutura": est["hash_estrutura"],
-            "soma_faixa": est["soma_faixa"],
-            "pares": est["pares"],
-            "primos": est["primos"],
-            "linhas": est["linhas"],
+        payload = {
+            "hash_estrutura": estrutura["hash_estrutura"],
+            "soma_faixa": estrutura["soma_faixa"],
+            "pares": estrutura["pares"],
+            "primos": estrutura["primos"],
+            "linhas": estrutura["linhas"],
             "tendencia": round(tendencia_memoria, 4),
             "saturacao": round(saturacao, 4),
             "ultima_aparicao": data,
             "updated_at": datetime.now().isoformat()
         }
 
-        # 🛠️ STRATEGY CHANGE: Select + Conditional Insert/Update to bypass upsert errors
-        check_exist = supabase.table("memoria_cenarios").select("id").match({
-            "soma_faixa": est["soma_faixa"],
-            "pares": est["pares"],
-            "primos": est["primos"],
-            "hash_estrutura": est["hash_estrutura"]
-        }).execute()
+        check = supabase.table("memoria_cenarios") \
+            .select("id") \
+            .eq("hash_estrutura", estrutura["hash_estrutura"]) \
+            .limit(1) \
+            .execute()
 
-        if check_exist.data:
-            # Se o registro já existe, atualiza pelo ID único da linha
-            row_id = check_exist.data[0]["id"]
-            supabase.table("memoria_cenarios").update(payload_memoria).eq("id", row_id).execute()
-            print("🔄 Memória existente atualizada com sucesso via UPDATE")
+        if check.data:
+            row_id = check.data[0]["id"]
+            supabase.table("memoria_cenarios") \
+                .update(payload) \
+                .eq("id", row_id) \
+                .execute()
+            print("🔄 Memória atualizada via UPDATE")
+
         else:
-            # Se não existe, faz um insert limpo
-            supabase.table("memoria_cenarios").insert(payload_memoria).execute()
-            print("➕ Nova estrutura gravada com sucesso via INSERT")
+            supabase.table("memoria_cenarios") \
+                .insert(payload) \
+                .execute()
+            print("➕ Nova estrutura inserida")
 
         print("✅ Memória atualizada")
 
-        # -----------------------------
+        # ==================================================
         # REGIME
-        # -----------------------------
-        _, ciclo = calcular_ciclo_historico_completo(
-            historico
-        )
+        # ==================================================
 
-        media_score = df[
-            df["numero"].isin(
-                dezenas
-            )
-        ]["score"].mean()
+        _, ciclo = calcular_ciclo_historico_completo(historico)
+
+        media_score = df[df["numero"].isin(dezenas)]["score"].mean()
 
         regime = "NEUTRO"
 
@@ -380,53 +247,28 @@ def main():
         elif media_score < 0.45:
             regime = "CONTRACAO_FRIAS"
 
-        check = supabase.table(
-            "memoria_regimes"
-        ).select(
-            "id"
-        ).eq(
-            "concurso",
-            int(concurso)
-        ).execute()
+        check_reg = supabase.table("memoria_regimes") \
+            .select("id") \
+            .eq("concurso", int(concurso)) \
+            .execute()
 
-        if not check.data:
+        if not check_reg.data:
 
-            supabase.table(
-                "memoria_regimes"
-            ).insert({
+            supabase.table("memoria_regimes") \
+                .insert({
+                    "data_referencia": data,
+                    "concurso": int(concurso),
+                    "numero_ciclo": int(ciclo),
+                    "tipo_regime": regime,
+                    "score_global": float(media_score),
+                    "media_soma": float(sum(dezenas)),
+                    "media_pares": int(estrutura["pares"])
+                }).execute()
 
-                "data_referencia":
-                    data,
-
-                "concurso":
-                    int(concurso),
-
-                "numero_ciclo":
-                    int(ciclo),
-
-                "tipo_regime":
-                    regime,
-
-                "score_global":
-                    float(media_score),
-
-                "media_soma":
-                    float(sum(dezenas)),
-
-                "media_pares":
-                    int(est["pares"])
-            }).execute()
-
-            print(
-                f"📡 Regime salvo: "
-                f"{regime}"
-            )
+            print(f"📡 Regime salvo: {regime}")
 
         else:
-
-            print(
-                f"ℹ️ Concurso {concurso} já existia em memoria_regimes."
-            )
+            print(f"ℹ️ Concurso {concurso} já existe em memoria_regimes")
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
@@ -435,4 +277,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
