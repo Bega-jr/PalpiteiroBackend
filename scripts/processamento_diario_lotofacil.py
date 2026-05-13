@@ -328,52 +328,36 @@ def main():
         )
 
         payload_memoria = {
-
-            "hash_estrutura":
-                est["hash_estrutura"],
-
-            "soma_faixa":
-                est["soma_faixa"],
-
-            "pares":
-                est["pares"],
-
-            "primos":
-                est["primos"],
-
-            "linhas":
-                est["linhas"],
-
-            "tendencia":
-                round(
-                    tendencia_memoria,
-                    4
-                ),
-
-            "saturacao":
-                round(
-                    saturacao,
-                    4
-                ),
-
-            "ultima_aparicao":
-                data,
-
-            "updated_at":
-                datetime.now().isoformat()
+            "hash_estrutura": est["hash_estrutura"],
+            "soma_faixa": est["soma_faixa"],
+            "pares": est["pares"],
+            "primos": est["primos"],
+            "linhas": est["linhas"],
+            "tendencia": round(tendencia_memoria, 4),
+            "saturacao": round(saturacao, 4),
+            "ultima_aparicao": data,
+            "updated_at": datetime.now().isoformat()
         }
 
-        # 🛠️ CORREÇÃO DEFINITIVA: on_conflict ajustado para bater com a constraint única do banco
-        supabase.table(
-            "memoria_cenarios"
-        ).upsert(
-            payload_memoria,
-            on_conflict=["soma_faixa", "pares", "primos", "hash_estrutura"]
-        ).execute()
+        # 🛠️ STRATEGY CHANGE: Select + Conditional Insert/Update to bypass upsert errors
+        check_exist = supabase.table("memoria_cenarios").select("id").match({
+            "soma_faixa": est["soma_faixa"],
+            "pares": est["pares"],
+            "primos": est["primos"],
+            "hash_estrutura": est["hash_estrutura"]
+        }).execute()
 
-        print(
-            "✅ Memória atualizada"
-        )
+        if check_exist.data:
+            # Se o registro já existe, atualiza pelo ID único da linha
+            row_id = check_exist.data[0]["id"]
+            supabase.table("memoria_cenarios").update(payload_memoria).eq("id", row_id).execute()
+            print("🔄 Memória existente atualizada com sucesso via UPDATE")
+        else:
+            # Se não existe, faz um insert limpo
+            supabase.table("memoria_cenarios").insert(payload_memoria).execute()
+            print("➕ Nova estrutura gravada com sucesso via INSERT")
+
+        print("✅ Memória atualizada")
 
         # -----------------------------
         # REGIME
@@ -441,8 +425,7 @@ def main():
         else:
 
             print(
-                f"ℹ️ Concurso "
-                f"{concurso} já existia em memoria_regimes."
+                f"ℹ️ Concurso {concurso} já existia em memoria_regimes."
             )
 
     except Exception as e:
