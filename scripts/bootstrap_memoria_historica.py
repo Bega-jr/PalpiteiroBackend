@@ -55,18 +55,15 @@ def extrair_estrutura(nums):
         ),
 
         "pares": sum(
-            1 for n in nums
-            if n % 2 == 0
+            1 for n in nums if n % 2 == 0
         ),
 
         "primos": sum(
-            1 for n in nums
-            if n in PRIMOS
+            1 for n in nums if n in PRIMOS
         ),
 
-        "linhas": json.dumps(
-            linhas_lista
-        ),
+        # 🔥 CORRETO
+        "linhas": linhas_lista,
 
         "hash_estrutura": "-".join(
             map(str, linhas_lista)
