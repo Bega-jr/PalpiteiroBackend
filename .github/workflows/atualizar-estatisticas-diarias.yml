@@ -1,4 +1,4 @@
-name: Pipeline Lotofácil 2026 - IA Evolutiva v15.1
+name: Pipeline Lotofácil 2026 - IA Evolutiva v15.2
 
 on:
   schedule:
@@ -60,8 +60,11 @@ jobs:
       # =========================
       - name: Gerar palpites
         run: |
-          python scripts/gerar_palpites_diarios.py > saida.txt
-          tail -n 20 saida.txt | grep -E "^\d+º" > palpites.txt || true
+          python scripts/gerar_palpites_diarios.py | tee saida.txt
+
+          # extrai bloco estruturado do script (mais seguro que grep)
+          sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' saida.txt \
+            | grep "º" > palpites.txt || true
 
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
@@ -76,13 +79,13 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXT="🟢 Pipeline Lotofácil v15.1 concluído!
+          TEXT="🟢 Pipeline Lotofácil v15.2 concluído!
 
           ${{ env.PALPITES }}"
-          
-                    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-                      -H "Content-Type: application/json" \
-                      -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
+
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
 
       # =========================
       # TELEGRAM ERRO
@@ -93,7 +96,7 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXT="🔴 Erro no pipeline Lotofácil v15.1"
+          TEXT="🔴 Erro no pipeline Lotofácil v15.2"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
