@@ -20,7 +20,7 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
-VERSAO = "v15-inteligente"
+VERSAO = "v15.1-inteligente-estavel"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
@@ -241,7 +241,56 @@ def main():
         .execute()
 
     print(f"✅ {VERSAO} concluída")
+print("🏆 TOP 7")
 
+payload = []
+telegram_linhas = []
+
+for i, cand in enumerate(finais, start=1):
+
+    jogo = cand["nums"]
+    filtros = cand["filtros"]
+
+    linha = f"{i}º | {cand['score']:.4f} | {jogo}"
+    print(linha)
+
+    telegram_linhas.append(linha)
+
+    payload.append({
+        "data_referencia": hoje,
+        "concurso_referencia": concurso_ref,
+        "indice_palpite": i,
+        "tipo": "fixo" if i == 1 else "estatistico",
+        "numeros": json.dumps(jogo),
+        "pares": filtros["pares"],
+        "impares": 15 - filtros["pares"],
+        "soma_total": filtros["soma"],
+        "processado": False,
+        "conferido": False,
+        "versao_gerador": VERSAO,
+        "metricas": {
+            "score": round(cand["score"], 6),
+            "universo_estimado": universo_estimado,
+            "memoria_match": cand["memoria_match"],
+            "primos": filtros["primos"],
+            "moldura": filtros["moldura"]
+        }
+    })
+
+# limpeza segura
+supabase.table("palpites_validos") \
+    .delete().eq("concurso_referencia", concurso_ref).execute()
+
+supabase.table("palpites_validos") \
+    .upsert(payload, on_conflict="concurso_referencia,indice_palpite") \
+    .execute()
+
+# 👉 output controlado para pipeline
+print("\n📲 TELEGRAM_PAYLOAD_START")
+print("\n".join(telegram_linhas))
+print("📲 TELEGRAM_PAYLOAD_END")
+
+print(f"✅ {VERSAO} concluída")
 
 if __name__ == "__main__":
     main()
