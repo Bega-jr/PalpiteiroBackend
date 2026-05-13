@@ -46,7 +46,7 @@ def calcular_filtros(nums, ultimo):
 
     seq_max = atual = 1
     for i in range(len(nums) - 1):
-        if nums[i+1] == nums[i] + 1:
+        if nums[i + 1] == nums[i] + 1:
             atual += 1
             seq_max = max(seq_max, atual)
         else:
@@ -73,11 +73,20 @@ def validar(f):
     )
 
 
-def score(j, base):
+def score(j, base, mem_bonus=1.0):
     s1 = media_segura([base.get((n,), 0.5) for n in j])
-    s2 = media_segura([base.get(tuple(sorted(p))) for p in itertools.combinations(j, 2)])
-    s3 = media_segura([base.get(tuple(sorted(t))) for t in itertools.combinations(j, 3)])
-    return (s1 * 0.25 + s2 * 0.35 + s3 * 0.40)
+
+    s2 = media_segura([
+        base.get(tuple(sorted(p)), 0.45)
+        for p in itertools.combinations(j, 2)
+    ])
+
+    s3 = media_segura([
+        base.get(tuple(sorted(t)), 0.42)
+        for t in itertools.combinations(j, 3)
+    ])
+
+    return (s1 * 0.25 + s2 * 0.35 + s3 * 0.40) * mem_bonus
 
 
 def main():
@@ -102,6 +111,8 @@ def main():
 
     usados = set(tuple(sorted(h["numeros"])) for h in hist)
 
+    estruturas_usadas = {}
+
     candidatos = []
     pool = list(range(1, 26))
 
@@ -123,7 +134,24 @@ def main():
         estr = extrair_estrutura(jogo)
         mem = memoria.get(estr["hash_estrutura"])
 
-        score_final = score(jogo, base_scores) * fator_global
+        # 🔥 controle de estrutura
+        h = estr["hash_estrutura"]
+        if estruturas_usadas.get(h, 0) >= 2:
+            continue
+        estruturas_usadas[h] = estruturas_usadas.get(h, 0) + 1
+
+        # 🔥 bônus memória
+        mem_bonus = 1.0
+        if mem:
+            score_mem = float(mem.get("score_medio_real", 0))
+            vezes = int(mem.get("vezes_gerado", 0))
+
+            if score_mem > 0:
+                mem_bonus *= 1.05
+            if vezes >= 8:
+                mem_bonus *= 0.90
+
+        score_final = score(jogo, base_scores, mem_bonus) * fator_global
 
         candidatos.append({
             "nums": jogo,
@@ -150,7 +178,6 @@ def main():
 
         linha = f"{i}º | {c['score']:.4f} | {c['nums']}"
         print(linha)
-
         telegram.append(linha)
 
         payload.append({
