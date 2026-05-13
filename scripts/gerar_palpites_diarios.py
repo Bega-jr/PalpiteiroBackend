@@ -20,21 +20,32 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
-VERSAO = "v15.1-inteligente-estavel"
+# ======================================================
+# CONFIG
+# ======================================================
+
+VERSAO = "v15.2-blindada-logs"
 QTD_FINAL = 7
-MAX_TENTATIVAS = 120000
+MAX_TENTATIVAS = 150000
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 MOLDURA = {
-    1, 2, 3, 4, 5,
-    6, 10, 11, 15, 16, 20,
-    21, 22, 23, 24, 25
+    1,2,3,4,5,
+    6,10,11,15,16,20,
+    21,22,23,24,25
 }
 
+# ======================================================
+# UTILS
+# ======================================================
 
 def media_segura(v, f=0.5):
     return float(np.mean(v)) if v else f
+
+
+def log(msg):
+    print(f"[v15.2] {msg}")
 
 
 def calcular_filtros(nums, ultimo):
@@ -46,7 +57,7 @@ def calcular_filtros(nums, ultimo):
 
     seq_max = atual = 1
     for i in range(len(nums) - 1):
-        if nums[i + 1] == nums[i] + 1:
+        if nums[i+1] == nums[i] + 1:
             atual += 1
             seq_max = max(seq_max, atual)
         else:
@@ -73,33 +84,35 @@ def validar(f):
     )
 
 
-def score(j, base, mem_bonus=1.0):
+def score(j, base):
     s1 = media_segura([base.get((n,), 0.5) for n in j])
+    s2 = media_segura([base.get(tuple(sorted(p))) for p in itertools.combinations(j, 2)])
+    s3 = media_segura([base.get(tuple(sorted(t))) for t in itertools.combinations(j, 3)])
+    return (s1 * 0.25 + s2 * 0.35 + s3 * 0.40)
 
-    s2 = media_segura([
-        base.get(tuple(sorted(p)), 0.45)
-        for p in itertools.combinations(j, 2)
-    ])
 
-    s3 = media_segura([
-        base.get(tuple(sorted(t)), 0.42)
-        for t in itertools.combinations(j, 3)
-    ])
-
-    return (s1 * 0.25 + s2 * 0.35 + s3 * 0.40) * mem_bonus
-
+# ======================================================
+# MAIN
+# ======================================================
 
 def main():
+
     supabase = get_supabase()
 
-    print(f"🛡️ {VERSAO}")
+    log(f"START {VERSAO}")
 
     fuso = pytz.timezone("America/Sao_Paulo")
     hoje = datetime.now(fuso).date().isoformat()
 
-    hist = carregar_historico()
-    ultimo = hist[-1]["numeros"]
-    concurso_ref = int(hist[-1]["concurso"]) + 1
+    historico = carregar_historico()
+
+    if not historico:
+        log("HISTORICO VAZIO")
+        return
+
+    ultimo = historico[-1]
+    ultimo_jogo = ultimo["numeros"]
+    concurso_ref = int(ultimo["concurso"]) + 1
 
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
@@ -109,16 +122,16 @@ def main():
         for m in supabase.table("memoria_cenarios").select("*").execute().data
     }
 
-    usados = set(tuple(sorted(h["numeros"])) for h in hist)
-
-    estruturas_usadas = {}
+    usados = set(tuple(sorted(h["numeros"])) for h in historico)
 
     candidatos = []
     pool = list(range(1, 26))
 
+    log("GERANDO CANDIDATOS...")
+
     for _ in range(MAX_TENTATIVAS):
 
-        if len(candidatos) >= 5000:
+        if len(candidatos) >= 6000:
             break
 
         jogo = sorted(random.sample(pool, 15))
@@ -126,7 +139,7 @@ def main():
         if tuple(jogo) in usados:
             continue
 
-        f = calcular_filtros(jogo, ultimo)
+        f = calcular_filtros(jogo, ultimo_jogo)
 
         if not validar(f):
             continue
@@ -134,24 +147,7 @@ def main():
         estr = extrair_estrutura(jogo)
         mem = memoria.get(estr["hash_estrutura"])
 
-        # 🔥 controle de estrutura
-        h = estr["hash_estrutura"]
-        if estruturas_usadas.get(h, 0) >= 2:
-            continue
-        estruturas_usadas[h] = estruturas_usadas.get(h, 0) + 1
-
-        # 🔥 bônus memória
-        mem_bonus = 1.0
-        if mem:
-            score_mem = float(mem.get("score_medio_real", 0))
-            vezes = int(mem.get("vezes_gerado", 0))
-
-            if score_mem > 0:
-                mem_bonus *= 1.05
-            if vezes >= 8:
-                mem_bonus *= 0.90
-
-        score_final = score(jogo, base_scores, mem_bonus) * fator_global
+        score_final = score(jogo, base_scores) * fator_global
 
         candidatos.append({
             "nums": jogo,
@@ -162,22 +158,39 @@ def main():
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
+
+    log("FILTRANDO TOP 7...")
+
     for c in candidatos:
+
         if len(finais) >= QTD_FINAL:
             break
 
         if all(len(set(c["nums"]) ^ set(f["nums"])) >= 10 for f in finais):
             finais.append(c)
 
-    print("🏆 TOP 7")
+    # ==================================================
+    # PROTEÇÃO CRÍTICA
+    # ==================================================
+
+    if not finais:
+        log("ERRO: nenhum resultado gerado")
+        return
+
+    log("TOP 7 GERADO COM SUCESSO")
 
     payload = []
     telegram = []
 
+    print("\n🏆 TOP 7")
+
     for i, c in enumerate(finais, 1):
 
-        linha = f"{i}º | {c['score']:.4f} | {c['nums']}"
+        jogo = c["nums"]
+
+        linha = f"{i}º | {c['score']:.4f} | {jogo}"
         print(linha)
+
         telegram.append(linha)
 
         payload.append({
@@ -185,7 +198,7 @@ def main():
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(c["nums"]),
+            "numeros": json.dumps(jogo),
             "pares": c["filtros"]["pares"],
             "impares": 15 - c["filtros"]["pares"],
             "soma_total": c["filtros"]["soma"],
@@ -199,6 +212,7 @@ def main():
             }
         })
 
+    # limpeza segura
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
@@ -206,9 +220,15 @@ def main():
         .upsert(payload, on_conflict="concurso_referencia,indice_palpite") \
         .execute()
 
+    # ==================================================
+    # TELEGRAM FULL PAYLOAD
+    # ==================================================
+
     print("\n📲 TELEGRAM_PAYLOAD_START")
     print("\n".join(telegram))
     print("📲 TELEGRAM_PAYLOAD_END")
+
+    log("PIPELINE FINALIZADO")
 
 
 if __name__ == "__main__":
