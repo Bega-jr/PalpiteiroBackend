@@ -18,58 +18,103 @@ jobs:
 
     steps:
 
+      # =====================================================
+      # CHECKOUT
+      # =====================================================
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
+      # =====================================================
+      # PYTHON
+      # =====================================================
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
+      # =====================================================
+      # DEPENDÊNCIAS
+      # =====================================================
       - name: 📦 Instalar dependências
         run: |
           python -m pip install --upgrade pip
           pip install pandas numpy requests python-dotenv supabase pytz
 
-      # -----------------------------------------
-      # 1. Resultados oficiais
-      # -----------------------------------------
+      - name: 🔍 Validar ambiente
+        run: |
+          echo "Python:"
+          python --version
+          echo ""
+          echo "Data execução:"
+          date
+          echo ""
+          echo "Scripts disponíveis:"
+          ls -lah scripts/
+
+      # =====================================================
+      # 1. RESULTADOS OFICIAIS
+      # =====================================================
       - name: 🌐 Atualizar resultados oficiais
         run: |
+          echo "========================================="
+          echo "ETAPA 1 - RESULTADOS OFICIAIS"
+          echo "========================================="
           python scripts/atualizar_lotofacil.py
+          echo "✅ Etapa 1 concluída"
 
-      # -----------------------------------------
-      # 2. Aprendizado real
-      # Atualiza score real, acertos,
-      # histórico de performance
-      # -----------------------------------------
+      # =====================================================
+      # 2. CONFERÊNCIA DE RESULTADOS
+      # =====================================================
       - name: 🧠 Conferir resultados e aprender
         run: |
+          echo "========================================="
+          echo "ETAPA 2 - CONFERÊNCIA"
+          echo "========================================="
           python scripts/conferir_resultados.py
+          echo "✅ Etapa 2 concluída"
 
-      # -----------------------------------------
-      # 3. Processamento estrutural
-      # Atualiza:
-      # - hash_estrutura
-      # - saturação
-      # - tendência
-      # - regimes
-      # -----------------------------------------
+      # =====================================================
+      # 2.1 MEMÓRIA ESTRUTURAL
+      # NOVA ETAPA
+      # =====================================================
+      - name: 🔄 Atualizar memória estrutural
+        run: |
+          echo "========================================="
+          echo "ETAPA 2.1 - MEMÓRIA ESTRUTURAL"
+          echo "========================================="
+          python scripts/atualizar_memoria_resultados.py
+          echo "✅ Etapa 2.1 concluída"
+
+      # =====================================================
+      # 3. PROCESSAMENTO ESTRUTURAL
+      # =====================================================
       - name: 📊 Processamento estrutural
         run: |
+          echo "========================================="
+          echo "ETAPA 3 - PROCESSAMENTO"
+          echo "========================================="
           python scripts/processamento_diario_lotofacil.py
+          echo "✅ Etapa 3 concluída"
 
-      # -----------------------------------------
-      # 4. Geração dos novos jogos
-      # -----------------------------------------
+      # =====================================================
+      # 4. GERAÇÃO DE PALPITES
+      # =====================================================
       - name: 🎯 Gerar novos palpites
         run: |
+          echo "========================================="
+          echo "ETAPA 4 - GERAÇÃO"
+          echo "========================================="
           python scripts/gerar_palpites_diarios.py
+          echo "✅ Etapa 4 concluída"
 
-      # -----------------------------------------
-      # Final
-      # -----------------------------------------
+      # =====================================================
+      # FINAL
+      # =====================================================
       - name: ✅ Finalização
         run: |
-          echo "Pipeline executado com sucesso em $(date)"
+          echo "========================================="
+          echo "PIPELINE FINALIZADO COM SUCESSO"
+          echo "========================================="
+          echo "Execução concluída em:"
+          date
