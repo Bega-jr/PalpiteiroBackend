@@ -1,4 +1,4 @@
-name: Pipeline Lotofácil 2026 - IA Evolutiva v14.5
+name: Pipeline Lotofácil 2026 - IA Evolutiva v15.1
 
 on:
   schedule:
@@ -8,6 +8,7 @@ on:
 
 jobs:
   pipeline-lotofacil:
+
     runs-on: ubuntu-latest
 
     env:
@@ -15,121 +16,85 @@ jobs:
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       PYTHONPATH: .
       HTTPX_HTTP_VERSIONS: "http/1.1"
-      SUPABASE_POSTGREST_CLIENT_TIMEOUT: "60"
 
     steps:
 
-      # =====================================================
-      # SETUP
-      # =====================================================
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
-      - name: 📦 Instalar dependências
+      - name: Install deps
         run: |
-          python -m pip install --upgrade pip
           pip install pandas numpy requests python-dotenv supabase pytz scikit-learn httpx
 
-      # =====================================================
-      # ETAPA 1 - RESULTADOS OFICIAIS
-      # =====================================================
-      - name: 🌐 Atualizar resultados oficiais
+      # =========================
+      # ETAPA 1
+      # =========================
+      - name: Atualizar resultados
+        run: python scripts/atualizar_lotofacil.py
+
+      # =========================
+      # ETAPA 2
+      # =========================
+      - name: Conferência
+        run: python scripts/conferir_resultados.py
+
+      # =========================
+      # ETAPA 2.1
+      # =========================
+      - name: Memória estrutural
+        run: python scripts/atualizar_memoria_resultados.py
+
+      # =========================
+      # ETAPA 3
+      # =========================
+      - name: Processamento
+        run: python scripts/processamento_diario_lotofacil.py
+
+      # =========================
+      # ETAPA 4
+      # =========================
+      - name: Gerar palpites
         run: |
-          echo "========================================="
-          echo "ETAPA 1 - RESULTADOS OFICIAIS"
-          echo "========================================="
-          python scripts/atualizar_lotofacil.py
+          python scripts/gerar_palpites_diarios.py > saida.txt
+          tail -n 20 saida.txt | grep -E "^\d+º" > palpites.txt || true
 
-      # =====================================================
-      # ETAPA 2 - CONFERÊNCIA
-      # =====================================================
-      - name: 🧠 Conferência
-        run: |
-          echo "========================================="
-          echo "ETAPA 2 - CONFERÊNCIA"
-          echo "========================================="
-          python scripts/conferir_resultados.py
+          echo "PALPITES<<EOF" >> $GITHUB_ENV
+          cat palpites.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-      # =====================================================
-      # ETAPA 2.1 - MEMÓRIA ESTRUTURAL (PROTEGIDA)
-      # =====================================================
-      - name: 🔄 Atualizar memória estrutural
-        run: |
-          echo "========================================="
-          echo "ETAPA 2.1 - MEMÓRIA ESTRUTURAL"
-          echo "========================================="
-          set +e
-          python scripts/atualizar_memoria_resultados.py
-          echo "⚠️ memória executada (modo tolerante)"
-
-      # =====================================================
-      # ETAPA 3 - PROCESSAMENTO
-      # =====================================================
-      - name: 📊 Processamento
-        run: |
-          echo "========================================="
-          echo "ETAPA 3 - PROCESSAMENTO"
-          echo "========================================="
-          python scripts/processamento_diario_lotofacil.py
-
-      # =====================================================
-      # ETAPA 4 - GERAÇÃO DE PALPITES (ROBUSTA)
-      # =====================================================
-      - name: 🎯 Gerar palpites
-        run: |
-          echo "ETAPA 4 - GERAÇÃO"
-
-          set -e
-
-          python scripts/gerar_palpites_diarios.py | tee saida.txt
-
-          # pega apenas linhas do TOP 7
-          grep -A 7 "🏆 TOP 7" saida.txt > resumo.txt
-
-          {
-            echo "LOG_PALPITES<<EOF"
-            cat resumo.txt
-            echo "EOF"
-          } >> $GITHUB_ENV
-
-      # =====================================================
-      # TELEGRAM - SUCESSO
-      # =====================================================
-      - name: 📲 Telegram sucesso
+      # =========================
+      # TELEGRAM OK
+      # =========================
+      - name: Telegram sucesso
         if: success()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXT="🟢 Pipeline Lotofácil concluído com sucesso!
+          TEXT="🟢 Pipeline Lotofácil v15.1 concluído!
 
-          ${LOG_PALPITES}"
-          
-                    SAFE_TEXT=$(echo "$TEXT" | jq -Rs .)
+          ${{ env.PALPITES }}"
           
                     curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
                       -H "Content-Type: application/json" \
-                      -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$SAFE_TEXT,\"parse_mode\":\"Markdown\"}"
+                      -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
 
-      # =====================================================
-      # TELEGRAM - ERRO
-      # =====================================================
-      - name: 🚨 Telegram erro
+      # =========================
+      # TELEGRAM ERRO
+      # =========================
+      - name: Telegram erro
         if: failure()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXT="🔴 Erro no pipeline Lotofácil. Verifique os logs no GitHub Actions."
-
-          SAFE_TEXT=$(echo "$TEXT" | jq -Rs .)
+          TEXT="🔴 Erro no pipeline Lotofácil v15.1"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$SAFE_TEXT,\"parse_mode\":\"Markdown\"}"
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
