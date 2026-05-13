@@ -2,9 +2,7 @@ name: Pipeline Lotofácil 2026 - IA Evolutiva v14
 
 on:
   schedule:
-    # 📻 Primeiro disparo (21:45 BRT = 00:45 UTC) - Terça a Domingo UTC (Reflete Seg a Sáb BRT)
     - cron: "45 0 * * 0-5"
-    # 🛡️ Disparo de Segurança (23:15 BRT = 02:15 UTC) - Terça a Domingo UTC (Reflete Seg a Sáb BRT)
     - cron: "15 2 * * 0-5"
   workflow_dispatch:
 
@@ -18,12 +16,10 @@ jobs:
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       PYTHONPATH: .
       HTTPX_HTTP_VERSIONS: "http/1.1"
+      SUPABASE_POSTGREST_CLIENT_TIMEOUT: "60"
 
     steps:
 
-      # =====================================================
-      # CHECKOUT & PYTHON SETUP
-      # =====================================================
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
@@ -38,94 +34,79 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas numpy requests python-dotenv supabase pytz scikit-learn httpx
 
-      # =====================================================
-      # PIPELINE EXECUTION (ETAPAS 1 A 3)
-      # =====================================================
+      # =========================
+      # ETAPA 1
+      # =========================
       - name: 🌐 Atualizar resultados oficiais
         run: |
-          echo "========================================="
-          echo "ETAPA 1 - RESULTADOS OFICIAIS"
-          echo "========================================="
+          echo "ETAPA 1"
           python scripts/atualizar_lotofacil.py
 
-      - name: 🧠 Conferir resultados e aprender
+      # =========================
+      # ETAPA 2
+      # =========================
+      - name: 🧠 Conferência
         run: |
-          echo "========================================="
-          echo "ETAPA 2 - CONFERÊNCIA"
-          echo "========================================="
+          echo "ETAPA 2"
           python scripts/conferir_resultados.py
 
+      # =========================
+      # ETAPA 2.1 (IMPORTANTE)
+      # =========================
       - name: 🔄 Atualizar memória estrutural
         run: |
-          echo "========================================="
-          echo "ETAPA 2.1 - MEMÓRIA ESTRUTURAL"
-          echo "========================================="
+          echo "ETAPA 2.1"
           python scripts/atualizar_memoria_resultados.py
 
-      - name: 📊 Processamento estrutural
+      # =========================
+      # ETAPA 3
+      # =========================
+      - name: 📊 Processamento
         run: |
-          echo "========================================="
-          echo "ETAPA 3 - PROCESSAMENTO"
-          echo "========================================="
+          echo "ETAPA 3"
           python scripts/processamento_diario_lotofacil.py
 
-      # =====================================================
-      # ETAPA 4 - GERAÇÃO COM CAPTURA DE LOG RESISTENTE
-      # =====================================================
-      - name: 🎯 Gerar novos palpites e armazenar texto
+      # =========================
+      # ETAPA 4
+      # =========================
+      - name: 🎯 Gerar palpites
         run: |
-          echo "========================================="
-          echo "ETAPA 4 - GERAÇÃO"
-          echo "========================================="
-          
-          python scripts/gerar_palpites_diarios.py > saida_palpites.txt
-          cat saida_palpites.txt
-          
-          python -c "
-          with open('saida_palpites.txt', 'r', encoding='utf-8') as f:
-              linhas = f.readlines()
-          resultado = ''.join(linhas[-12:])
-          with open('/tmp/filtrado.txt', 'w', encoding='utf-8') as f2:
-              f2.write(resultado)
-          "
-          
+          python scripts/gerar_palpites_diarios.py > saida.txt
+
+          tail -n 12 saida.txt > resumo.txt
+
           echo "LOG_PALPITES<<EOF" >> $GITHUB_ENV
-          cat /tmp/filtrado.txt >> $GITHUB_ENV
+          cat resumo.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # =====================================================
-      # ENVIO DOS PALPITES VIA cURL SEGURO (SÓ SUCESSO)
-      # =====================================================
-      - name: 📲 Enviar palpites ao Telegram
+      # =========================
+      # TELEGRAM SUCESSO (CORRIGIDO)
+      # =========================
+      - name: 📲 Telegram sucesso
         if: success()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXTO_FINAL=$(cat << 'EOF'
-          🟢 *Pipeline Concluído com Sucesso!*
-          
-          ${{ env.LOG_PALPITES }}
-          EOF
-          )
-          
-          # 🛠️ CORREÇÃO: Adicionado o caractere $ antes das chaves da variável do shell
-          curl -X POST "telegram.org{TG_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\": \"${TG_CHAT_ID}\", \"text\": $(echo "$TEXTO_FINAL" | jq -R -s .), \"parse_mode\": \"Markdown\"}"
+          TEXT="🟢 Pipeline concluído com sucesso!
 
-      # =====================================================
-      # ALERTA DE ERRO VIA cURL SEGURO (SÓ SE FALHAR)
-      # =====================================================
-      - name: 🚨 Alerta de erro no Telegram
+${{ env.LOG_PALPITES }}"
+
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
+
+      # =========================
+      # TELEGRAM ERRO (CORRIGIDO)
+      # =========================
+      - name: 🚨 Telegram erro
         if: failure()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXTO_ERRO="🔴 *Erro Crítico no Pipeline da Lotofácil!* \nA execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log."
-          
-          # 🛠️ CORREÇÃO: Adicionado o caractere $ antes das chaves da variável do shell
-          curl -X POST "telegram.org{TG_TOKEN}/sendMessage" \
+          TEXT="🔴 Erro no pipeline da Lotofácil. Verifique logs do GitHub."
+
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\": \"${TG_CHAT_ID}\", \"text\": \"$TEXTO_ERRO\", \"parse_mode\": \"Markdown\"}"
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
