@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import numpy as np
+import json
 from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -135,7 +136,7 @@ def main():
 
     supabase = get_supabase()
 
-    print("🚀 [v4.6-STABLE] Processamento Inteligente")
+    print("🚀 [v4.7-FEEDBACK-LOOP] Processamento Inteligente Ativo")
 
     try:
 
@@ -206,6 +207,49 @@ def main():
 
         print("🔄 Memória atualizada via UPSERT seguro")
 
+        # =====================================================
+        # 🧠 RETROALIMENTAÇÃO: DISPARO DO FEEDBACK LOOP
+        # =====================================================
+        try:
+            # Busca os palpites gerados anteriormente para o concurso que acabou de ocorrer
+            palpites_passados = supabase.table("palpites_validos") \
+                .select("numeros") \
+                .eq("concurso_referencia", int(concurso)).execute().data
+            
+            if palpites_passados:
+                acertos_do_dia = []
+                for p in palpites_passados:
+                    # Faz o parse da lista stringificada JSON salva no banco
+                    jogo_limpo = [int(x) for x in json.loads(p["numeros"])]
+                    acertos = len(set(jogo_limpo) & set(dezenas))
+                    acertos_do_dia.append(acertos)
+                
+                media_acertos = float(np.mean(acertos_do_dia))
+                
+                # Regra de Reforço Estocástico Baseada em Performance Real
+                if media_acertos < 9.0:
+                    fator_correcao = 0.92  # Erro alto: Força deflação de viés
+                elif media_acertos >= 11.0:
+                    fator_correcao = 1.05  # Sucesso alto: Força impulsionamento de convergência
+                else:
+                    fator_correcao = 1.00  # Desempenho esperado: Mantém estabilidade neutra
+                
+                payload_feedback = {
+                    "concurso_referencia": int(concurso),
+                    "media_acertos_ia": round(media_acertos, 2),
+                    "fator_correcao": fator_correcao
+                }
+                
+                # Persiste de forma indestrutível via upsert indexado por concurso único
+                supabase.table("memoria_feedback_loop").upsert(
+                    payload_feedback, on_conflict="concurso_referencia"
+                ).execute()
+                print(f"📡 Feedback Loop: Concurso {concurso} auditado automaticamente. Média acertos: {media_acertos:.2f} | Fator: {fator_correcao}")
+            else:
+                print(f"ℹ️ Feedback Loop: Nenhum palpite prévio armazenado para auditar o concurso {concurso}.")
+        except Exception as e_fb:
+            print(f"⚠️ Erro operacional ao processar Feedback Loop: {e_fb}")
+
         # ==================================================
         # REGIME
         # ==================================================
@@ -252,3 +296,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
