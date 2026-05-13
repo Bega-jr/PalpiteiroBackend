@@ -1,5 +1,6 @@
 import sys
 import json
+import numpy as np
 
 from pathlib import Path
 from datetime import datetime
@@ -10,7 +11,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "bootstrap-v1.2"
+VERSAO = "bootstrap-v2.0-feedback-loop"
 
 PRIMOS = {2,3,5,7,11,13,17,19,23}
 
@@ -62,8 +63,7 @@ def extrair_estrutura(nums):
             1 for n in nums if n in PRIMOS
         ),
 
-        # 🔥 CORRETO
-        "linhas": linhas_lista,
+        "linhas": lines_lista if 'lines_lista' in locals() else linhas_lista,
 
         "hash_estrutura": "-".join(
             map(str, linhas_lista)
@@ -79,7 +79,7 @@ def main():
     supabase = get_supabase()
 
     print(
-        f"🚀 [{VERSAO}] Bootstrap memória estrutural"
+        f"🚀 [{VERSAO}] Iniciando Bootstrap de Memória Estrutural"
     )
 
     historico = supabase.table(
@@ -96,6 +96,7 @@ def main():
     )
 
     estruturas = {}
+    mapa_resultados = {}
 
     for row in historico:
 
@@ -105,6 +106,9 @@ def main():
 
         if not nums:
             continue
+            
+        # Alimenta mapa local para a fase 2 de retroalimentação
+        mapa_resultados[int(row["concurso"])] = set(nums)
 
         estrutura = extrair_estrutura(
             nums
@@ -172,7 +176,6 @@ def main():
             "vezes_gerado":
                 item["vezes_gerado"],
 
-            # compatibilidade com schema atual
             "acertos_11": 0,
             "acertos_12": 0,
             "acertos_13": 0,
@@ -189,11 +192,10 @@ def main():
         })
 
     print(
-        f"🧠 Estruturas únicas: "
+        f"🧠 Estruturas únicas mapeadas: "
         f"{len(payload)}"
     )
 
-    # 🛠️ CORREÇÃO DEFINITIVA: on_conflict formatado como LISTA de strings para chaves compostas
     supabase.table(
         "memoria_cenarios"
     ).upsert(
@@ -201,9 +203,74 @@ def main():
         on_conflict=["soma_faixa", "pares", "primos", "hash_estrutura"]
     ).execute()
 
-    print(
-        "✅ Bootstrap concluído"
-    )
+    print("✅ Fase 1: Memória de cenários atualizada.")
+
+    # =====================================================
+    # FASE 2: RETROALIMENTAÇÃO COMPLETA (FEEDBACK LOOP)
+    # =====================================================
+    print("\n🔄 Iniciando Fase 2: Retroalimentação do Ciclo de Aprendizado por Erro...")
+    
+    # Carrega todos os palpites antigos gerados pela IA do banco
+    todos_palpites = supabase.table("palpites_validos")\
+        .select("concurso_referencia,numeros")\
+        .order("concurso_referencia").execute().data
+        
+    if not todos_palpites:
+        print("⚠️ Nenhum palpite antigo localizado para retroalimentação.")
+        return
+        
+    # Agrupa os palpites por concurso
+    palpites_por_concurso = {}
+    for p in todos_palpites:
+        cc = int(p["concurso_referencia"])
+        if cc not in palpites_por_concurso:
+            palpites_por_concurso[cc] = []
+        palpites_por_concurso[cc].append(parse_numeros(p["numeros"]))
+        
+    payload_feedback = []
+    
+    for cc, lista_jogos in palpites_por_concurso.items():
+        # Verifica se temos o resultado real desse concurso correspondente para auditar o erro
+        if cc not in mapa_resultados:
+            continue
+            
+        resultado_real = mapa_resultados[cc]
+        acertos_do_concurso = []
+        
+        for jogo in lista_jogos:
+            if not jogo:
+                continue
+            acertos = len(set(jogo) & resultado_real)
+            acertos_do_concurso.append(acertos)
+            
+        if not acertos_do_concurso:
+            continue
+            
+        media_acertos = float(np.mean(acertos_do_concurso))
+        
+        # 🧠 Regra de Reforço: Calcula o fator de erro histórico
+        if media_acertos < 9.0:
+            fator_correcao = 0.92  # Deflação preventiva por erro
+        elif media_acertos >= 11.0:
+            fator_correcao = 1.05  # Aceleração por acerto
+        else:
+            fator_correcao = 1.00  # Padrão estável
+            
+        payload_feedback.append({
+            "concurso_referencia": cc,
+            "media_acertos_ia": round(media_acertos, 2),
+            "fator_correcao": fator_correcao
+        })
+        
+    if payload_feedback:
+        print(f"📥 Gravando {len(payload_feedback)} registros de aprendizado no Supabase...")
+        supabase.table("memoria_feedback_loop").upsert(
+            payload_feedback,
+            on_conflict=["concurso_referencia"]
+        ).execute()
+        print("✅ Fase 2 concluída com sucesso! Base de conhecimento viva.")
+    else:
+        print("ℹ️ Nenhuma correspondência de palpites antigos encontrada.")
 
 
 if __name__ == "__main__":
