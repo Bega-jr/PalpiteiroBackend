@@ -87,31 +87,14 @@ jobs:
       # =========================
       # TELEGRAM - SUCESSO
       # =========================
-      - name: 📲 Telegram sucesso
-        if: success()
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
-          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: 🎯 Gerar palpites
         run: |
-          TEXT="🟢 Pipeline concluído com sucesso!
+          python scripts/gerar_palpites_diarios.py > saida.txt
 
-          ${{ env.LOG_PALPITES }}"
-          
-                    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-                      -H "Content-Type: application/json" \
-                      -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
-          
-                # =========================
-                # TELEGRAM - ERRO
-                # =========================
-                - name: 🚨 Telegram erro
-                  if: failure()
-                  env:
-                    TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
-                    TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-                  run: |
-                    TEXT="🔴 Erro no pipeline da Lotofácil. Verifique os logs no GitHub Actions."
-          
-                    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-                      -H "Content-Type: application/json" \
-                      -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
+          tail -n 40 saida.txt > resumo.txt
+
+          {
+            echo "LOG_PALPITES<<EOF"
+            cat resumo.txt
+            echo "EOF"
+          } >> $GITHUB_ENV
