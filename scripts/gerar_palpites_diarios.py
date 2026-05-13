@@ -6,7 +6,7 @@ import numpy as np
 import pytz
 
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
@@ -24,10 +24,6 @@ VERSAO = "v15.1-inteligente-estavel"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
-
-# ======================================================
-# REGRAS
-# ======================================================
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 MOLDURA = {
@@ -37,25 +33,20 @@ MOLDURA = {
 }
 
 
-# ======================================================
-# AUX
-# ======================================================
-def media_segura(valores, fallback=0.5):
-    return float(np.mean(valores)) if valores else fallback
+def media_segura(v, f=0.5):
+    return float(np.mean(v)) if v else f
 
 
-def calcular_filtros(nums, ultimo_concurso):
+def calcular_filtros(nums, ultimo):
     pares = sum(1 for n in nums if n % 2 == 0)
     primos = sum(1 for n in nums if n in PRIMOS)
     moldura = sum(1 for n in nums if n in MOLDURA)
     soma = sum(nums)
-    repetidos = len(set(nums) & set(ultimo_concurso))
+    repetidos = len(set(nums) & set(ultimo))
 
-    seq_max = 1
-    atual = 1
-
+    seq_max = atual = 1
     for i in range(len(nums) - 1):
-        if nums[i + 1] == nums[i] + 1:
+        if nums[i+1] == nums[i] + 1:
             atual += 1
             seq_max = max(seq_max, atual)
         else:
@@ -71,7 +62,7 @@ def calcular_filtros(nums, ultimo_concurso):
     }
 
 
-def validar_jogo(f):
+def validar(f):
     return (
         165 <= f["soma"] <= 210 and
         7 <= f["pares"] <= 9 and
@@ -82,60 +73,13 @@ def validar_jogo(f):
     )
 
 
-# ======================================================
-# SCORES
-# ======================================================
-def score_dezenas(jogo, base_scores):
-    return media_segura([base_scores.get((n,), 0.5) for n in jogo])
+def score(j, base):
+    s1 = media_segura([base.get((n,), 0.5) for n in j])
+    s2 = media_segura([base.get(tuple(sorted(p))) for p in itertools.combinations(j, 2)])
+    s3 = media_segura([base.get(tuple(sorted(t))) for t in itertools.combinations(j, 3)])
+    return (s1 * 0.25 + s2 * 0.35 + s3 * 0.40)
 
 
-def score_pares(jogo, base_scores):
-    vals = [base_scores.get(tuple(sorted(p))) for p in itertools.combinations(jogo, 2)]
-    return media_segura([v for v in vals if v is not None], 0.45)
-
-
-def score_trincas(jogo, base_scores):
-    vals = [base_scores.get(tuple(sorted(t))) for t in itertools.combinations(jogo, 3)]
-    return media_segura([v for v in vals if v is not None], 0.42)
-
-
-# ======================================================
-# MEMÓRIA
-# ======================================================
-def calcular_bonus_memoria(memoria):
-    if not memoria:
-        return 1.0
-
-    bonus = 1.0
-    score = float(memoria.get("score_medio_real", 0))
-    vezes = int(memoria.get("vezes_gerado", 0))
-
-    if score > 0:
-        bonus *= 1.08
-    if vezes >= 8 and score == 0:
-        bonus *= 0.85
-    if 1 <= vezes <= 3 and score >= 1:
-        bonus *= 1.10
-
-    return bonus
-
-
-def validar_diversidade(hash_estrutura, memoria, usadas):
-    score = float(memoria.get("score_medio_real", 0)) if memoria else 0
-    vezes = int(memoria.get("vezes_gerado", 0)) if memoria else 0
-
-    limite = 3 if score >= 0.25 else 1
-
-    if usadas.get(hash_estrutura, 0) >= limite:
-        return False
-
-    usadas[hash_estrutura] = usadas.get(hash_estrutura, 0) + 1
-    return True
-
-
-# ======================================================
-# MAIN
-# ======================================================
 def main():
     supabase = get_supabase()
 
@@ -144,21 +88,21 @@ def main():
     fuso = pytz.timezone("America/Sao_Paulo")
     hoje = datetime.now(fuso).date().isoformat()
 
-    historico = carregar_historico()
-    ultimo_real = historico[-1]["numeros"]
-    concurso_ref = int(historico[-1]["concurso"]) + 1
+    hist = carregar_historico()
+    ultimo = hist[-1]["numeros"]
+    concurso_ref = int(hist[-1]["concurso"]) + 1
 
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
 
-    memorias = supabase.table("memoria_cenarios").select("*").execute().data
-    memoria_index = {m["hash_estrutura"]: m for m in memorias}
+    memoria = {
+        m["hash_estrutura"]: m
+        for m in supabase.table("memoria_cenarios").select("*").execute().data
+    }
 
-    vistos = {tuple(sorted(h["numeros"])) for h in historico}
+    usados = set(tuple(sorted(h["numeros"])) for h in hist)
 
     candidatos = []
-    usadas = {}
-
     pool = list(range(1, 26))
 
     for _ in range(MAX_TENTATIVAS):
@@ -168,38 +112,28 @@ def main():
 
         jogo = sorted(random.sample(pool, 15))
 
-        if tuple(jogo) in vistos:
+        if tuple(jogo) in usados:
             continue
 
-        filtros = calcular_filtros(jogo, ultimo_real)
+        f = calcular_filtros(jogo, ultimo)
 
-        if not validar_jogo(filtros):
+        if not validar(f):
             continue
 
-        estrutura = extrair_estrutura(jogo)
-        memoria = memoria_index.get(estrutura["hash_estrutura"])
+        estr = extrair_estrutura(jogo)
+        mem = memoria.get(estr["hash_estrutura"])
 
-        if not validar_diversidade(estrutura["hash_estrutura"], memoria, usadas):
-            continue
-
-        s = (
-            score_dezenas(jogo, base_scores) * 0.25 +
-            score_pares(jogo, base_scores) * 0.35 +
-            score_trincas(jogo, base_scores) * 0.40
-        )
-
-        score_final = s * fator_global * calcular_bonus_memoria(memoria)
+        score_final = score(jogo, base_scores) * fator_global
 
         candidatos.append({
             "nums": jogo,
             "score": score_final,
-            "filtros": filtros
+            "filtros": f
         })
 
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
-
     for c in candidatos:
         if len(finais) >= QTD_FINAL:
             break
@@ -210,9 +144,14 @@ def main():
     print("🏆 TOP 7")
 
     payload = []
+    telegram = []
 
     for i, c in enumerate(finais, 1):
-        print(f"{i}º | {c['score']:.4f} | {c['nums']}")
+
+        linha = f"{i}º | {c['score']:.4f} | {c['nums']}"
+        print(linha)
+
+        telegram.append(linha)
 
         payload.append({
             "data_referencia": hoje,
@@ -240,57 +179,10 @@ def main():
         .upsert(payload, on_conflict="concurso_referencia,indice_palpite") \
         .execute()
 
-    print(f"✅ {VERSAO} concluída")
-print("🏆 TOP 7")
+    print("\n📲 TELEGRAM_PAYLOAD_START")
+    print("\n".join(telegram))
+    print("📲 TELEGRAM_PAYLOAD_END")
 
-payload = []
-telegram_linhas = []
-
-for i, cand in enumerate(finais, start=1):
-
-    jogo = cand["nums"]
-    filtros = cand["filtros"]
-
-    linha = f"{i}º | {cand['score']:.4f} | {jogo}"
-    print(linha)
-
-    telegram_linhas.append(linha)
-
-    payload.append({
-        "data_referencia": hoje,
-        "concurso_referencia": concurso_ref,
-        "indice_palpite": i,
-        "tipo": "fixo" if i == 1 else "estatistico",
-        "numeros": json.dumps(jogo),
-        "pares": filtros["pares"],
-        "impares": 15 - filtros["pares"],
-        "soma_total": filtros["soma"],
-        "processado": False,
-        "conferido": False,
-        "versao_gerador": VERSAO,
-        "metricas": {
-            "score": round(cand["score"], 6),
-            "universo_estimado": universo_estimado,
-            "memoria_match": cand["memoria_match"],
-            "primos": filtros["primos"],
-            "moldura": filtros["moldura"]
-        }
-    })
-
-# limpeza segura
-supabase.table("palpites_validos") \
-    .delete().eq("concurso_referencia", concurso_ref).execute()
-
-supabase.table("palpites_validos") \
-    .upsert(payload, on_conflict="concurso_referencia,indice_palpite") \
-    .execute()
-
-# 👉 output controlado para pipeline
-print("\n📲 TELEGRAM_PAYLOAD_START")
-print("\n".join(telegram_linhas))
-print("📲 TELEGRAM_PAYLOAD_END")
-
-print(f"✅ {VERSAO} concluída")
 
 if __name__ == "__main__":
     main()
