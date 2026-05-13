@@ -2,8 +2,10 @@ name: Pipeline Lotofácil 2026 - IA Evolutiva v14
 
 on:
   schedule:
-    # 21:45 Brasil = 00:45 UTC
-    - cron: "45 0 * * *"
+    # 📻 Primeiro disparo (21:45 BRT = 00:45 UTC) - Terça a Domingo UTC (Reflete Seg a Sáb BRT)
+    - cron: "45 0 * * 2-7"
+    # 🛡️ Disparo de Segurança (23:15 BRT = 02:15 UTC) - Caso a API oficial da Caixa atrase
+    - cron: "15 2 * * 2-7"
   workflow_dispatch:
 
 jobs:
@@ -39,7 +41,7 @@ jobs:
       - name: 📦 Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy requests python-dotenv supabase pytz
+          pip install pandas numpy requests python-dotenv supabase pytz scikit-learn
 
       - name: 🔍 Validar ambiente
         run: |
@@ -76,7 +78,6 @@ jobs:
 
       # =====================================================
       # 2.1 MEMÓRIA ESTRUTURAL
-      # NOVA ETAPA
       # =====================================================
       - name: 🔄 Atualizar memória estrutural
         run: |
