@@ -11,7 +11,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "bootstrap-v2.0-feedback-loop"
+VERSAO = "bootstrap-v2.1-feedback-loop"
 
 PRIMOS = {2,3,5,7,11,13,17,19,23}
 
@@ -63,7 +63,7 @@ def extrair_estrutura(nums):
             1 for n in nums if n in PRIMOS
         ),
 
-        "linhas": lines_lista if 'lines_lista' in locals() else linhas_lista,
+        "linhas": linhas_lista,
 
         "hash_estrutura": "-".join(
             map(str, linhas_lista)
@@ -107,7 +107,6 @@ def main():
         if not nums:
             continue
             
-        # Alimenta mapa local para a fase 2 de retroalimentação
         mapa_resultados[int(row["concurso"])] = set(nums)
 
         estrutura = extrair_estrutura(
@@ -196,21 +195,22 @@ def main():
         f"{len(payload)}"
     )
 
-    supabase.table(
-        "memoria_cenarios"
-    ).upsert(
-        payload,
-        on_conflict=["soma_faixa", "pares", "primos", "hash_estrutura"]
-    ).execute()
+    # 🛠️ CORREÇÃO ESTRUTURAL: Clear & Insert para anular erro 42P10
+    print("🧹 Limpando tabela memoria_cenarios antes da carga...")
+    supabase.table("memoria_cenarios").delete().neq("soma_faixa", -1).execute()
+    
+    print("📥 Gravando cenários mapeados...")
+    # Envia em blocos de 200 para evitar quebras por timeout de payloads gigantescos
+    for i in range(0, len(payload), 200):
+        supabase.table("memoria_cenarios").insert(payload[i:i+200]).execute()
 
-    print("✅ Fase 1: Memória de cenários atualizada.")
+    print("✅ Fase 1: Memória de cenários atualizada com sucesso.")
 
     # =====================================================
     # FASE 2: RETROALIMENTAÇÃO COMPLETA (FEEDBACK LOOP)
     # =====================================================
     print("\n🔄 Iniciando Fase 2: Retroalimentação do Ciclo de Aprendizado por Erro...")
     
-    # Carrega todos os palpites antigos gerados pela IA do banco
     todos_palpites = supabase.table("palpites_validos")\
         .select("concurso_referencia,numeros")\
         .order("concurso_referencia").execute().data
@@ -219,7 +219,6 @@ def main():
         print("⚠️ Nenhum palpite antigo localizado para retroalimentação.")
         return
         
-    # Agrupa os palpites por concurso
     palpites_por_concurso = {}
     for p in todos_palpites:
         cc = int(p["concurso_referencia"])
@@ -230,7 +229,6 @@ def main():
     payload_feedback = []
     
     for cc, lista_jogos in palpites_por_concurso.items():
-        # Verifica se temos o resultado real desse concurso correspondente para auditar o erro
         if cc not in mapa_resultados:
             continue
             
@@ -248,13 +246,12 @@ def main():
             
         media_acertos = float(np.mean(acertos_do_concurso))
         
-        # 🧠 Regra de Reforço: Calcula o fator de erro histórico
         if media_acertos < 9.0:
-            fator_correcao = 0.92  # Deflação preventiva por erro
+            fator_correcao = 0.92  
         elif media_acertos >= 11.0:
-            fator_correcao = 1.05  # Aceleração por acerto
+            fator_correcao = 1.05  
         else:
-            fator_correcao = 1.00  # Padrão estável
+            fator_correcao = 1.00  
             
         payload_feedback.append({
             "concurso_referencia": cc,
@@ -263,11 +260,12 @@ def main():
         })
         
     if payload_feedback:
+        print(f"🧹 Limpando tabela memoria_feedback_loop...")
+        supabase.table("memoria_feedback_loop").delete().neq("concurso_referencia", -1).execute()
+        
         print(f"📥 Gravando {len(payload_feedback)} registros de aprendizado no Supabase...")
-        supabase.table("memoria_feedback_loop").upsert(
-            payload_feedback,
-            on_conflict=["concurso_referencia"]
-        ).execute()
+        for i in range(0, len(payload_feedback), 200):
+            supabase.table("memoria_feedback_loop").insert(payload_feedback[i:i+200]).execute()
         print("✅ Fase 2 concluída com sucesso! Base de conhecimento viva.")
     else:
         print("ℹ️ Nenhuma correspondência de palpites antigos encontrada.")
