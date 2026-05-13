@@ -83,15 +83,14 @@ jobs:
       # =====================================================
       - name: 🎯 Gerar palpites
         run: |
-          echo "========================================="
           echo "ETAPA 4 - GERAÇÃO"
-          echo "========================================="
 
           set -e
 
           python scripts/gerar_palpites_diarios.py | tee saida.txt
 
-          tail -n 40 saida.txt > resumo.txt
+          # pega apenas linhas do TOP 7
+          grep -A 7 "🏆 TOP 7" saida.txt > resumo.txt
 
           {
             echo "LOG_PALPITES<<EOF"
