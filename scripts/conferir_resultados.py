@@ -54,22 +54,10 @@ def extrair_estrutura(nums):
 # ======================================================
 # MEMORIA ESTRUTURAL
 # ======================================================
-def atualizar_memoria_estrutural(
+def obter_ou_criar_memoria_estrutural(
     supabase,
-    palpite,
-    acertos
+    estrutura
 ):
-
-    numeros = parse_numeros(
-        palpite["numeros"]
-    )
-
-    if not numeros:
-        return
-
-    estrutura = extrair_estrutura(
-        numeros
-    )
 
     row = supabase.table(
         "memoria_cenarios"
@@ -92,16 +80,78 @@ def atualizar_memoria_estrutural(
     ) \
     .execute()
 
+    if row.data:
+        return row.data[0]
+
+    print(
+        f"🆕 Nova estrutura: "
+        f"{estrutura['hash_estrutura']}"
+    )
+
+    payload = {
+        **estrutura,
+
+        "vezes_gerado": 0,
+
+        "score_medio_real": 0,
+
+        "acertos_11": 0,
+        "acertos_12": 0,
+        "acertos_13": 0,
+        "acertos_14": 0,
+        "acertos_15": 0,
+
+        "ultima_aparicao": None,
+
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat()
+    }
+
+    supabase.table(
+        "memoria_cenarios"
+    ).insert(
+        payload
+    ).execute()
+
+    row = supabase.table(
+        "memoria_cenarios"
+    ).select("*") \
+    .eq(
+        "hash_estrutura",
+        estrutura["hash_estrutura"]
+    ) \
+    .execute()
+
     if not row.data:
+        return None
 
-        print(
-            f"⚠️ Estrutura não encontrada: "
-            f"{estrutura['hash_estrutura']}"
-        )
+    return row.data[0]
 
+
+def atualizar_memoria_estrutural(
+    supabase,
+    palpite,
+    acertos
+):
+
+    numeros = parse_numeros(
+        palpite["numeros"]
+    )
+
+    if not numeros:
         return
 
-    mem = row.data[0]
+    estrutura = extrair_estrutura(
+        numeros
+    )
+
+    mem = obter_ou_criar_memoria_estrutural(
+        supabase,
+        estrutura
+    )
+
+    if not mem:
+        return
 
     peso = {
         11: 1,
@@ -258,7 +308,7 @@ def main():
     supabase = get_supabase()
 
     print(
-        "🏁 [v14.1] Conferência + Memória"
+        "🏁 [v14.2] Conferência + Bootstrap"
     )
 
     oficiais = supabase.table(
