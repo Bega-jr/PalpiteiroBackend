@@ -1,5 +1,7 @@
 import sys
 import json
+import time
+import random
 
 from pathlib import Path
 from datetime import datetime
@@ -8,6 +10,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
+
+
+# ======================================================
+# RETRY (NOVO - PROTEÇÃO SUPABASE)
+# ======================================================
+def safe_execute(query, tentativas=3):
+
+    for i in range(tentativas):
+
+        try:
+            return query.execute()
+
+        except Exception as e:
+
+            print(f"⚠️ Retry Supabase ({i+1}/{tentativas})")
+
+            if i == tentativas - 1:
+                raise e
+
+            time.sleep(1 + random.random())
 
 
 # ======================================================
@@ -40,32 +62,18 @@ def extrair_estrutura(nums):
     return {
         "soma_faixa": int(round(sum(nums) / 10) * 10),
 
-        "pares": sum(
-            1 for n in nums
-            if n % 2 == 0
-        ),
+        "pares": sum(1 for n in nums if n % 2 == 0),
 
-        "primos": sum(
-            1 for n in nums
-            if n in PRIMOS
-        ),
+        "primos": sum(1 for n in nums if n in PRIMOS),
 
         "linhas": linhas,
 
-        "hash_estrutura": "-".join(
-            map(str, linhas)
-        )
+        "hash_estrutura": "-".join(map(str, linhas))
     }
 
 
-def calcular_acertos(
-    palpite,
-    resultado
-):
-    return len(
-        set(palpite) &
-        set(resultado)
-    )
+def calcular_acertos(palpite, resultado):
+    return len(set(palpite) & set(resultado))
 
 
 def peso_acerto(acertos):
@@ -78,10 +86,7 @@ def peso_acerto(acertos):
         15: 1.00
     }
 
-    return pesos.get(
-        acertos,
-        0
-    )
+    return pesos.get(acertos, 0)
 
 
 # ======================================================
@@ -91,204 +96,119 @@ def main():
 
     supabase = get_supabase()
 
-    print(
-        "🧠 Atualizando memória com resultados reais"
-    )
+    print("🧠 Atualizando memória com resultados reais")
 
-    concurso = supabase.table(
-        "lotofacil_concursos"
-    ).select(
-        "concurso,dezenas"
-    ).order(
-        "concurso",
-        desc=True
-    ).limit(1).execute().data[0]
+    concurso = safe_execute(
+        supabase.table("lotofacil_concursos")
+        .select("concurso,dezenas")
+        .order("concurso", desc=True)
+        .limit(1)
+    ).data[0]
 
-    concurso_ref = int(
-        concurso["concurso"]
-    )
+    concurso_ref = int(concurso["concurso"])
 
-    resultado = parse_numeros(
-        concurso["dezenas"]
-    )
+    resultado = parse_numeros(concurso["dezenas"])
 
-    print(
-        f"📌 Concurso {concurso_ref}"
-    )
+    print(f"📌 Concurso {concurso_ref}")
 
-    palpites = supabase.table(
-        "palpites_validos"
-    ).select(
-        "*"
-    ).eq(
-        "concurso_referencia",
-        concurso_ref
-    ).execute().data
+    palpites = safe_execute(
+        supabase.table("palpites_validos")
+        .select("*")
+        .eq("concurso_referencia", concurso_ref)
+    ).data
 
     if not palpites:
-
-        print(
-            "⚠️ Nenhum palpite encontrado"
-        )
-
+        print("⚠️ Nenhum palpite encontrado")
         return
 
-    print(
-        f"📊 {len(palpites)} palpites encontrados"
-    )
+    print(f"📊 {len(palpites)} palpites encontrados")
 
     atualizados = 0
     nao_encontrados = 0
 
-    for i, p in enumerate(
-        palpites,
-        start=1
-    ):
+    for i, p in enumerate(palpites, start=1):
 
-        numeros = parse_numeros(
-            p["numeros"]
-        )
+        numeros = parse_numeros(p["numeros"])
 
         if not numeros:
             continue
 
-        estrutura = extrair_estrutura(
-            numeros
-        )
+        estrutura = extrair_estrutura(numeros)
 
-        acertos = calcular_acertos(
-            numeros,
-            resultado
-        )
+        acertos = calcular_acertos(numeros, resultado)
 
-        peso = peso_acerto(
-            acertos
-        )
+        peso = peso_acerto(acertos)
 
-        print(
-            f"\n🎯 Palpite {i}"
-        )
-
-        print(
-            f"Hash: {estrutura['hash_estrutura']}"
-        )
-
-        print(
-            f"Acertos: {acertos}"
-        )
+        print(f"\n🎯 Palpite {i}")
+        print(f"Hash: {estrutura['hash_estrutura']}")
+        print(f"Acertos: {acertos}")
 
         # ==========================================
-        # Busca por hash (igual bootstrap)
+        # BUSCA MEMÓRIA (COM RETRY)
         # ==========================================
-        busca = supabase.table(
-            "memoria_cenarios"
-        ).select(
-            "*"
-        ).eq(
-            "hash_estrutura",
-            estrutura["hash_estrutura"]
-        ).execute()
+        busca = safe_execute(
+            supabase.table("memoria_cenarios")
+            .select("*")
+            .eq("hash_estrutura", estrutura["hash_estrutura"])
+        )
 
         if not busca.data:
 
-            print(
-                f"⚠️ Estrutura não encontrada"
-            )
+            print("⚠️ Estrutura não encontrada")
 
             nao_encontrados += 1
-
             continue
 
-        print(
-            f"✅ Estrutura localizada"
-        )
+        print("✅ Estrutura localizada")
 
         row = busca.data[0]
 
-        vezes_antes = int(
-            row.get(
-                "vezes_gerado",
-                0
-            )
-        )
+        vezes_antes = int(row.get("vezes_gerado", 0))
 
-        score_antigo = float(
-            row.get(
-                "score_medio_real",
-                0
-            )
-        )
+        score_antigo = float(row.get("score_medio_real", 0))
 
         novo_total = vezes_antes + 1
 
         novo_score = (
-            (
-                score_antigo *
-                vezes_antes
-            ) + peso
+            (score_antigo * vezes_antes) + peso
         ) / novo_total
 
-        print(
-            f"Score antigo: {score_antigo}"
-        )
-
-        print(
-            f"Novo score: {round(novo_score, 4)}"
-        )
+        print(f"Score antigo: {score_antigo}")
+        print(f"Novo score: {round(novo_score, 4)}")
 
         update = {
 
-            "vezes_gerado":
-                novo_total,
+            "vezes_gerado": novo_total,
 
-            "score_medio_real":
-                round(
-                    novo_score,
-                    4
-                ),
+            "score_medio_real": round(novo_score, 4),
 
-            "ultima_aparicao":
-                datetime.now().date().isoformat(),
+            "ultima_aparicao": datetime.now().date().isoformat(),
 
-            "updated_at":
-                datetime.now().isoformat()
+            "updated_at": datetime.now().isoformat()
         }
 
         if acertos >= 11:
 
-            coluna = (
-                f"acertos_{acertos}"
-            )
+            coluna = f"acertos_{acertos}"
 
-            update[coluna] = int(
-                row.get(
-                    coluna,
-                    0
-                )
-            ) + 1
+            update[coluna] = int(row.get(coluna, 0)) + 1
 
-            print(
-                f"📈 Incrementando {coluna}"
-            )
+            print(f"📈 Incrementando {coluna}")
 
-        supabase.table(
-            "memoria_cenarios"
-        ).update(
-            update
-        ).eq(
-            "id",
-            row["id"]
-        ).execute()
+        # ==========================================
+        # UPDATE SEGURO
+        # ==========================================
+        safe_execute(
+            supabase.table("memoria_cenarios")
+            .update(update)
+            .eq("id", row["id"])
+        )
 
         atualizados += 1
 
     print("\n====================")
-    print(
-        f"✅ Atualizados: {atualizados}"
-    )
-    print(
-        f"⚠️ Não encontrados: {nao_encontrados}"
-    )
+    print(f"✅ Atualizados: {atualizados}")
+    print(f"⚠️ Não encontrados: {nao_encontrados}")
     print("====================")
 
 
