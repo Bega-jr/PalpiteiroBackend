@@ -17,7 +17,6 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       PYTHONPATH: .
-      # Força o HTTPX/Supabase a usar HTTP/1.1 para evitar erros de encerramento de stream do HTTP/2
       HTTPX_HTTP_VERSIONS: "http/1.1"
 
     steps:
@@ -95,48 +94,33 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
 
       # =====================================================
-      # ENVIO DOS PALPITES VIA PYTHON NATIVO (SÓ SUCESSO)
+      # ENVIO DOS PALPITES VIA cURL (SÓ SUCESSO)
       # =====================================================
       - name: 📲 Enviar palpites ao Telegram
         if: success()
-        env:
-          TOKEN: ${{ secrets.TELEGRAM_TOK }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -c "
-          import os, requests
-          token = os.getenv('TOKEN')
-          chat_id = os.getenv('CHAT_ID')
-          log_palpites = os.getenv('LOG_PALPITES', '')
+          # Monta o texto de forma segura em uma variavel local do shell
+          TEXTO_FINAL=$(cat << 'EOF'
+          🟢 *Pipeline Concluído com Sucesso!*
           
-          msg = f'🟢 *Pipeline Concluído com Sucesso!*\n\n{log_palpites}'
-          url = 'telegram.org' + token + '/sendMessage'
+          ${{ env.LOG_PALPITES }}
+          EOF
+          )
           
-          payload = {'chat_id': chat_id, 'text': msg, 'parse_mode': 'Markdown'}
-          res = requests.post(url, json=payload)
-          print('Resposta Telegram:', res.text)
-          assert res.status_code == 200
-          "
+          # Dispara via cURL usando POST JSON nativo
+          curl -X POST "telegram.org{{ secrets.TELEGRAM_TOK }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": $(echo "$TEXTO_FINAL" | jq -R -s .), \"parse_mode\": \"Markdown\"}"
 
       # =====================================================
-      # ALERTA DE ERRO VIA PYTHON NATIVO (SÓ SE FALHAR)
+      # ALERTA DE ERRO VIA cURL (SÓ SE FALHAR)
       # =====================================================
       - name: 🚨 Alerta de erro no Telegram
         if: failure()
-        env:
-          TOKEN: ${{ secrets.TELEGRAM_TOK }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -c "
-          import os, requests
-          token = os.getenv('TOKEN')
-          chat_id = os.getenv('CHAT_ID')
+          TEXTO_ERRO="🔴 *Erro Crítico no Pipeline da Lotofácil!* \nA execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log."
           
-          msg = '🔴 *Erro Crítico no Pipeline da Lotofácil!*\nA execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log.'
-          url = 'telegram.org' + token + '/sendMessage'
-          
-          payload = {'chat_id': chat_id, 'text': msg, 'parse_mode': 'Markdown'}
-          res = requests.post(url, json=payload)
-          print('Resposta Telegram:', res.text)
-          "
+          curl -X POST "telegram.org{{ secrets.TELEGRAM_TOK }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": \"$TEXTO_ERRO\", \"parse_mode\": \"Markdown\"}"
 
