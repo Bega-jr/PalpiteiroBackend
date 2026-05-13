@@ -1,4 +1,4 @@
-name: Pipeline Lotofácil 2026 - IA Evolutiva v14
+name: Pipeline Lotofácil 2026 - IA Evolutiva v14.4
 
 on:
   schedule:
@@ -8,7 +8,6 @@ on:
 
 jobs:
   pipeline-lotofacil:
-
     runs-on: ubuntu-latest
 
     env:
@@ -20,6 +19,9 @@ jobs:
 
     steps:
 
+      # =========================
+      # SETUP
+      # =========================
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
@@ -51,12 +53,14 @@ jobs:
           python scripts/conferir_resultados.py
 
       # =========================
-      # ETAPA 2.1 (IMPORTANTE)
+      # ETAPA 2.1 (MEMÓRIA)
       # =========================
       - name: 🔄 Atualizar memória estrutural
         run: |
           echo "ETAPA 2.1"
-          python scripts/atualizar_memoria_resultados.py
+
+          # evita crash do pipeline inteiro
+          python scripts/atualizar_memoria_resultados.py || echo "⚠️ falha na memória, seguindo pipeline"
 
       # =========================
       # ETAPA 3
@@ -73,14 +77,15 @@ jobs:
         run: |
           python scripts/gerar_palpites_diarios.py > saida.txt
 
-          tail -n 12 saida.txt > resumo.txt
+          # mais seguro que 12 linhas
+          tail -n 40 saida.txt > resumo.txt
 
           echo "LOG_PALPITES<<EOF" >> $GITHUB_ENV
           cat resumo.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       # =========================
-      # TELEGRAM SUCESSO (CORRIGIDO)
+      # TELEGRAM - SUCESSO
       # =========================
       - name: 📲 Telegram sucesso
         if: success()
@@ -90,23 +95,23 @@ jobs:
         run: |
           TEXT="🟢 Pipeline concluído com sucesso!
 
-${{ env.LOG_PALPITES }}"
-
-          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
-
-      # =========================
-      # TELEGRAM ERRO (CORRIGIDO)
-      # =========================
-      - name: 🚨 Telegram erro
-        if: failure()
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
-          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          TEXT="🔴 Erro no pipeline da Lotofácil. Verifique logs do GitHub."
-
-          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
+          ${{ env.LOG_PALPITES }}"
+          
+                    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+                      -H "Content-Type: application/json" \
+                      -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
+          
+                # =========================
+                # TELEGRAM - ERRO
+                # =========================
+                - name: 🚨 Telegram erro
+                  if: failure()
+                  env:
+                    TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
+                    TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+                  run: |
+                    TEXT="🔴 Erro no pipeline da Lotofácil. Verifique os logs no GitHub Actions."
+          
+                    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+                      -H "Content-Type: application/json" \
+                      -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
