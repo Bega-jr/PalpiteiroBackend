@@ -23,7 +23,7 @@ from scripts.processamento_diario_lotofacil import (
 # ======================================================
 # CONFIG
 # ======================================================
-VERSAO = "v15.8-autonomo-adaptativo"
+VERSAO = "v15.9-feedback-loop"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
@@ -153,7 +153,26 @@ def main():
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
 
-    # 📊 EXTRAÇÃO ANALÍTICA: Mapeia dinamicamente os últimos 25 concursos do banco [v14.1]
+    # =====================================================
+    # 🧠 LEITURA DO CONHECIMENTO ADQUIRIDO (FEEDBACK LOOP)
+    # =====================================================
+    fator_feedback_loop = 1.0
+    try:
+        concurso_anterior = concurso_ref - 1
+        busca_feedback = supabase.table("memoria_feedback_loop") \
+            .select("fator_correcao") \
+            .eq("concurso_referencia", concurso_anterior).execute().data
+        
+        if busca_feedback:
+            fator_feedback_loop = float(busca_feedback[0]["fator_correcao"])
+            print(f"🎛️ Feedback Loop Ativo: Fator de correção {fator_feedback_loop} mapeado do concurso {concurso_anterior}")
+        else:
+            print(f"ℹ️ Feedback Loop Neutro: Nenhum registro prévio encontrado para o concurso {concurso_anterior}")
+    except Exception as e_fb:
+        print(f"⚠️ Falha de leitura no Feedback Loop: {e_fb}. Inicializando com peso neutro (1.0)")
+        fator_feedback_loop = 1.0
+
+    # 📊 EXTRAÇÃO ANALÍTICA: Mapeia dinamicamente os últimos 25 concursos do banco
     janela_recente = hist[-25:]
     somas_rec, pares_rec, primos_rec, moldura_rec, repetidos_rec, seq_rec, linhas_rec = [], [], [], [], [], [], []
 
@@ -201,7 +220,7 @@ def main():
 
     for _ in range(MAX_TENTATIVAS):
 
-        # 🎯 Ajuste sugerido: Teto reduzido de 5k para 1500 para blindar o tempo de execução do loop
+        # 🎯 Teto reduzido de 5k para 1500 para blindar o tempo de execução do loop
         if len(candidatos) >= 1500:
             break
 
@@ -226,7 +245,8 @@ def main():
 
         s = score(jogo, base_scores)
 
-        score_final = s * fator_global * bonus_moldura(estr, mem)
+        # ⚙️ MULTIPLICADOR EVOLUTIVO: Pondera o erro do concurso anterior em tempo real no score acumulado
+        score_final = s * fator_global * bonus_moldura(estr, mem) * fator_feedback_loop
 
         candidatos.append({
             "nums": jogo,
@@ -290,4 +310,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
