@@ -17,6 +17,8 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       PYTHONPATH: .
+      # Força o HTTPX/Supabase a usar HTTP/1.1 para evitar erros de encerramento de stream do HTTP/2
+      HTTPX_HTTP_VERSIONS: "http/1.1"
 
     steps:
 
@@ -35,7 +37,7 @@ jobs:
       - name: 📦 Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy requests python-dotenv supabase pytz scikit-learn
+          pip install pandas numpy requests python-dotenv supabase pytz scikit-learn httpx
 
       # =====================================================
       # PIPELINE EXECUTION (ETAPAS 1 A 3)
@@ -77,13 +79,9 @@ jobs:
           echo "ETAPA 4 - GERAÇÃO"
           echo "========================================="
           
-          # Executa o script salvando a saída total no arquivo texto
           python scripts/gerar_palpites_diarios.py > saida_palpites.txt
-          
-          # Mostra na tela do GitHub Actions para você não perder o log local
           cat saida_palpites.txt
           
-          # Usa um script inline em Python para extrair de forma robusta e segura as últimas 12 linhas do log
           python -c "
           with open('saida_palpites.txt', 'r', encoding='utf-8') as f:
               linhas = f.readlines()
@@ -92,7 +90,6 @@ jobs:
               f2.write(resultado)
           "
           
-          # Injeta o bloco multilinha de forma válida e nativa no ambiente do GitHub
           echo "LOG_PALPITES<<EOF" >> $GITHUB_ENV
           cat /tmp/filtrado.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
@@ -113,12 +110,12 @@ jobs:
           log_palpites = os.getenv('LOG_PALPITES', '')
           
           msg = f'🟢 *Pipeline Concluído com Sucesso!*\n\n{log_palpites}'
-          url = f'telegram.org{token}/sendMessage'
+          url = 'telegram.org' + token + '/sendMessage'
           
           payload = {'chat_id': chat_id, 'text': msg, 'parse_mode': 'Markdown'}
           res = requests.post(url, json=payload)
           print('Resposta Telegram:', res.text)
-          assert res.status_code == 200, 'Falha ao enviar mensagem'
+          assert res.status_code == 200
           "
 
       # =====================================================
@@ -136,9 +133,10 @@ jobs:
           chat_id = os.getenv('CHAT_ID')
           
           msg = '🔴 *Erro Crítico no Pipeline da Lotofácil!*\nA execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log.'
-          url = f'telegram.org{token}/sendMessage'
+          url = 'telegram.org' + token + '/sendMessage'
           
           payload = {'chat_id': chat_id, 'text': msg, 'parse_mode': 'Markdown'}
           res = requests.post(url, json=payload)
           print('Resposta Telegram:', res.text)
           "
+
