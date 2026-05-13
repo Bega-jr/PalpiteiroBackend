@@ -99,7 +99,6 @@ jobs:
       - name: 📲 Enviar palpites ao Telegram
         if: success()
         run: |
-          # Monta o texto de forma segura em uma variavel local do shell
           TEXTO_FINAL=$(cat << 'EOF'
           🟢 *Pipeline Concluído com Sucesso!*
           
@@ -107,8 +106,8 @@ jobs:
           EOF
           )
           
-          # Dispara via cURL usando POST JSON nativo
-          curl -X POST "telegram.org{{ secrets.TELEGRAM_TOK }}/sendMessage" \
+          # 🛠️ CORREÇÃO: Sintaxe ajustada para usar o prefixo cifrão $ antes dos segredos
+          curl -X POST "telegram.org${{ secrets.TELEGRAM_TOK }}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": $(echo "$TEXTO_FINAL" | jq -R -s .), \"parse_mode\": \"Markdown\"}"
 
@@ -120,7 +119,7 @@ jobs:
         run: |
           TEXTO_ERRO="🔴 *Erro Crítico no Pipeline da Lotofácil!* \nA execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log."
           
-          curl -X POST "telegram.org{{ secrets.TELEGRAM_TOK }}/sendMessage" \
+          # 🛠️ CORREÇÃO: Sintaxe ajustada para usar o prefixo cifrão $ antes dos segredos
+          curl -X POST "telegram.org${{ secrets.TELEGRAM_TOK }}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": \"$TEXTO_ERRO\", \"parse_mode\": \"Markdown\"}"
-
