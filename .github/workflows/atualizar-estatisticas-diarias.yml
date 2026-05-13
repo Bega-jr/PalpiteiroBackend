@@ -21,41 +21,24 @@ jobs:
     steps:
 
       # =====================================================
-      # CHECKOUT
+      # CHECKOUT & PYTHON SETUP
       # =====================================================
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      # =====================================================
-      # PYTHON
-      # =====================================================
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      # =====================================================
-      # DEPENDÊNCIAS
-      # =====================================================
       - name: 📦 Instalar dependências
         run: |
           python -m pip install --upgrade pip
           pip install pandas numpy requests python-dotenv supabase pytz scikit-learn
 
-      - name: 🔍 Validar ambiente
-        run: |
-          echo "Python:"
-          python --version
-          echo ""
-          echo "Data execução:"
-          date
-          echo ""
-          echo "Scripts disponíveis:"
-          ls -lah scripts/
-
       # =====================================================
-      # 1. RESULTADOS OFICIAIS
+      # PIPELINE EXECUTION (ETAPAS 1 A 3)
       # =====================================================
       - name: 🌐 Atualizar resultados oficiais
         run: |
@@ -63,59 +46,71 @@ jobs:
           echo "ETAPA 1 - RESULTADOS OFICIAIS"
           echo "========================================="
           python scripts/atualizar_lotofacil.py
-          echo "✅ Etapa 1 concluída"
 
-      # =====================================================
-      # 2. CONFERÊNCIA DE RESULTADOS
-      # =====================================================
       - name: 🧠 Conferir resultados e aprender
         run: |
           echo "========================================="
           echo "ETAPA 2 - CONFERÊNCIA"
           echo "========================================="
           python scripts/conferir_resultados.py
-          echo "✅ Etapa 2 concluída"
 
-      # =====================================================
-      # 2.1 MEMÓRIA ESTRUTURAL
-      # =====================================================
       - name: 🔄 Atualizar memória estrutural
         run: |
           echo "========================================="
           echo "ETAPA 2.1 - MEMÓRIA ESTRUTURAL"
           echo "========================================="
           python scripts/atualizar_memoria_resultados.py
-          echo "✅ Etapa 2.1 concluída"
 
-      # =====================================================
-      # 3. PROCESSAMENTO ESTRUTURAL
-      # =====================================================
       - name: 📊 Processamento estrutural
         run: |
           echo "========================================="
           echo "ETAPA 3 - PROCESSAMENTO"
           echo "========================================="
           python scripts/processamento_diario_lotofacil.py
-          echo "✅ Etapa 3 concluída"
 
       # =====================================================
-      # 4. GERAÇÃO DE PALPITES
+      # ETAPA 4 - GERAÇÃO COM CAPTURA DE LOG
       # =====================================================
-      - name: 🎯 Gerar novos palpites
+      - name: 🎯 Gerar novos palpites e armazenar texto
+        id: gerador
         run: |
           echo "========================================="
           echo "ETAPA 4 - GERAÇÃO"
           echo "========================================="
-          python scripts/gerar_palpites_diarios.py
-          echo "✅ Etapa 4 concluída"
+          
+          # Executa o script salvando a saída na tela e em um arquivo temporário de texto
+          python scripts/gerar_palpites_diarios.py | tee saida_palpites.txt
+          
+          # Extrai apenas o bloco que vai do TOP 7 até o fim da execução para enviar por mensagem
+          echo "LOG_PALPITES<<EOF" >> $GITHUB_ENV
+          sed -n '/🏆 TOP 7/,/✅ Etapa 4 concluída/p' saida_palpites.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       # =====================================================
-      # FINAL
+      # ENVIO DOS PALPITES (SÓ SUCESSO)
       # =====================================================
-      - name: ✅ Finalização
-        run: |
-          echo "========================================="
-          echo "PIPELINE FINALIZADO COM SUCESSO"
-          echo "========================================="
-          echo "Execução concluída em:"
-          date
+      - name: 📲 Enviar palpites ao Telegram
+        if: success()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOK }}
+          message: |
+            🟢 *Pipeline Concluído com Sucesso!*
+            
+            ```text
+            ${{ env.LOG_PALPITES }}
+            ```
+
+      # =====================================================
+      # ALERTA DE ERRO (SÓ SE FALHAR)
+      # =====================================================
+      - name: 🚨 Alerta de erro no Telegram
+        if: failure()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOK }}
+          message: |
+            🔴 *Erro Crítico no Pipeline da Lotofácil!*
+            A execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log.
