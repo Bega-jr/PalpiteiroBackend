@@ -3,10 +3,11 @@ name: Pipeline Lotofácil 2026 - IA Evolutiva v14
 on:
   schedule:
     # 📻 Primeiro disparo (21:45 BRT = 00:45 UTC) - Terça a Domingo UTC (Reflete Seg a Sáb BRT)
-    - cron: "45 0 * * 2-7"
-    # 🛡️ Disparo de Segurança (23:15 BRT = 02:15 UTC) - Caso a API oficial da Caixa atrase
-    - cron: "15 2 * * 2-7"
+    - cron: "45 0 * * 0-5"
+    # 🛡️ Disparo de Segurança (23:15 BRT = 02:15 UTC) - Terça a Domingo UTC (Reflete Seg a Sáb BRT)
+    - cron: "15 2 * * 0-5"
   workflow_dispatch:
+
 
 jobs:
   pipeline-lotofacil:
