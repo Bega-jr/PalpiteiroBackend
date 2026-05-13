@@ -363,11 +363,12 @@ def main():
                 datetime.now().isoformat()
         }
 
+        # 🛠️ CORREÇÃO DEFINITIVA: on_conflict ajustado para bater com a constraint única do banco
         supabase.table(
             "memoria_cenarios"
         ).upsert(
             payload_memoria,
-            on_conflict="hash_estrutura"
+            on_conflict=["soma_faixa", "pares", "primos", "hash_estrutura"]
         ).execute()
 
         print(
@@ -441,25 +442,14 @@ def main():
 
             print(
                 f"ℹ️ Concurso "
-                f"{concurso} já existe"
+                f"{concurso} já existia em memoria_regimes."
             )
 
-        print(
-            "✅ Estatísticas prontas"
-        )
-
-        print(
-            f"🎯 Ciclo {ciclo}"
-        )
-
     except Exception as e:
-
-        print(
-            f"❌ Erro crítico: {e}"
-        )
-
+        print(f"❌ Erro crítico: {e}")
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
+
