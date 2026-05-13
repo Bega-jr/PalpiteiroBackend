@@ -8,7 +8,6 @@ on:
     - cron: "15 2 * * 0-5"
   workflow_dispatch:
 
-
 jobs:
   pipeline-lotofacil:
 
@@ -81,16 +80,15 @@ jobs:
           # Executa o script salvando a saída total no arquivo texto
           python scripts/gerar_palpites_diarios.py > saida_palpites.txt
           
-          # Mostra na tela do GitHub Actions para você não perder o log
+          # Mostra na tela do GitHub Actions para você não perder o log local
           cat saida_palpites.txt
           
           # Usa um script inline em Python para extrair de forma robusta e segura as últimas 15 linhas do log
           python -c "
           with open('saida_palpites.txt', 'r', encoding='utf-8') as f:
               linhas = f.readlines()
-          # Pega apenas as últimas 12 linhas que contêm o TOP 7 e finalização
           resultado = ''.join(linhas[-12:])
-          with open(chr(47) + 'tmp' + chr(47) + 'filtrado.txt', 'w', encoding='utf-8') as f2:
+          with open('/tmp/filtrado.txt', 'w', encoding='utf-8') as f2:
               f2.write(resultado)
           "
           
@@ -100,29 +98,48 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
 
       # =====================================================
-      # ENVIO DOS PALPITES (SÓ SUCESSO)
+      # ENVIO DOS PALPITES VIA PYTHON NATIVO (SÓ SUCESSO)
       # =====================================================
       - name: 📲 Enviar palpites ao Telegram
         if: success()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_TOK }}
-          message: |
-            🟢 *Pipeline Concluído com Sucesso!*
-            
-            ${{ env.LOG_PALPITES }}
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_TOK }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -c "
+          import os, requests
+          token = os.getenv('TOKEN')
+          chat_id = os.getenv('CHAT_ID')
+          log_palpites = os.getenv('LOG_PALPITES', '')
+          
+          msg = f'🟢 *Pipeline Concluído com Sucesso!*\n\n{log_palpites}'
+          url = f'telegram.org{token}/sendMessage'
+          
+          payload = {'chat_id': chat_id, 'text': msg, 'parse_mode': 'Markdown'}
+          res = requests.post(url, json=payload)
+          print('Resposta Telegram:', res.text)
+          assert res.status_code == 200, 'Falha ao enviar mensagem'
+          "
 
       # =====================================================
-      # ALERTA DE ERRO (SÓ SE FALHAR)
+      # ALERTA DE ERRO VIA PYTHON NATIVO (SÓ SE FALHAR)
       # =====================================================
       - name: 🚨 Alerta de erro no Telegram
         if: failure()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_TOK }}
-          message: |
-            🔴 *Erro Crítico no Pipeline da Lotofácil!*
-            A execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log.
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_TOK }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -c "
+          import os, requests
+          token = os.getenv('TOKEN')
+          chat_id = os.getenv('CHAT_ID')
+          
+          msg = '🔴 *Erro Crítico no Pipeline da Lotofácil!*\nA execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log.'
+          url = f'telegram.org{token}/sendMessage'
+          
+          payload = {'chat_id': chat_id, 'text': msg, 'parse_mode': 'Markdown'}
+          res = requests.post(url, json=payload)
+          print('Resposta Telegram:', res.text)
+          "
 
