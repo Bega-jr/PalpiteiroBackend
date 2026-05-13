@@ -193,16 +193,12 @@ def main():
         f"{len(payload)}"
     )
 
+    # 🛠️ CORREÇÃO: Parâmetro on_conflict ajustado em string única linear
     supabase.table(
         "memoria_cenarios"
     ).upsert(
         payload,
-        on_conflict=(
-            "soma_faixa,"
-            "pares,"
-            "primos,"
-            "hash_estrutura"
-        )
+        on_conflict="soma_faixa,pares,primos,hash_estrutura"
     ).execute()
 
     print(
