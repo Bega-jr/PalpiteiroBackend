@@ -69,21 +69,33 @@ jobs:
           python scripts/processamento_diario_lotofacil.py
 
       # =====================================================
-      # ETAPA 4 - GERAÇÃO COM CAPTURA DE LOG
+      # ETAPA 4 - GERAÇÃO COM CAPTURA DE LOG RESISTENTE
       # =====================================================
       - name: 🎯 Gerar novos palpites e armazenar texto
-        id: gerador
         run: |
           echo "========================================="
           echo "ETAPA 4 - GERAÇÃO"
           echo "========================================="
           
-          # Executa o script salvando a saída na tela e em um arquivo temporário de texto
-          python scripts/gerar_palpites_diarios.py | tee saida_palpites.txt
+          # Executa o script salvando a saída total no arquivo texto
+          python scripts/gerar_palpites_diarios.py > saida_palpites.txt
           
-          # Extrai apenas o bloco que vai do TOP 7 até o fim da execução para enviar por mensagem
+          # Mostra na tela do GitHub Actions para você não perder o log
+          cat saida_palpites.txt
+          
+          # Usa um script inline em Python para extrair de forma robusta e segura as últimas 15 linhas do log
+          python -c "
+          with open('saida_palpites.txt', 'r', encoding='utf-8') as f:
+              linhas = f.readlines()
+          # Pega apenas as últimas 12 linhas que contêm o TOP 7 e finalização
+          resultado = ''.join(linhas[-12:])
+          with open(chr(47) + 'tmp' + chr(47) + 'filtrado.txt', 'w', encoding='utf-8') as f2:
+              f2.write(resultado)
+          "
+          
+          # Injeta o bloco multilinha de forma válida e nativa no ambiente do GitHub
           echo "LOG_PALPITES<<EOF" >> $GITHUB_ENV
-          sed -n '/🏆 TOP 7/,/✅ Etapa 4 concluída/p' saida_palpites.txt >> $GITHUB_ENV
+          cat /tmp/filtrado.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       # =====================================================
@@ -98,9 +110,7 @@ jobs:
           message: |
             🟢 *Pipeline Concluído com Sucesso!*
             
-            ```text
             ${{ env.LOG_PALPITES }}
-            ```
 
       # =====================================================
       # ALERTA DE ERRO (SÓ SE FALHAR)
@@ -114,3 +124,4 @@ jobs:
           message: |
             🔴 *Erro Crítico no Pipeline da Lotofácil!*
             A execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log.
+
