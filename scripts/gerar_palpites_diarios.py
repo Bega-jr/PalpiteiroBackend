@@ -20,7 +20,10 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
-VERSAO = "v15.3-restaurado"
+# ======================================================
+# CONFIG
+# ======================================================
+VERSAO = "v15.4-inteligente-discriminativo"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
@@ -32,12 +35,12 @@ MOLDURA = {
     21, 22, 23, 24, 25
 }
 
-
 # ======================================================
-# UTIL
+# AUX
 # ======================================================
 def media_segura(v, f=0.5):
-    return float(np.mean(v)) if v else f
+    v = [x for x in v if x is not None]
+    return float(np.mean(v)) if len(v) > 0 else f
 
 
 def calcular_filtros(nums, ultimo):
@@ -75,67 +78,41 @@ def validar(f):
         f["seq_max"] <= 4
     )
 
-
 # ======================================================
-# SCORES (RESTAURADO)
+# SCORE (CORRIGIDO - NÃO ACHATA MAIS)
 # ======================================================
-def score_dezenas(j, base):
-    return media_segura([base.get((n,), 0.5) for n in j])
+def score(j, base):
+    s1 = media_segura([base.get((n,), 0.5) for n in j])
+    s2 = media_segura([base.get(tuple(sorted(p)), 0.5) for p in itertools.combinations(j, 2)])
+    s3 = media_segura([base.get(tuple(sorted(t)), 0.5) for t in itertools.combinations(j, 3)])
 
+    # 🔥 NÃO LINEAR (corrige cluster)
+    s1 = s1 ** 1.20
+    s2 = s2 ** 1.35
+    s3 = s3 ** 1.50
 
-def score_pares(j, base):
-    vals = []
-    for p in itertools.combinations(j, 2):
-        v = base.get(tuple(sorted(p)))
-        if v is not None:
-            vals.append(v)
-    return media_segura(vals, 0.45)
-
-
-def score_trincas(j, base):
-    vals = []
-    for t in itertools.combinations(j, 3):
-        v = base.get(tuple(sorted(t)))
-        if v is not None:
-            vals.append(v)
-    return media_segura(vals, 0.42)
+    return (s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)
 
 
 # ======================================================
-# MEMÓRIA (RESTAURADA DE VERDADE)
+# MEMÓRIA (PESO REAL)
 # ======================================================
-def bonus_memoria(mem):
+def memoria_factor(mem):
     if not mem:
         return 1.0
 
-    bonus = 1.0
-    score = float(mem.get("score_medio_real", 0))
+    score_real = float(mem.get("score_medio_real", 0))
     vezes = int(mem.get("vezes_gerado", 0))
 
-    if score > 0:
-        bonus *= 1.08
-    if vezes >= 8 and score == 0:
-        bonus *= 0.85
-    if 1 <= vezes <= 3 and score >= 1:
-        bonus *= 1.10
+    factor = 1.0
+    factor += min(score_real * 0.03, 0.15)
+    factor -= min(vezes * 0.01, 0.10)
 
-    return bonus
+    return max(0.85, min(factor, 1.20))
 
 
-# ======================================================
-# SCORE FINAL (AGORA DIFERENCIA OS JOGOS)
-# ======================================================
-def score_total(jogo, base_scores, fator_global, mem):
-    s1 = score_dezenas(jogo, base_scores)
-    s2 = score_pares(jogo, base_scores)
-    s3 = score_trincas(jogo, base_scores)
-
-    base = (s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)
-
-    # ruído leve controlado (evita empates)
-    ruido = random.uniform(0.985, 1.015)
-
-    return base * fator_global * bonus_memoria(mem) * ruido
+def penalidade_diversidade(jogo):
+    return len(set(jogo[:6])) / 100.0
 
 
 # ======================================================
@@ -156,7 +133,7 @@ def main():
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
 
-    memoria = {
+    memoria_map = {
         m["hash_estrutura"]: m
         for m in supabase.table("memoria_cenarios").select("*").execute().data
     }
@@ -166,6 +143,9 @@ def main():
     candidatos = []
     pool = list(range(1, 26))
 
+    # ==================================================
+    # GERAÇÃO
+    # ==================================================
     for _ in range(MAX_TENTATIVAS):
 
         if len(candidatos) >= 5000:
@@ -182,20 +162,25 @@ def main():
             continue
 
         estr = extrair_estrutura(jogo)
-        mem = memoria.get(estr["hash_estrutura"])
+        mem = memoria_map.get(estr["hash_estrutura"])
 
-        score = score_total(jogo, base_scores, fator_global, mem)
+        base = score(jogo, base_scores)
+        mem_f = memoria_factor(mem)
+        pen = penalidade_diversidade(jogo)
+
+        score_final = base * fator_global * mem_f - pen
 
         candidatos.append({
             "nums": jogo,
-            "score": score,
+            "score": score_final,
             "filtros": f,
-            "mem": bool(mem)
+            "memoria": bool(mem)
         })
 
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
+
     for c in candidatos:
         if len(finais) >= QTD_FINAL:
             break
@@ -203,6 +188,9 @@ def main():
         if all(len(set(c["nums"]) ^ set(f["nums"])) >= 10 for f in finais):
             finais.append(c)
 
+    # ==================================================
+    # OUTPUT
+    # ==================================================
     print("🏆 TOP 7")
 
     payload = []
@@ -210,7 +198,10 @@ def main():
 
     for i, c in enumerate(finais, 1):
 
-        linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
+        nums = c["nums"]
+        f = c["filtros"]
+
+        linha = f"{i}º | {c['score']:.6f} | {nums}"
         print(linha)
         telegram.append(linha)
 
@@ -219,16 +210,18 @@ def main():
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(c["nums"]),
-            "pares": c["filtros"]["pares"],
-            "impares": 15 - c["filtros"]["pares"],
-            "soma_total": c["filtros"]["soma"],
+            "numeros": json.dumps(nums),
+            "pares": f["pares"],
+            "impares": 15 - f["pares"],
+            "soma_total": f["soma"],
             "processado": False,
             "conferido": False,
             "versao_gerador": VERSAO,
             "metricas": {
                 "score": round(c["score"], 6),
-                "memoria": c["mem"]
+                "primos": f["primos"],
+                "moldura": f["moldura"],
+                "memoria_match": c["memoria"]
             }
         })
 
