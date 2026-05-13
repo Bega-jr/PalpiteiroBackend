@@ -20,27 +20,25 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
-# ======================================================
-# CONFIG
-# ======================================================
-VERSAO = "v15.4-inteligente-discriminativo"
+VERSAO = "v15.5-restaurado-estrutural"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 MOLDURA = {
-    1, 2, 3, 4, 5,
-    6, 10, 11, 15, 16, 20,
-    21, 22, 23, 24, 25
+    1,2,3,4,5,
+    6,10,11,15,16,20,
+    21,22,23,24,25
 }
 
+
 # ======================================================
-# AUX
+# UTIL
 # ======================================================
+
 def media_segura(v, f=0.5):
-    v = [x for x in v if x is not None]
-    return float(np.mean(v)) if len(v) > 0 else f
+    return float(np.mean([x for x in v if x is not None])) if v else f
 
 
 def calcular_filtros(nums, ultimo):
@@ -51,8 +49,8 @@ def calcular_filtros(nums, ultimo):
     repetidos = len(set(nums) & set(ultimo))
 
     seq_max = atual = 1
-    for i in range(len(nums) - 1):
-        if nums[i + 1] == nums[i] + 1:
+    for i in range(len(nums)-1):
+        if nums[i+1] == nums[i] + 1:
             atual += 1
             seq_max = max(seq_max, atual)
         else:
@@ -68,57 +66,74 @@ def calcular_filtros(nums, ultimo):
     }
 
 
-def validar(f):
+def validar(f, linhas):
     return (
         165 <= f["soma"] <= 210 and
         7 <= f["pares"] <= 9 and
         4 <= f["primos"] <= 7 and
         9 <= f["moldura"] <= 12 and
         8 <= f["repetidos"] <= 10 and
-        f["seq_max"] <= 4
+        f["seq_max"] <= 4 and
+        max(linhas) <= 9
     )
 
+
 # ======================================================
-# SCORE (CORRIGIDO - NÃO ACHATA MAIS)
+# SCORE
 # ======================================================
+
 def score(j, base):
     s1 = media_segura([base.get((n,), 0.5) for n in j])
     s2 = media_segura([base.get(tuple(sorted(p)), 0.5) for p in itertools.combinations(j, 2)])
     s3 = media_segura([base.get(tuple(sorted(t)), 0.5) for t in itertools.combinations(j, 3)])
 
-    # 🔥 NÃO LINEAR (corrige cluster)
-    s1 = s1 ** 1.20
-    s2 = s2 ** 1.35
-    s3 = s3 ** 1.50
+    noise = random.uniform(0.985, 1.015)
 
-    return (s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)
+    return ((s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)) * noise
 
 
 # ======================================================
-# MEMÓRIA (PESO REAL)
+# BONUS ESTRUTURA
 # ======================================================
-def memoria_factor(mem):
+
+def bonus_moldura(estr, mem):
+
     if not mem:
         return 1.0
 
-    score_real = float(mem.get("score_medio_real", 0))
+    linhas = estr["linhas"]
     vezes = int(mem.get("vezes_gerado", 0))
+    score_real = float(mem.get("score_medio_real", 0))
 
-    factor = 1.0
-    factor += min(score_real * 0.03, 0.15)
-    factor -= min(vezes * 0.01, 0.10)
+    if max(linhas) >= 10:
+        return 0.90
 
-    return max(0.85, min(factor, 1.20))
+    if 2 <= max(linhas) <= 5:
+        return 1.08
+
+    if vezes <= 2:
+        return 1.05
+
+    if score_real >= 3:
+        return 1.02
+
+    return 1.0
 
 
-def penalidade_diversidade(jogo):
-    return len(set(jogo[:6])) / 100.0
+# ======================================================
+# DIVERSIDADE
+# ======================================================
+
+def diversidade_ok(novo, lista):
+    return all(len(set(novo) ^ set(x["nums"])) >= 8 for x in lista)
 
 
 # ======================================================
 # MAIN
 # ======================================================
+
 def main():
+
     supabase = get_supabase()
 
     print(f"🛡️ {VERSAO}")
@@ -133,7 +148,7 @@ def main():
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
 
-    memoria_map = {
+    memoria = {
         m["hash_estrutura"]: m
         for m in supabase.table("memoria_cenarios").select("*").execute().data
     }
@@ -143,9 +158,6 @@ def main():
     candidatos = []
     pool = list(range(1, 26))
 
-    # ==================================================
-    # GERAÇÃO
-    # ==================================================
     for _ in range(MAX_TENTATIVAS):
 
         if len(candidatos) >= 5000:
@@ -158,39 +170,38 @@ def main():
 
         f = calcular_filtros(jogo, ultimo)
 
-        if not validar(f):
+        estr = extrair_estrutura(jogo)
+        mem = memoria.get(estr["hash_estrutura"])
+
+        if not validar(f, estr["linhas"]):
             continue
 
-        estr = extrair_estrutura(jogo)
-        mem = memoria_map.get(estr["hash_estrutura"])
+        if not diversidade_ok(jogo, candidatos[-25:]):
+            continue
 
-        base = score(jogo, base_scores)
-        mem_f = memoria_factor(mem)
-        pen = penalidade_diversidade(jogo)
+        if any(len(set(jogo) & set(c["nums"])) > 12 for c in candidatos[-50:]):
+            continue
 
-        score_final = base * fator_global * mem_f - pen
+        s = score(jogo, base_scores)
+
+        score_final = s * fator_global * bonus_moldura(estr, mem)
 
         candidatos.append({
             "nums": jogo,
             "score": score_final,
-            "filtros": f,
-            "memoria": bool(mem)
+            "filtros": f
         })
 
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
-
     for c in candidatos:
         if len(finais) >= QTD_FINAL:
             break
 
-        if all(len(set(c["nums"]) ^ set(f["nums"])) >= 10 for f in finais):
+        if diversidade_ok(c["nums"], finais):
             finais.append(c)
 
-    # ==================================================
-    # OUTPUT
-    # ==================================================
     print("🏆 TOP 7")
 
     payload = []
@@ -198,11 +209,9 @@ def main():
 
     for i, c in enumerate(finais, 1):
 
-        nums = c["nums"]
-        f = c["filtros"]
-
-        linha = f"{i}º | {c['score']:.6f} | {nums}"
+        linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
         print(linha)
+
         telegram.append(linha)
 
         payload.append({
@@ -210,18 +219,17 @@ def main():
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(nums),
-            "pares": f["pares"],
-            "impares": 15 - f["pares"],
-            "soma_total": f["soma"],
+            "numeros": json.dumps(c["nums"]),
+            "pares": c["filtros"]["pares"],
+            "impares": 15 - c["filtros"]["pares"],
+            "soma_total": c["filtros"]["soma"],
             "processado": False,
             "conferido": False,
             "versao_gerador": VERSAO,
             "metricas": {
                 "score": round(c["score"], 6),
-                "primos": f["primos"],
-                "moldura": f["moldura"],
-                "memoria_match": c["memoria"]
+                "primos": c["filtros"]["primos"],
+                "moldura": c["filtros"]["moldura"]
             }
         })
 
