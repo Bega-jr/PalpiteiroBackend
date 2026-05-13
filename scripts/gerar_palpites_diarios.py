@@ -21,7 +21,7 @@ from scripts.processamento_diario_lotofacil import (
     buscar_cenario_similar
 )
 
-VERSAO = "v14.0-context-recency"
+VERSAO = "v14.1-context-recency-diversidade"
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 100000
@@ -222,22 +222,15 @@ def calcular_bonus_memoria(memoria):
         "ultima_aparicao"
     )
 
-    # premiado
     if score_real > 0:
-
         bonus *= 1.08
 
-    # saturado
     if vezes >= 8 and score_real == 0:
-
         bonus *= 0.85
 
-    # raro premiado
     if 1 <= vezes <= 3 and score_real >= 1:
-
         bonus *= 1.10
 
-    # recência
     if ultima_aparicao:
 
         try:
@@ -253,17 +246,91 @@ def calcular_bonus_memoria(memoria):
             ).days
 
             if dias <= 2:
-
                 bonus *= 0.95
 
             elif dias >= 7:
-
                 bonus *= 1.05
 
         except:
             pass
 
     return bonus, True
+
+
+def validar_diversidade_estrutural(
+    estrutura,
+    memoria,
+    estruturas_usadas
+):
+
+    hash_estrutura = estrutura[
+        "hash_estrutura"
+    ]
+
+    score_real = 0
+    vezes = 0
+
+    if memoria:
+
+        score_real = float(
+            memoria.get(
+                "score_medio_real",
+                0
+            )
+        )
+
+        vezes = int(
+            memoria.get(
+                "vezes_gerado",
+                0
+            )
+        )
+
+    # Estrutura saturada e sem performance
+    if vezes >= 5 and score_real < 0.05:
+
+        print(
+            f"🚫 Estrutura saturada descartada: "
+            f"{hash_estrutura}"
+        )
+
+        return False
+
+    # Limite dinâmico
+    limite = 1
+
+    if score_real >= 0.25:
+        limite = 3
+
+    elif score_real >= 0.05:
+        limite = 1
+
+    usadas = estruturas_usadas.get(
+        hash_estrutura,
+        0
+    )
+
+    print(
+
+        f"🧠 Estrutura {hash_estrutura} | "
+
+        f"score={score_real:.4f} | "
+
+        f"vezes={vezes} | "
+
+        f"usadas={usadas} | "
+
+        f"limite={limite}"
+    )
+
+    if usadas >= limite:
+        return False
+
+    estruturas_usadas[
+        hash_estrutura
+    ] = usadas + 1
+
+    return True
 
 
 # ======================================================
@@ -322,6 +389,7 @@ def main():
     }
 
     candidatos = []
+    estruturas_usadas = {}
 
     pool = list(
         range(1, 26)
@@ -356,6 +424,22 @@ def main():
         ):
             continue
 
+        estrutura = extrair_estrutura(
+            jogo
+        )
+
+        memoria = buscar_cenario_similar(
+            supabase=supabase,
+            estrutura=estrutura
+        )
+
+        if not validar_diversidade_estrutural(
+            estrutura=estrutura,
+            memoria=memoria,
+            estruturas_usadas=estruturas_usadas
+        ):
+            continue
+
         validos += 1
 
         s1 = score_dezenas(
@@ -371,15 +455,6 @@ def main():
         s3 = score_trincas(
             jogo,
             base_scores
-        )
-
-        estrutura = extrair_estrutura(
-            jogo
-        )
-
-        memoria = buscar_cenario_similar(
-            supabase=supabase,
-            estrutura=estrutura
         )
 
         mem_bonus, mem_match = (
@@ -474,24 +549,10 @@ def main():
 
     payload = []
 
-    chaves_usadas = set()
-
     for i, cand in enumerate(
         finais,
         start=1
     ):
-
-        chave = (
-            concurso_ref,
-            i
-        )
-
-        if chave in chaves_usadas:
-            continue
-
-        chaves_usadas.add(
-            chave
-        )
 
         jogo = cand["nums"]
 
@@ -560,9 +621,6 @@ def main():
             }
         })
 
-    # ========================================
-    # LIMPA O CONCURSO ATUAL
-    # ========================================
     supabase.table(
         "palpites_validos"
     ).delete() \
@@ -572,9 +630,6 @@ def main():
     ) \
     .execute()
 
-    # ========================================
-    # UPSERT DEFINITIVO
-    # ========================================
     supabase.table(
         "palpites_validos"
     ).upsert(
