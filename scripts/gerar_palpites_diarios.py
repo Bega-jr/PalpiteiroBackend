@@ -20,25 +20,27 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
-VERSAO = "v15.5-restaurado-estrutural"
+# ======================================================
+# CONFIG
+# ======================================================
+VERSAO = "v15.7-premium-estrutural"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 MOLDURA = {
-    1,2,3,4,5,
-    6,10,11,15,16,20,
-    21,22,23,24,25
+    1, 2, 3, 4, 5,
+    6, 10, 11, 15, 16, 20,
+    21, 22, 23, 24, 25
 }
 
-
 # ======================================================
-# UTIL
+# AUX / FILTROS
 # ======================================================
-
 def media_segura(v, f=0.5):
-    return float(np.mean([x for x in v if x is not None])) if v else f
+    v = [x for x in v if x is not None]
+    return float(np.mean(v)) if len(v) > 0 else f
 
 
 def calcular_filtros(nums, ultimo):
@@ -49,10 +51,10 @@ def calcular_filtros(nums, ultimo):
     repetidos = len(set(nums) & set(ultimo))
 
     seq_max = atual = 1
-    for i in range(len(nums)-1):
-        if nums[i+1] == nums[i] + 1:
+    for i in range(len(nums) - 1):
+        if nums[i + 1] == nums[i] + 1:
             atual += 1
-            seq_max = max(seq_max, atual)
+            seq_max = max(seq_max, ... if atual > seq_max else seq_max)
         else:
             atual = 1
 
@@ -73,67 +75,56 @@ def validar(f, linhas):
         4 <= f["primos"] <= 7 and
         9 <= f["moldura"] <= 12 and
         8 <= f["repetidos"] <= 10 and
-        f["seq_max"] <= 4 and
-        max(linhas) <= 9
+        f["seq_max"] <= 5 and           # Padrão estatístico realista
+        max(linhas) <= 6                # Evita acúmulo excessivo em uma única linha
     )
 
-
 # ======================================================
-# SCORE
+# SCORE COM DISPERSÃO NÃO-LINEAR (FIM DOS EMPATES)
 # ======================================================
-
 def score(j, base):
     s1 = media_segura([base.get((n,), 0.5) for n in j])
     s2 = media_segura([base.get(tuple(sorted(p)), 0.5) for p in itertools.combinations(j, 2)])
     s3 = media_segura([base.get(tuple(sorted(t)), 0.5) for t in itertools.combinations(j, 3)])
 
-    noise = random.uniform(0.985, 1.015)
-
-    return ((s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)) * noise
+    score_combinado = (s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)
+    
+    # Diferencia as casas decimais finais para quebrar o achatamento do TOP 7
+    return float(np.tanh(score_combinado * 1.8)) if score_combinado > 0 else 0.0
 
 
 # ======================================================
-# BONUS ESTRUTURA
+# RESTAURADO: BÔNUS DE MOLDURA E ESTRUTURA DE LINHAS
 # ======================================================
-
-def bonus_moldura(estr, mem):
-
-    if not mem:
-        return 1.0
-
+def calcular_bonus_estrutural(estr, mem):
     linhas = estr["linhas"]
-    vezes = int(mem.get("vezes_gerado", 0))
-    score_real = float(mem.get("score_medio_real", 0))
+    factor = 1.0
 
-    if max(linhas) >= 10:
-        return 0.90
+    # 1. Análise de distribuição por linhas (Evita blocos vazios ou superlotados)
+    if 2 <= max(linhas) <= 4:
+        factor *= 1.08  # Excelente distribuição lateral
+    elif max(linhas) >= 6:
+        factor *= 0.92  # Penaliza concentração excessiva
 
-    if 2 <= max(linhas) <= 5:
-        return 1.08
+    # 2. Integração com a Memória Ativa do Supabase
+    if mem:
+        score_real = float(mem.get("score_medio_real", 0))
+        vezes = int(mem.get("vezes_gerado", 0))
+        
+        factor += min(score_real * 0.04, 0.12)  # Bonifica cenários de alta performance real
+        factor -= min(vezes * 0.01, 0.08)       # Penaliza exaustão por repetição excessiva
 
-    if vezes <= 2:
-        return 1.05
-
-    if score_real >= 3:
-        return 1.02
-
-    return 1.0
+    return max(0.80, min(factor, 1.25))
 
 
-# ======================================================
-# DIVERSIDADE
-# ======================================================
-
-def diversidade_ok(novo, lista):
-    return all(len(set(novo) ^ set(x["nums"])) >= 8 for x in lista)
+def penalidade_diversidade(jogo):
+    return len(set(jogo[:6])) / 100.0
 
 
 # ======================================================
 # MAIN
 # ======================================================
-
 def main():
-
     supabase = get_supabase()
 
     print(f"🛡️ {VERSAO}")
@@ -148,7 +139,7 @@ def main():
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
 
-    memoria = {
+    memoria_map = {
         m["hash_estrutura"]: m
         for m in supabase.table("memoria_cenarios").select("*").execute().data
     }
@@ -158,8 +149,10 @@ def main():
     candidatos = []
     pool = list(range(1, 26))
 
+    # ==================================================
+    # GERAÇÃO CONTROLED
+    # ==================================================
     for _ in range(MAX_TENTATIVAS):
-
         if len(candidatos) >= 5000:
             break
 
@@ -169,27 +162,25 @@ def main():
             continue
 
         f = calcular_filtros(jogo, ultimo)
-
         estr = extrair_estrutura(jogo)
-        mem = memoria.get(estr["hash_estrutura"])
 
         if not validar(f, estr["linhas"]):
             continue
 
-        if not diversidade_ok(jogo, candidatos[-25:]):
-            continue
+        mem = memoria_map.get(estr["hash_estrutura"])
 
-        if any(len(set(jogo) & set(c["nums"])) > 12 for c in candidatos[-50:]):
-            continue
+        base = score(jogo, base_scores)
+        bonus_estrutural = calcular_bonus_estrutural(estr, mem)
+        pen = penalidade_diversidade(jogo)
 
-        s = score(jogo, base_scores)
-
-        score_final = s * fator_global * bonus_moldura(estr, mem)
+        # O bônus de linhas e moldura agora atua diretamente no peso do ranking
+        score_final = base * fator_global * bonus_estrutural - pen
 
         candidatos.append({
             "nums": jogo,
             "score": score_final,
-            "filtros": f
+            "filtros": f,
+            "memoria": bool(mem)
         })
 
     candidatos.sort(key=lambda x: x["score"], reverse=True)
@@ -199,19 +190,23 @@ def main():
         if len(finais) >= QTD_FINAL:
             break
 
-        if diversidade_ok(c["nums"], finais):
+        if len(finais) == 0 or all(len(set(c["nums"]) ^ set(f["nums"])) >= 10 for f in finais):
             finais.append(c)
 
+    # ==================================================
+    # OUTPUT & CLEAN SAVE
+    # ==================================================
     print("🏆 TOP 7")
 
     payload = []
     telegram = []
 
     for i, c in enumerate(finais, 1):
+        nums = c["nums"]
+        f = c["filtros"]
 
-        linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
+        linha = f"{i}º | {c['score']:.6f} | {nums}"
         print(linha)
-
         telegram.append(linha)
 
         payload.append({
@@ -219,26 +214,27 @@ def main():
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(c["nums"]),
-            "pares": c["filtros"]["pares"],
-            "impares": 15 - c["filtros"]["pares"],
-            "soma_total": c["filtros"]["soma"],
+            "numeros": json.dumps(nums),
+            "pares": f["pares"],
+            "impares": 15 - f["pares"],
+            "soma_total": f["soma"],
             "processado": False,
             "conferido": False,
             "versao_gerador": VERSAO,
             "metricas": {
                 "score": round(c["score"], 6),
-                "primos": c["filtros"]["primos"],
-                "moldura": c["filtros"]["moldura"]
+                "primos": f["primos"],
+                "moldura": f["moldura"],
+                "memoria_match": c["memoria"]
             }
         })
 
+    # Abordagem estável Clear & Insert para garantir execução lisa no GitHub Actions
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
     supabase.table("palpites_validos") \
-        .upsert(payload, on_conflict="concurso_referencia,indice_palpite") \
-        .execute()
+        .insert(payload).execute()
 
     print("\n📲 TELEGRAM_PAYLOAD_START")
     print("\n".join(telegram))
@@ -247,3 +243,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
