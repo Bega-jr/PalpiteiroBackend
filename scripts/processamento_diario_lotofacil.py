@@ -25,12 +25,7 @@ def normalizar(col):
 
 def calcular_tendencia(historico, numero, janela=25):
     ultimos = historico[-janela:]
-
-    presencas = [
-        1 if numero in h["numeros"] else 0
-        for h in ultimos
-    ]
-
+    presencas = [1 if numero in h["numeros"] else 0 for h in ultimos]
     return float(np.mean(presencas))
 
 
@@ -48,7 +43,6 @@ def calcular_ciclo_historico_completo(historico):
             ciclo += 1
 
     faltantes = sorted(todos_25 - sorteados)
-
     return (faltantes if faltantes else list(range(1, 26)), ciclo)
 
 
@@ -90,12 +84,10 @@ buscar_cenario_similar = buscar_memoria_real
 
 
 def calcular_saturacao(memoria):
-
     if not memoria:
         return 0.0
 
     vezes = int(memoria.get("vezes_gerado", 0))
-
     if vezes <= 2:
         return 0.0
 
@@ -103,7 +95,6 @@ def calcular_saturacao(memoria):
 
 
 def calcular_tendencia_memoria(memoria):
-
     if not memoria:
         return 0.0
 
@@ -119,9 +110,7 @@ def ajustar_por_memoria(df, memoria):
     score_real = float(memoria.get("score_medio_real", 0))
     vezes = int(memoria.get("vezes_gerado", 0))
 
-    print(
-        f"🧠 Memória Ativa | Score Real: {score_real:.2f} | Testado: {vezes}x"
-    )
+    print(f"🧠 Memória Ativa | Score Real: {score_real:.2f} | Testado: {vezes}x")
 
     if score_real >= 5:
         df["score"] *= 1.15
@@ -185,11 +174,10 @@ def main():
         )
 
         # ==================================================
-        # MEMÓRIA
+        # MEMÓRIA (UPSERT SAFE - SEM DUPLICAÇÃO)
         # ==================================================
 
         estrutura = extrair_estrutura(dezenas)
-
         memoria = buscar_memoria_real(supabase, estrutura)
 
         df = ajustar_por_memoria(df, memoria)
@@ -209,27 +197,14 @@ def main():
             "updated_at": datetime.now().isoformat()
         }
 
-        check = supabase.table("memoria_cenarios") \
-            .select("id") \
-            .eq("hash_estrutura", estrutura["hash_estrutura"]) \
-            .limit(1) \
-            .execute()
+        # 🔥 UPSERT DEFINITIVO (REMOVE 23505)
+        supabase.table("memoria_cenarios") \
+            .upsert(
+                payload,
+                on_conflict="soma_faixa,pares,primos,hash_estrutura"
+            ).execute()
 
-        if check.data:
-            row_id = check.data[0]["id"]
-            supabase.table("memoria_cenarios") \
-                .update(payload) \
-                .eq("id", row_id) \
-                .execute()
-            print("🔄 Memória atualizada via UPDATE")
-
-        else:
-            supabase.table("memoria_cenarios") \
-                .insert(payload) \
-                .execute()
-            print("➕ Nova estrutura inserida")
-
-        print("✅ Memória atualizada")
+        print("🔄 Memória atualizada via UPSERT seguro")
 
         # ==================================================
         # REGIME
