@@ -83,7 +83,7 @@ jobs:
           # Mostra na tela do GitHub Actions para você não perder o log local
           cat saida_palpites.txt
           
-          # Usa um script inline em Python para extrair de forma robusta e segura as últimas 15 linhas do log
+          # Usa um script inline em Python para extrair de forma robusta e segura as últimas 12 linhas do log
           python -c "
           with open('saida_palpites.txt', 'r', encoding='utf-8') as f:
               linhas = f.readlines()
@@ -142,4 +142,3 @@ jobs:
           res = requests.post(url, json=payload)
           print('Resposta Telegram:', res.text)
           "
-
