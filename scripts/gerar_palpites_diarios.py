@@ -20,7 +20,7 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
-VERSAO = "v15.2-inteligente-estavel"
+VERSAO = "v15.3-restaurado"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
@@ -36,12 +36,8 @@ MOLDURA = {
 # ======================================================
 # UTIL
 # ======================================================
-
 def media_segura(v, f=0.5):
-    clean = [x for x in v if x is not None]
-    if not clean:
-        return f
-    return float(np.mean(clean))
+    return float(np.mean(v)) if v else f
 
 
 def calcular_filtros(nums, ultimo):
@@ -81,29 +77,70 @@ def validar(f):
 
 
 # ======================================================
-# SCORE (FIXADO)
+# SCORES (RESTAURADO)
 # ======================================================
+def score_dezenas(j, base):
+    return media_segura([base.get((n,), 0.5) for n in j])
 
-def score(j, base):
-    s1 = media_segura([base.get((n,), 0.5) for n in j])
 
-    s2 = media_segura([
-        base.get(tuple(sorted(p)), 0.5)
-        for p in itertools.combinations(j, 2)
-    ])
+def score_pares(j, base):
+    vals = []
+    for p in itertools.combinations(j, 2):
+        v = base.get(tuple(sorted(p)))
+        if v is not None:
+            vals.append(v)
+    return media_segura(vals, 0.45)
 
-    s3 = media_segura([
-        base.get(tuple(sorted(t)), 0.5)
-        for t in itertools.combinations(j, 3)
-    ])
 
-    return (s1 * 0.25 + s2 * 0.35 + s3 * 0.40)
+def score_trincas(j, base):
+    vals = []
+    for t in itertools.combinations(j, 3):
+        v = base.get(tuple(sorted(t)))
+        if v is not None:
+            vals.append(v)
+    return media_segura(vals, 0.42)
+
+
+# ======================================================
+# MEMÓRIA (RESTAURADA DE VERDADE)
+# ======================================================
+def bonus_memoria(mem):
+    if not mem:
+        return 1.0
+
+    bonus = 1.0
+    score = float(mem.get("score_medio_real", 0))
+    vezes = int(mem.get("vezes_gerado", 0))
+
+    if score > 0:
+        bonus *= 1.08
+    if vezes >= 8 and score == 0:
+        bonus *= 0.85
+    if 1 <= vezes <= 3 and score >= 1:
+        bonus *= 1.10
+
+    return bonus
+
+
+# ======================================================
+# SCORE FINAL (AGORA DIFERENCIA OS JOGOS)
+# ======================================================
+def score_total(jogo, base_scores, fator_global, mem):
+    s1 = score_dezenas(jogo, base_scores)
+    s2 = score_pares(jogo, base_scores)
+    s3 = score_trincas(jogo, base_scores)
+
+    base = (s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)
+
+    # ruído leve controlado (evita empates)
+    ruido = random.uniform(0.985, 1.015)
+
+    return base * fator_global * bonus_memoria(mem) * ruido
 
 
 # ======================================================
 # MAIN
 # ======================================================
-
 def main():
     supabase = get_supabase()
 
@@ -147,18 +184,18 @@ def main():
         estr = extrair_estrutura(jogo)
         mem = memoria.get(estr["hash_estrutura"])
 
-        score_final = score(jogo, base_scores) * fator_global
+        score = score_total(jogo, base_scores, fator_global, mem)
 
         candidatos.append({
             "nums": jogo,
-            "score": score_final,
-            "filtros": f
+            "score": score,
+            "filtros": f,
+            "mem": bool(mem)
         })
 
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
-
     for c in candidatos:
         if len(finais) >= QTD_FINAL:
             break
@@ -173,7 +210,7 @@ def main():
 
     for i, c in enumerate(finais, 1):
 
-        linha = f"{i}º | {c['score']:.4f} | {c['nums']}"
+        linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
         print(linha)
         telegram.append(linha)
 
@@ -191,8 +228,7 @@ def main():
             "versao_gerador": VERSAO,
             "metricas": {
                 "score": round(c["score"], 6),
-                "primos": c["filtros"]["primos"],
-                "moldura": c["filtros"]["moldura"]
+                "memoria": c["mem"]
             }
         })
 
