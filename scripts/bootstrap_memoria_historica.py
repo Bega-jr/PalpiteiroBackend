@@ -10,7 +10,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "bootstrap-v1.1"
+VERSAO = "bootstrap-v1.2"
 
 PRIMOS = {2,3,5,7,11,13,17,19,23}
 
@@ -193,12 +193,12 @@ def main():
         f"{len(payload)}"
     )
 
-    # 🛠️ CORREÇÃO: Parâmetro on_conflict ajustado em string única linear
+    # 🛠️ CORREÇÃO DEFINITIVA: on_conflict formatado como LISTA de strings para chaves compostas
     supabase.table(
         "memoria_cenarios"
     ).upsert(
         payload,
-        on_conflict="soma_faixa,pares,primos,hash_estrutura"
+        on_conflict=["soma_faixa", "pares", "primos", "hash_estrutura"]
     ).execute()
 
     print(
@@ -208,3 +208,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
