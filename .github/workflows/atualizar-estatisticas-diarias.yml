@@ -94,10 +94,13 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
 
       # =====================================================
-      # ENVIO DOS PALPITES VIA cURL (SÓ SUCESSO)
+      # ENVIO DOS PALPITES VIA cURL SEGURO (SÓ SUCESSO)
       # =====================================================
       - name: 📲 Enviar palpites ao Telegram
         if: success()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           TEXTO_FINAL=$(cat << 'EOF'
           🟢 *Pipeline Concluído com Sucesso!*
@@ -106,20 +109,24 @@ jobs:
           EOF
           )
           
-          # 🛠️ CORREÇÃO: Sintaxe ajustada para usar o prefixo cifrão $ antes dos segredos
-          curl -X POST "telegram.org${{ secrets.TELEGRAM_TOK }}/sendMessage" \
+          # 🛠️ CORREÇÃO: URL isolada usando a variável do shell $TG_TOKEN para evitar erro de porta
+          curl -X POST "telegram.org{TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": $(echo "$TEXTO_FINAL" | jq -R -s .), \"parse_mode\": \"Markdown\"}"
+            -d "{\"chat_id\": \"${TG_CHAT_ID}\", \"text\": $(echo "$TEXTO_FINAL" | jq -R -s .), \"parse_mode\": \"Markdown\"}"
 
       # =====================================================
-      # ALERTA DE ERRO VIA cURL (SÓ SE FALHAR)
+      # ALERTA DE ERRO VIA cURL SEGURO (SÓ SE FALHAR)
       # =====================================================
       - name: 🚨 Alerta de erro no Telegram
         if: failure()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           TEXTO_ERRO="🔴 *Erro Crítico no Pipeline da Lotofácil!* \nA execução quebrou em alguma das etapas. Verifique o painel de ações do GitHub para obter detalhes do log."
           
-          # 🛠️ CORREÇÃO: Sintaxe ajustada para usar o prefixo cifrão $ antes dos segredos
-          curl -X POST "telegram.org${{ secrets.TELEGRAM_TOK }}/sendMessage" \
+          # 🛠️ CORREÇÃO: URL isolada usando a variável do shell $TG_TOKEN para evitar erro de porta
+          curl -X POST "telegram.org{TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": \"$TEXTO_ERRO\", \"parse_mode\": \"Markdown\"}"
+            -d "{\"chat_id\": \"${TG_CHAT_ID}\", \"text\": \"$TEXTO_ERRO\", \"parse_mode\": \"Markdown\"}"
+
