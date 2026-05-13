@@ -10,7 +10,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "bootstrap-v1"
+VERSAO = "bootstrap-v1.1"
 
 PRIMOS = {2,3,5,7,11,13,17,19,23}
 
@@ -38,7 +38,7 @@ def parse_numeros(valor):
 
 def extrair_estrutura(nums):
 
-    linhas = [
+    linhas_lista = [
 
         sum(1 for n in nums if 1 <= n <= 5),
         sum(1 for n in nums if 6 <= n <= 10),
@@ -64,8 +64,12 @@ def extrair_estrutura(nums):
             if n in PRIMOS
         ),
 
+        "linhas": json.dumps(
+            linhas_lista
+        ),
+
         "hash_estrutura": "-".join(
-            map(str, linhas)
+            map(str, linhas_lista)
         )
     }
 
@@ -110,10 +114,12 @@ def main():
         )
 
         chave = (
+
             estrutura["soma_faixa"],
             estrutura["pares"],
             estrutura["primos"],
             estrutura["hash_estrutura"]
+
         )
 
         if chave not in estruturas:
@@ -128,6 +134,9 @@ def main():
 
                 "primos":
                     estrutura["primos"],
+
+                "linhas":
+                    estrutura["linhas"],
 
                 "hash_estrutura":
                     estrutura["hash_estrutura"],
@@ -157,17 +166,26 @@ def main():
             "primos":
                 item["primos"],
 
+            "linhas":
+                item["linhas"],
+
             "hash_estrutura":
                 item["hash_estrutura"],
 
             "vezes_gerado":
                 item["vezes_gerado"],
 
-            "score_medio_real":
-                0,
+            # compatibilidade com schema atual
+            "acertos_11": 0,
+            "acertos_12": 0,
+            "acertos_13": 0,
+            "acertos_14": 0,
+            "acertos_15": 0,
 
-            "created_at":
-                agora,
+            "score_medio_real": 0,
+
+            "tendencia": 0,
+            "saturacao": 0,
 
             "updated_at":
                 agora
