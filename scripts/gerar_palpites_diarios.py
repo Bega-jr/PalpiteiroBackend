@@ -4,7 +4,6 @@ import random
 import itertools
 import numpy as np
 import pytz
-import time
 
 from pathlib import Path
 from datetime import datetime, date
@@ -18,14 +17,12 @@ from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_r
 
 from scripts.processamento_diario_lotofacil import (
     carregar_historico,
-    extrair_estrutura,
-    buscar_cenario_similar
+    extrair_estrutura
 )
 
-VERSAO = "v14.1-context-recency-diversidade"
-
+VERSAO = "v15-inteligente"
 QTD_FINAL = 7
-MAX_TENTATIVAS = 100000
+MAX_TENTATIVAS = 120000
 
 
 # ======================================================
@@ -44,18 +41,14 @@ MOLDURA = {
 # AUX
 # ======================================================
 def media_segura(valores, fallback=0.5):
-    if not valores:
-        return fallback
-    return float(np.mean(valores))
+    return float(np.mean(valores)) if valores else fallback
 
 
 def calcular_filtros(nums, ultimo_concurso):
-
     pares = sum(1 for n in nums if n % 2 == 0)
     primos = sum(1 for n in nums if n in PRIMOS)
     moldura = sum(1 for n in nums if n in MOLDURA)
     soma = sum(nums)
-
     repetidos = len(set(nums) & set(ultimo_concurso))
 
     seq_max = 1
@@ -79,21 +72,14 @@ def calcular_filtros(nums, ultimo_concurso):
 
 
 def validar_jogo(f):
-
-    if not (165 <= f["soma"] <= 210):
-        return False
-    if not (7 <= f["pares"] <= 9):
-        return False
-    if not (4 <= f["primos"] <= 7):
-        return False
-    if not (9 <= f["moldura"] <= 12):
-        return False
-    if not (8 <= f["repetidos"] <= 10):
-        return False
-    if f["seq_max"] > 4:
-        return False
-
-    return True
+    return (
+        165 <= f["soma"] <= 210 and
+        7 <= f["pares"] <= 9 and
+        4 <= f["primos"] <= 7 and
+        9 <= f["moldura"] <= 12 and
+        8 <= f["repetidos"] <= 10 and
+        f["seq_max"] <= 4
+    )
 
 
 # ======================================================
@@ -104,92 +90,46 @@ def score_dezenas(jogo, base_scores):
 
 
 def score_pares(jogo, base_scores):
-    valores = []
-    for par in itertools.combinations(jogo, 2):
-        s = base_scores.get(tuple(sorted(par)))
-        if s is not None:
-            valores.append(s)
-    return media_segura(valores, 0.45)
+    vals = [base_scores.get(tuple(sorted(p))) for p in itertools.combinations(jogo, 2)]
+    return media_segura([v for v in vals if v is not None], 0.45)
 
 
 def score_trincas(jogo, base_scores):
-    valores = []
-    for trio in itertools.combinations(jogo, 3):
-        s = base_scores.get(tuple(sorted(trio)))
-        if s is not None:
-            valores.append(s)
-    return media_segura(valores, 0.42)
+    vals = [base_scores.get(tuple(sorted(t))) for t in itertools.combinations(jogo, 3)]
+    return media_segura([v for v in vals if v is not None], 0.42)
 
 
 # ======================================================
 # MEMÓRIA
 # ======================================================
 def calcular_bonus_memoria(memoria):
-
     if not memoria:
-        return 1.0, False
+        return 1.0
 
     bonus = 1.0
-    score_real = float(memoria.get("score_medio_real", 0))
+    score = float(memoria.get("score_medio_real", 0))
     vezes = int(memoria.get("vezes_gerado", 0))
-    ultima_aparicao = memoria.get("ultima_aparicao")
 
-    if score_real > 0:
+    if score > 0:
         bonus *= 1.08
-
-    if vezes >= 8 and score_real == 0:
+    if vezes >= 8 and score == 0:
         bonus *= 0.85
-
-    if 1 <= vezes <= 3 and score_real >= 1:
+    if 1 <= vezes <= 3 and score >= 1:
         bonus *= 1.10
 
-    if ultima_aparicao:
-        try:
-            ultima = datetime.strptime(str(ultima_aparicao), "%Y-%m-%d").date()
-            dias = (date.today() - ultima).days
-
-            if dias <= 2:
-                bonus *= 0.95
-            elif dias >= 7:
-                bonus *= 1.05
-        except:
-            pass
-
-    return bonus, True
+    return bonus
 
 
-def validar_diversidade_estrutural(estrutura, memoria, estruturas_usadas):
-
-    hash_estrutura = estrutura["hash_estrutura"]
-
-    score_real = float(memoria.get("score_medio_real", 0)) if memoria else 0
+def validar_diversidade(hash_estrutura, memoria, usadas):
+    score = float(memoria.get("score_medio_real", 0)) if memoria else 0
     vezes = int(memoria.get("vezes_gerado", 0)) if memoria else 0
 
-    if vezes >= 5 and score_real < 0.05:
-        print(f"🚫 Estrutura saturada descartada: {hash_estrutura}")
+    limite = 3 if score >= 0.25 else 1
+
+    if usadas.get(hash_estrutura, 0) >= limite:
         return False
 
-    if score_real >= 0.25:
-        limite = 3
-    elif score_real >= 0.05:
-        limite = 1
-    else:
-        limite = 1
-
-    usadas = estruturas_usadas.get(hash_estrutura, 0)
-
-    print(
-        f"🧠 Estrutura {hash_estrutura} | "
-        f"score={score_real:.4f} | "
-        f"vezes={vezes} | "
-        f"usadas={usadas} | "
-        f"limite={limite}"
-    )
-
-    if usadas >= limite:
-        return False
-
-    estruturas_usadas[hash_estrutura] = usadas + 1
+    usadas[hash_estrutura] = usadas.get(hash_estrutura, 0) + 1
     return True
 
 
@@ -197,7 +137,6 @@ def validar_diversidade_estrutural(estrutura, memoria, estruturas_usadas):
 # MAIN
 # ======================================================
 def main():
-
     supabase = get_supabase()
 
     print(f"🛡️ {VERSAO}")
@@ -209,26 +148,18 @@ def main():
     ultimo_real = historico[-1]["numeros"]
     concurso_ref = int(historico[-1]["concurso"]) + 1
 
-    print(f"📌 Concurso alvo: {concurso_ref}")
-
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
 
-    print(f"🧠 Fator global: {fator_global:.4f}")
-
-    # 🔥 CACHE HISTÓRICO MEMÓRIA (CORREÇÃO PRINCIPAL)
     memorias = supabase.table("memoria_cenarios").select("*").execute().data
     memoria_index = {m["hash_estrutura"]: m for m in memorias}
 
-    vistos_historico = {
-        tuple(sorted(h["numeros"])) for h in historico
-    }
+    vistos = {tuple(sorted(h["numeros"])) for h in historico}
 
     candidatos = []
-    estruturas_usadas = {}
+    usadas = {}
 
     pool = list(range(1, 26))
-    validos = 0
 
     for _ in range(MAX_TENTATIVAS):
 
@@ -237,7 +168,7 @@ def main():
 
         jogo = sorted(random.sample(pool, 15))
 
-        if tuple(jogo) in vistos_historico:
+        if tuple(jogo) in vistos:
             continue
 
         filtros = calcular_filtros(jogo, ultimo_real)
@@ -246,91 +177,59 @@ def main():
             continue
 
         estrutura = extrair_estrutura(jogo)
-
-        # 🔥 CACHE LOCAL (SEM SUPABASE NO LOOP)
         memoria = memoria_index.get(estrutura["hash_estrutura"])
 
-        if not validar_diversidade_estrutural(
-            estrutura,
-            memoria,
-            estruturas_usadas
-        ):
+        if not validar_diversidade(estrutura["hash_estrutura"], memoria, usadas):
             continue
 
-        validos += 1
+        s = (
+            score_dezenas(jogo, base_scores) * 0.25 +
+            score_pares(jogo, base_scores) * 0.35 +
+            score_trincas(jogo, base_scores) * 0.40
+        )
 
-        s1 = score_dezenas(jogo, base_scores)
-        s2 = score_pares(jogo, base_scores)
-        s3 = score_trincas(jogo, base_scores)
-
-        mem_bonus, mem_match = calcular_bonus_memoria(memoria)
-
-        score_final = ((s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40))
-        score_final *= fator_global
-        score_final *= mem_bonus
+        score_final = s * fator_global * calcular_bonus_memoria(memoria)
 
         candidatos.append({
             "nums": jogo,
             "score": score_final,
-            "filtros": filtros,
-            "memoria_match": mem_match
+            "filtros": filtros
         })
-
-    universo_estimado = int((validos / MAX_TENTATIVAS) * 3268760)
-
-    print(f"📊 Universo filtrado: {universo_estimado}")
 
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
 
-    for cand in candidatos:
-
-        conflito = False
-
-        for existente in finais:
-            diff = len(set(cand["nums"]) ^ set(existente["nums"]))
-            if diff < 10:
-                conflito = True
-                break
-
-        if conflito:
-            continue
-
-        finais.append(cand)
-
+    for c in candidatos:
         if len(finais) >= QTD_FINAL:
             break
+
+        if all(len(set(c["nums"]) ^ set(f["nums"])) >= 10 for f in finais):
+            finais.append(c)
 
     print("🏆 TOP 7")
 
     payload = []
 
-    for i, cand in enumerate(finais, start=1):
-
-        jogo = cand["nums"]
-        filtros = cand["filtros"]
-
-        print(f"{i}º | {cand['score']:.4f} | {jogo}")
+    for i, c in enumerate(finais, 1):
+        print(f"{i}º | {c['score']:.4f} | {c['nums']}")
 
         payload.append({
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(jogo),
-            "pares": filtros["pares"],
-            "impares": 15 - filtros["pares"],
-            "soma_total": filtros["soma"],
+            "numeros": json.dumps(c["nums"]),
+            "pares": c["filtros"]["pares"],
+            "impares": 15 - c["filtros"]["pares"],
+            "soma_total": c["filtros"]["soma"],
             "processado": False,
             "conferido": False,
             "versao_gerador": VERSAO,
             "metricas": {
-                "score": round(cand["score"], 6),
-                "universo_estimado": universo_estimado,
-                "memoria_match": cand["memoria_match"],
-                "primos": filtros["primos"],
-                "moldura": filtros["moldura"]
+                "score": round(c["score"], 6),
+                "primos": c["filtros"]["primos"],
+                "moldura": c["filtros"]["moldura"]
             }
         })
 
@@ -338,10 +237,8 @@ def main():
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
     supabase.table("palpites_validos") \
-        .upsert(
-            payload,
-            on_conflict="concurso_referencia,indice_palpite"
-        ).execute()
+        .upsert(payload, on_conflict="concurso_referencia,indice_palpite") \
+        .execute()
 
     print(f"✅ {VERSAO} concluída")
 
