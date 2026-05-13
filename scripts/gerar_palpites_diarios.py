@@ -33,9 +33,9 @@ MAX_TENTATIVAS = 100000
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 MOLDURA = {
-    1,2,3,4,5,
-    6,10,11,15,16,20,
-    21,22,23,24,25
+    1, 2, 3, 4, 5,
+    6, 10, 11, 15, 16, 20,
+    21, 22, 23, 24, 25
 }
 
 
@@ -43,40 +43,67 @@ MOLDURA = {
 # AUX
 # ======================================================
 def media_segura(valores, fallback=0.5):
+
     if not valores:
         return fallback
+
     return float(np.mean(valores))
 
 
 def calcular_filtros(nums, ultimo_concurso):
 
-    pares = sum(1 for n in nums if n % 2 == 0)
+    pares = sum(
+        1 for n in nums
+        if n % 2 == 0
+    )
 
-    primos = sum(1 for n in nums if n in PRIMOS)
+    primos = sum(
+        1 for n in nums
+        if n in PRIMOS
+    )
 
-    moldura = sum(1 for n in nums if n in MOLDURA)
+    moldura = sum(
+        1 for n in nums
+        if n in MOLDURA
+    )
 
     soma = sum(nums)
 
-    repetidos = len(set(nums) & set(ultimo_concurso))
+    repetidos = len(
+        set(nums) &
+        set(ultimo_concurso)
+    )
 
     seq_max = 1
     atual = 1
 
     for i in range(len(nums) - 1):
 
-        if nums[i+1] == nums[i] + 1:
+        if nums[i + 1] == nums[i] + 1:
+
             atual += 1
-            seq_max = max(seq_max, atual)
+
+            seq_max = max(
+                seq_max,
+                atual
+            )
+
         else:
+
             atual = 1
 
     return {
+
         "pares": pares,
+
         "primos": primos,
+
         "moldura": moldura,
+
         "soma": soma,
+
         "repetidos": repetidos,
+
         "seq_max": seq_max
     }
 
@@ -112,8 +139,12 @@ def score_dezenas(jogo, base_scores):
     valores = []
 
     for n in jogo:
+
         valores.append(
-            base_scores.get((n,), 0.5)
+            base_scores.get(
+                (n,),
+                0.5
+            )
         )
 
     return media_segura(valores)
@@ -130,9 +161,15 @@ def score_pares(jogo, base_scores):
         )
 
         if score is not None:
-            valores.append(score)
 
-    return media_segura(valores, 0.45)
+            valores.append(
+                score
+            )
+
+    return media_segura(
+        valores,
+        0.45
+    )
 
 
 def score_trincas(jogo, base_scores):
@@ -146,9 +183,15 @@ def score_trincas(jogo, base_scores):
         )
 
         if score is not None:
-            valores.append(score)
 
-    return media_segura(valores, 0.42)
+            valores.append(
+                score
+            )
+
+    return media_segura(
+        valores,
+        0.42
+    )
 
 
 # ======================================================
@@ -162,38 +205,39 @@ def calcular_bonus_memoria(memoria):
     bonus = 1.0
 
     score_real = float(
-        memoria.get("score_medio_real", 0)
+        memoria.get(
+            "score_medio_real",
+            0
+        )
     )
 
     vezes = int(
-        memoria.get("vezes_gerado", 0)
+        memoria.get(
+            "vezes_gerado",
+            0
+        )
     )
 
     ultima_aparicao = memoria.get(
         "ultima_aparicao"
     )
 
-    # ---------------------------------
-    # memória premiada
-    # ---------------------------------
+    # premiado
     if score_real > 0:
+
         bonus *= 1.08
 
-    # ---------------------------------
-    # saturação
-    # ---------------------------------
+    # saturado
     if vezes >= 8 and score_real == 0:
+
         bonus *= 0.85
 
-    # ---------------------------------
-    # raridade premiada
-    # ---------------------------------
+    # raro premiado
     if 1 <= vezes <= 3 and score_real >= 1:
+
         bonus *= 1.10
 
-    # ---------------------------------
-    # recência estrutural
-    # ---------------------------------
+    # recência
     if ultima_aparicao:
 
         try:
@@ -204,15 +248,16 @@ def calcular_bonus_memoria(memoria):
             ).date()
 
             dias = (
-                date.today() - ultima
+                date.today() -
+                ultima
             ).days
 
-            # apareceu muito recentemente
             if dias <= 2:
+
                 bonus *= 0.95
 
-            # cenário "descansado"
             elif dias >= 7:
+
                 bonus *= 1.05
 
         except:
@@ -247,7 +292,8 @@ def main():
     ) + 1
 
     print(
-        f"📌 Concurso alvo: {concurso_ref}"
+        f"📌 Concurso alvo: "
+        f"{concurso_ref}"
     )
 
     base_scores, _ = (
@@ -267,7 +313,9 @@ def main():
     vistos_historico = {
 
         tuple(
-            sorted(h["numeros"])
+            sorted(
+                h["numeros"]
+            )
         )
 
         for h in historico
@@ -289,10 +337,12 @@ def main():
             break
 
         jogo = sorted(
-            random.sample(pool, 15)
+            random.sample(
+                pool,
+                15
+            )
         )
 
-        # anti plágio
         if tuple(jogo) in vistos_historico:
             continue
 
@@ -339,8 +389,11 @@ def main():
         )
 
         score_final = (
+
             (s1 * 0.25) +
+
             (s2 * 0.35) +
+
             (s3 * 0.40)
         )
 
@@ -359,10 +412,13 @@ def main():
         })
 
     universo_estimado = int(
+
         (
             validos /
             MAX_TENTATIVAS
-        ) * 3268760
+        )
+
+        * 3268760
     )
 
     print(
@@ -371,7 +427,10 @@ def main():
     )
 
     candidatos.sort(
-        key=lambda x: x["score"],
+
+        key=lambda x:
+        x["score"],
+
         reverse=True
     )
 
@@ -385,19 +444,28 @@ def main():
 
             diff = len(
 
-                set(cand["nums"]) ^
+                set(
+                    cand["nums"]
+                )
 
-                set(existente["nums"])
+                ^
+
+                set(
+                    existente["nums"]
+                )
             )
 
             if diff < 10:
+
                 conflito = True
                 break
 
         if conflito:
             continue
 
-        finais.append(cand)
+        finais.append(
+            cand
+        )
 
         if len(finais) >= QTD_FINAL:
             break
@@ -406,18 +474,35 @@ def main():
 
     payload = []
 
+    chaves_usadas = set()
+
     for i, cand in enumerate(
         finais,
         start=1
     ):
+
+        chave = (
+            concurso_ref,
+            i
+        )
+
+        if chave in chaves_usadas:
+            continue
+
+        chaves_usadas.add(
+            chave
+        )
 
         jogo = cand["nums"]
 
         filtros = cand["filtros"]
 
         print(
+
             f"{i}º | "
+
             f"{cand['score']:.4f} | "
+
             f"{jogo}"
         )
 
@@ -442,7 +527,8 @@ def main():
             "pares": filtros["pares"],
 
             "impares": (
-                15 - filtros["pares"]
+                15 -
+                filtros["pares"]
             ),
 
             "soma_total": filtros["soma"],
@@ -474,27 +560,32 @@ def main():
             }
         })
 
+    # ========================================
+    # LIMPA O CONCURSO ATUAL
+    # ========================================
     supabase.table(
         "palpites_validos"
     ).delete() \
-    .eq(
-        "data_referencia",
-        hoje
-    ) \
     .eq(
         "concurso_referencia",
         concurso_ref
     ) \
     .execute()
 
+    # ========================================
+    # UPSERT DEFINITIVO
+    # ========================================
     supabase.table(
         "palpites_validos"
     ).upsert(
+
         payload,
+
         on_conflict=(
-            "data_referencia,"
+            "concurso_referencia,"
             "indice_palpite"
         )
+
     ).execute()
 
     print(
