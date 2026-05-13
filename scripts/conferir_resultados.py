@@ -10,7 +10,9 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
+VERSAO = "v14.3"
+
+PRIMOS = {2,3,5,7,11,13,17,19,23}
 
 
 # ======================================================
@@ -25,6 +27,7 @@ def parse_numeros(valor):
         return [int(x) for x in valor]
 
     if isinstance(valor, str):
+
         try:
             return [int(x) for x in json.loads(valor)]
         except:
@@ -36,98 +39,115 @@ def parse_numeros(valor):
 def extrair_estrutura(nums):
 
     linhas = [
+
         sum(1 for n in nums if 1 <= n <= 5),
         sum(1 for n in nums if 6 <= n <= 10),
         sum(1 for n in nums if 11 <= n <= 15),
         sum(1 for n in nums if 16 <= n <= 20),
         sum(1 for n in nums if 21 <= n <= 25),
+
     ]
 
     return {
-        "soma_faixa": int(round(sum(nums) / 10) * 10),
-        "pares": sum(1 for n in nums if n % 2 == 0),
-        "primos": sum(1 for n in nums if n in PRIMOS),
-        "hash_estrutura": "-".join(map(str, linhas))
+
+        "soma_faixa": int(
+            round(sum(nums) / 10) * 10
+        ),
+
+        "pares": sum(
+            1 for n in nums
+            if n % 2 == 0
+        ),
+
+        "primos": sum(
+            1 for n in nums
+            if n in PRIMOS
+        ),
+
+        "hash_estrutura": "-".join(
+            map(str, linhas)
+        )
     }
+
+
+# ======================================================
+# BOOTSTRAP HISTORICO
+# ======================================================
+def bootstrap_estrutura_historica(
+    supabase,
+    estrutura
+):
+
+    historico = supabase.table(
+        "lotofacil_concursos"
+    ).select(
+        "dezenas"
+    ).execute().data
+
+    freq = 0
+
+    for row in historico:
+
+        nums = parse_numeros(
+            row["dezenas"]
+        )
+
+        if not nums:
+            continue
+
+        e = extrair_estrutura(
+            nums
+        )
+
+        if (
+
+            e["hash_estrutura"] ==
+            estrutura["hash_estrutura"]
+
+        ):
+
+            freq += 1
+
+    supabase.table(
+        "memoria_cenarios"
+    ).insert({
+
+        "soma_faixa":
+            estrutura["soma_faixa"],
+
+        "pares":
+            estrutura["pares"],
+
+        "primos":
+            estrutura["primos"],
+
+        "hash_estrutura":
+            estrutura["hash_estrutura"],
+
+        "vezes_gerado":
+            max(freq, 1),
+
+        "score_medio_real":
+            0,
+
+        "created_at":
+            datetime.now().isoformat(),
+
+        "updated_at":
+            datetime.now().isoformat()
+
+    }).execute()
+
+    print(
+        f"🧠 Bootstrap criado: "
+        f"{estrutura['hash_estrutura']} "
+        f"| freq histórica={freq}"
+    )
 
 
 # ======================================================
 # MEMORIA ESTRUTURAL
 # ======================================================
-def obter_ou_criar_memoria_estrutural(
-    supabase,
-    estrutura
-):
-
-    row = supabase.table(
-        "memoria_cenarios"
-    ).select("*") \
-    .eq(
-        "soma_faixa",
-        estrutura["soma_faixa"]
-    ) \
-    .eq(
-        "pares",
-        estrutura["pares"]
-    ) \
-    .eq(
-        "primos",
-        estrutura["primos"]
-    ) \
-    .eq(
-        "hash_estrutura",
-        estrutura["hash_estrutura"]
-    ) \
-    .execute()
-
-    if row.data:
-        return row.data[0]
-
-    print(
-        f"🆕 Nova estrutura: "
-        f"{estrutura['hash_estrutura']}"
-    )
-
-    payload = {
-        **estrutura,
-
-        "vezes_gerado": 0,
-
-        "score_medio_real": 0,
-
-        "acertos_11": 0,
-        "acertos_12": 0,
-        "acertos_13": 0,
-        "acertos_14": 0,
-        "acertos_15": 0,
-
-        "ultima_aparicao": None,
-
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat()
-    }
-
-    supabase.table(
-        "memoria_cenarios"
-    ).insert(
-        payload
-    ).execute()
-
-    row = supabase.table(
-        "memoria_cenarios"
-    ).select("*") \
-    .eq(
-        "hash_estrutura",
-        estrutura["hash_estrutura"]
-    ) \
-    .execute()
-
-    if not row.data:
-        return None
-
-    return row.data[0]
-
-
 def atualizar_memoria_estrutural(
     supabase,
     palpite,
@@ -145,97 +165,30 @@ def atualizar_memoria_estrutural(
         numeros
     )
 
-    mem = obter_ou_criar_memoria_estrutural(
-        supabase,
-        estrutura
-    )
-
-    if not mem:
-        return
-
-    peso = {
-        11: 1,
-        12: 2,
-        13: 5,
-        14: 10,
-        15: 15
-    }.get(acertos, 0)
-
-    vezes = int(
-        mem.get(
-            "vezes_gerado",
-            0
-        )
-    )
-
-    score_antigo = float(
-        mem.get(
-            "score_medio_real",
-            0
-        )
-    )
-
-    novo_total = vezes + 1
-
-    novo_score = (
-        (score_antigo * vezes) + peso
-    ) / novo_total
-
-    update = {
-
-        "vezes_gerado": novo_total,
-
-        "score_medio_real": round(
-            novo_score,
-            4
-        ),
-
-        "ultima_aparicao": datetime.now().date().isoformat(),
-
-        "updated_at": datetime.now().isoformat()
-    }
-
-    if acertos >= 11:
-
-        coluna = f"acertos_{acertos}"
-
-        update[coluna] = int(
-            mem.get(
-                coluna,
-                0
-            )
-        ) + 1
-
-    supabase.table(
-        "memoria_cenarios"
-    ).update(
-        update
-    ).eq(
-        "id",
-        mem["id"]
-    ).execute()
-
-
-# ======================================================
-# MEMORIA POSICIONAL
-# ======================================================
-def atualizar_memoria_posicional(
-    supabase,
-    indice_palpite,
-    acertos
-):
-
     row = supabase.table(
-        "memoria_posicional"
+        "memoria_cenarios"
     ).select("*") \
-    .eq(
-        "indice_palpite",
-        indice_palpite
-    ) \
-    .execute()
+     .eq(
+         "hash_estrutura",
+         estrutura["hash_estrutura"]
+     ) \
+     .execute()
 
     if not row.data:
-        return
+
+        bootstrap_estrutura_historica(
+            supabase,
+            estrutura
+        )
+
+        row = supabase.table(
+            "memoria_cenarios"
+        ).select("*") \
+         .eq(
+             "hash_estrutura",
+             estrutura["hash_estrutura"]
+         ) \
+         .execute()
 
     mem = row.data[0]
 
@@ -269,34 +222,29 @@ def atualizar_memoria_posicional(
 
     update = {
 
-        "vezes_gerado": novo_total,
+        "vezes_gerado":
+            novo_total,
 
-        "score_medio_real": round(
-            novo_score,
-            4
-        ),
+        "score_medio_real":
+            round(
+                novo_score,
+                4
+            ),
 
-        "updated_at": datetime.now().isoformat()
+        "ultima_aparicao":
+            datetime.now().date().isoformat(),
+
+        "updated_at":
+            datetime.now().isoformat()
     }
 
-    if acertos >= 11:
-
-        coluna = f"acertos_{acertos}"
-
-        update[coluna] = int(
-            mem.get(
-                coluna,
-                0
-            )
-        ) + 1
-
     supabase.table(
-        "memoria_posicional"
+        "memoria_cenarios"
     ).update(
         update
     ).eq(
-        "indice_palpite",
-        indice_palpite
+        "id",
+        mem["id"]
     ).execute()
 
 
@@ -308,18 +256,13 @@ def main():
     supabase = get_supabase()
 
     print(
-        "🏁 [v14.2] Conferência + Bootstrap"
+        f"🏁 [{VERSAO}] Conferência + Bootstrap"
     )
 
     oficiais = supabase.table(
         "lotofacil_concursos"
     ).select(
         "concurso,dezenas"
-    ).order(
-        "concurso",
-        desc=True
-    ).limit(
-        500
     ).execute().data
 
     mapa = {
@@ -336,14 +279,11 @@ def main():
     pendentes = supabase.table(
         "palpites_validos"
     ).select("*") \
-    .eq(
-        "processado",
-        False
-    ) \
-    .order(
-        "concurso_referencia"
-    ) \
-    .execute().data
+     .eq(
+         "processado",
+         False
+     ) \
+     .execute().data
 
     print(
         f"📌 {len(pendentes)} palpites pendentes"
@@ -360,7 +300,8 @@ def main():
         if concurso not in mapa:
 
             print(
-                f"⏳ Concurso {concurso} "
+                f"⏳ Concurso "
+                f"{concurso} "
                 f"ainda sem resultado oficial"
             )
 
@@ -371,25 +312,24 @@ def main():
         )
 
         acertos = len(
-            set(numeros) &
-            mapa[concurso]
-        )
 
-        print(
-            f"✅ Concurso {concurso} | "
-            f"Palpite #{p['indice_palpite']} | "
-            f"{acertos} acertos"
+            set(numeros) &
+
+            mapa[concurso]
         )
 
         supabase.table(
             "palpites_validos"
         ).update({
 
-            "acertos": acertos,
+            "acertos":
+                acertos,
 
-            "processado": True,
+            "processado":
+                True,
 
-            "conferido": True
+            "conferido":
+                True
 
         }).eq(
             "id",
@@ -402,12 +342,11 @@ def main():
             acertos
         )
 
-        atualizar_memoria_posicional(
-            supabase,
-            int(
-                p["indice_palpite"]
-            ),
-            acertos
+        print(
+            f"✅ Concurso "
+            f"{concurso} | "
+            f"Palpite #{p['indice_palpite']} | "
+            f"{acertos} acertos"
         )
 
         processados += 1
