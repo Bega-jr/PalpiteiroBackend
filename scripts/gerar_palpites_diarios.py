@@ -20,16 +20,19 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
-VERSAO = "v15.5-restaurado-estrutural"
+# ======================================================
+# CONFIG
+# ======================================================
+VERSAO = "v15.8-autonomo-adaptativo"
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 MOLDURA = {
-    1,2,3,4,5,
-    6,10,11,15,16,20,
-    21,22,23,24,25
+    1, 2, 3, 4, 5,
+    6, 10, 11, 15, 16, 20,
+    21, 22, 23, 24, 25
 }
 
 
@@ -66,20 +69,21 @@ def calcular_filtros(nums, ultimo):
     }
 
 
-def validar(f, linhas):
+# 🧠 VALIDAÇÃO ADAPTATIVA: Avalia o jogo conforme as tendências calculadas em tempo de execução
+def validar_autonomo(f, linhas, limites):
     return (
-        165 <= f["soma"] <= 210 and
-        7 <= f["pares"] <= 9 and
-        4 <= f["primos"] <= 7 and
-        9 <= f["moldura"] <= 12 and
-        8 <= f["repetidos"] <= 10 and
-        f["seq_max"] <= 4 and
-        max(linhas) <= 9
+        limites["soma_min"] <= f["soma"] <= limites["soma_max"] and
+        limites["pares_min"] <= f["pares"] <= limites["pares_max"] and
+        limites["primos_min"] <= f["primos"] <= limites["primos_max"] and
+        limites["moldura_min"] <= f["moldura"] <= limites["moldura_max"] and
+        limites["repetidos_min"] <= f["repetidos"] <= limites["repetidos_max"] and
+        f["seq_max"] <= limites["seq_max_limite"] and
+        max(linhas) <= limites["max_linha_limite"]
     )
 
 
 # ======================================================
-# SCORE
+# SCORE (COM SUAVIZAÇÃO DE RUÍDO PARA VALORIZAR MÉTRIÇAS REAIS)
 # ======================================================
 
 def score(j, base):
@@ -87,7 +91,8 @@ def score(j, base):
     s2 = media_segura([base.get(tuple(sorted(p)), 0.5) for p in itertools.combinations(j, 2)])
     s3 = media_segura([base.get(tuple(sorted(t)), 0.5) for t in itertools.combinations(j, 3)])
 
-    noise = random.uniform(0.985, 1.015)
+    # 🎯 Ajuste sugerido: Ruído controlado para evitar falsos positivos no ranking
+    noise = random.uniform(0.995, 1.005)
 
     return ((s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)) * noise
 
@@ -148,6 +153,42 @@ def main():
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
 
+    # 📊 EXTRAÇÃO ANALÍTICA: Mapeia dinamicamente os últimos 25 concursos do banco [v14.1]
+    janela_recente = hist[-25:]
+    somas_rec, pares_rec, primos_rec, moldura_rec, repetidos_rec, seq_rec, linhas_rec = [], [], [], [], [], [], []
+
+    for i, h in enumerate(janela_recente):
+        nums = h["numeros"]
+        ref_anterior = janela_recente[i-1]["numeros"] if i > 0 else nums
+        f_hist = calcular_filtros(nums, ref_anterior)
+        e_hist = extrair_estrutura(nums)
+        
+        somas_rec.append(f_hist["soma"])
+        pares_rec.append(f_hist["pares"])
+        primos_rec.append(f_hist["primos"])
+        moldura_rec.append(f_hist["moldura"])
+        repetidos_rec.append(f_hist["repetidos"])
+        seq_rec.append(f_hist["seq_max"])
+        linhas_rec.append(max(e_hist["linhas"]))
+
+    # 🧠 CALIBRAÇÃO DOS LIMITES POR DISTRIBUTION PERCENTILE
+    limites_calculados = {
+        "soma_min": int(np.percentile(somas_rec, 10)),      
+        "soma_max": int(np.percentile(somas_rec, 90)),      
+        "pares_min": int(min(pares_rec)),
+        "pares_max": int(max(pares_rec)),
+        "primos_min": int(min(primos_rec)),
+        "primos_max": int(max(primos_rec)),
+        "moldura_min": int(min(moldura_rec)),
+        "moldura_max": int(max(moldura_rec)),
+        "repetidos_min": int(min(repetidos_rec)) - 1,       
+        "repetidos_max": int(max(repetidos_rec)) + 1,
+        "seq_max_limite": int(max(seq_rec)) if max(seq_rec) >= 5 else 5,
+        "max_linha_limite": int(max(linhas_rec))
+    }
+
+    print(f"⚙️ Filtros dinâmicos calculados para concurso {concurso_ref}: Soma({limites_calculados['soma_min']}-{limites_calculados['soma_max']}) | Sequência Max({limites_calculados['seq_max_limite']})")
+
     memoria = {
         m["hash_estrutura"]: m
         for m in supabase.table("memoria_cenarios").select("*").execute().data
@@ -160,7 +201,8 @@ def main():
 
     for _ in range(MAX_TENTATIVAS):
 
-        if len(candidatos) >= 5000:
+        # 🎯 Ajuste sugerido: Teto reduzido de 5k para 1500 para blindar o tempo de execução do loop
+        if len(candidatos) >= 1500:
             break
 
         jogo = sorted(random.sample(pool, 15))
@@ -169,11 +211,11 @@ def main():
             continue
 
         f = calcular_filtros(jogo, ultimo)
-
         estr = extrair_estrutura(jogo)
         mem = memoria.get(estr["hash_estrutura"])
 
-        if not validar(f, estr["linhas"]):
+        # 🧠 Executa validação cruzada autônoma
+        if not validar_autonomo(f, estr["linhas"], limites_calculados):
             continue
 
         if not diversidade_ok(jogo, candidatos[-25:]):
@@ -233,6 +275,7 @@ def main():
             }
         })
 
+    # Mantém intactas suas rotinas originais de deleção e persistência por upsert
     supabase.table("palpites_validos") \
         .delete().eq("concurso_referencia", concurso_ref).execute()
 
@@ -247,3 +290,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
