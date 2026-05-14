@@ -20,19 +20,33 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
+
 # ======================================================
 # CONFIG
 # ======================================================
-VERSAO = "v15.9-feedback-loop"
+
+VERSAO = "v16.0-adaptive-memory"
+
 QTD_FINAL = 7
+
 MAX_TENTATIVAS = 120000
 
-PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
+
+PRIMOS = {
+
+    2, 3, 5, 7, 11,
+    13, 17, 19, 23
+
+}
+
 
 MOLDURA = {
+
     1, 2, 3, 4, 5,
-    6, 10, 11, 15, 16, 20,
+    6, 10, 11, 15,
+    16, 20,
     21, 22, 23, 24, 25
+
 }
 
 
@@ -40,75 +54,294 @@ MOLDURA = {
 # UTIL
 # ======================================================
 
-def media_segura(v, f=0.5):
-    return float(np.mean([x for x in v if x is not None])) if v else f
+def media_segura(v, fallback=0.5):
+
+    valores = [
+
+        x for x in v
+
+        if x is not None
+
+    ]
+
+    if not valores:
+        return fallback
+
+    return float(
+
+        np.mean(
+            valores
+        )
+
+    )
 
 
-def calcular_filtros(nums, ultimo):
-    pares = sum(1 for n in nums if n % 2 == 0)
-    primos = sum(1 for n in nums if n in PRIMOS)
-    moldura = sum(1 for n in nums if n in MOLDURA)
-    soma = sum(nums)
-    repetidos = len(set(nums) & set(ultimo))
+def calcular_filtros(
+    nums,
+    ultimo
+):
 
-    seq_max = atual = 1
-    for i in range(len(nums)-1):
-        if nums[i+1] == nums[i] + 1:
+    pares = sum(
+
+        1
+
+        for n in nums
+
+        if n % 2 == 0
+
+    )
+
+    primos = sum(
+
+        1
+
+        for n in nums
+
+        if n in PRIMOS
+
+    )
+
+    moldura = sum(
+
+        1
+
+        for n in nums
+
+        if n in MOLDURA
+
+    )
+
+    soma = sum(
+        nums
+    )
+
+    repetidos = len(
+
+        set(nums)
+
+        &
+
+        set(ultimo)
+
+    )
+
+    seq_max = 1
+
+    atual = 1
+
+    for i in range(
+        len(nums) - 1
+    ):
+
+        if nums[i + 1] == nums[i] + 1:
+
             atual += 1
-            seq_max = max(seq_max, atual)
+
+            seq_max = max(
+                seq_max,
+                atual
+            )
+
         else:
+
             atual = 1
 
     return {
+
         "pares": pares,
+
         "primos": primos,
+
         "moldura": moldura,
+
         "soma": soma,
+
         "repetidos": repetidos,
+
         "seq_max": seq_max
+
     }
 
 
-# 🧠 VALIDAÇÃO ADAPTATIVA: Avalia o jogo conforme as tendências calculadas em tempo de execução
-def validar_autonomo(f, linhas, limites):
+def validar_autonomo(
+    f,
+    linhas,
+    limites
+):
+
     return (
-        limites["soma_min"] <= f["soma"] <= limites["soma_max"] and
-        limites["pares_min"] <= f["pares"] <= limites["pares_max"] and
-        limites["primos_min"] <= f["primos"] <= limites["primos_max"] and
-        limites["moldura_min"] <= f["moldura"] <= limites["moldura_max"] and
-        limites["repetidos_min"] <= f["repetidos"] <= limites["repetidos_max"] and
-        f["seq_max"] <= limites["seq_max_limite"] and
-        max(linhas) <= limites["max_linha_limite"]
+
+        limites["soma_min"]
+        <=
+        f["soma"]
+        <=
+        limites["soma_max"]
+
+        and
+
+        limites["pares_min"]
+        <=
+        f["pares"]
+        <=
+        limites["pares_max"]
+
+        and
+
+        limites["primos_min"]
+        <=
+        f["primos"]
+        <=
+        limites["primos_max"]
+
+        and
+
+        limites["moldura_min"]
+        <=
+        f["moldura"]
+        <=
+        limites["moldura_max"]
+
+        and
+
+        limites["repetidos_min"]
+        <=
+        f["repetidos"]
+        <=
+        limites["repetidos_max"]
+
+        and
+
+        f["seq_max"]
+        <=
+        limites["seq_max_limite"]
+
+        and
+
+        max(linhas)
+        <=
+        limites["max_linha_limite"]
+
     )
 
 
 # ======================================================
-# SCORE (COM SUAVIZAÇÃO DE RUÍDO PARA VALORIZAR MÉTRIÇAS REAIS)
+# SCORE
 # ======================================================
 
-def score(j, base):
-    s1 = media_segura([base.get((n,), 0.5) for n in j])
-    s2 = media_segura([base.get(tuple(sorted(p)), 0.5) for p in itertools.combinations(j, 2)])
-    s3 = media_segura([base.get(tuple(sorted(t)), 0.5) for t in itertools.combinations(j, 3)])
+def score(
+    jogo,
+    base
+):
 
-    # 🎯 Ajuste sugerido: Ruído controlado para evitar falsos positivos no ranking
-    noise = random.uniform(0.995, 1.005)
+    s1 = media_segura([
 
-    return ((s1 * 0.25) + (s2 * 0.35) + (s3 * 0.40)) * noise
+        base.get(
+            (n,),
+            0.5
+        )
+
+        for n in jogo
+
+    ])
+
+    s2 = media_segura([
+
+        base.get(
+            tuple(sorted(p)),
+            0.5
+        )
+
+        for p in itertools.combinations(
+            jogo,
+            2
+        )
+
+    ])
+
+    ternos = list(
+
+        itertools.combinations(
+            jogo,
+            3
+        )
+
+    )
+
+    ternos_amostrados = random.sample(
+
+        ternos,
+
+        min(
+            80,
+            len(ternos)
+        )
+
+    )
+
+    s3 = media_segura([
+
+        base.get(
+            tuple(sorted(t)),
+            0.5
+        )
+
+        for t in ternos_amostrados
+
+    ])
+
+    noise = random.uniform(
+        0.995,
+        1.005
+    )
+
+    return (
+
+        (
+            (s1 * 0.25)
+            +
+            (s2 * 0.35)
+            +
+            (s3 * 0.40)
+        )
+
+        *
+
+        noise
+
+    )
 
 
 # ======================================================
-# BONUS ESTRUTURA
+# BONUS
 # ======================================================
 
-def bonus_moldura(estr, mem):
+def bonus_moldura(
+    estr,
+    mem
+):
 
     if not mem:
         return 1.0
 
     linhas = estr["linhas"]
-    vezes = int(mem.get("vezes_gerado", 0))
-    score_real = float(mem.get("score_medio_real", 0))
+
+    vezes = int(
+
+        mem.get(
+            "vezes_gerado",
+            0
+        )
+
+    )
+
+    score_real = float(
+
+        mem.get(
+            "score_medio_real",
+            0
+        )
+
+    )
 
     if max(linhas) >= 10:
         return 0.90
@@ -129,8 +362,26 @@ def bonus_moldura(estr, mem):
 # DIVERSIDADE
 # ======================================================
 
-def diversidade_ok(novo, lista):
-    return all(len(set(novo) ^ set(x["nums"])) >= 8 for x in lista)
+def diversidade_ok(
+    novo,
+    lista
+):
+
+    return all(
+
+        len(
+
+            set(novo)
+
+            ^
+
+            set(x["nums"])
+
+        ) >= 8
+
+        for x in lista
+
+    )
 
 
 # ======================================================
@@ -141,174 +392,605 @@ def main():
 
     supabase = get_supabase()
 
-    print(f"🛡️ {VERSAO}")
+    print(
+        f"🛡️ {VERSAO}"
+    )
 
-    fuso = pytz.timezone("America/Sao_Paulo")
-    hoje = datetime.now(fuso).date().isoformat()
+    fuso = pytz.timezone(
+        "America/Sao_Paulo"
+    )
+
+    hoje = datetime.now(
+        fuso
+    ).date().isoformat()
 
     hist = carregar_historico()
+
     ultimo = hist[-1]["numeros"]
-    concurso_ref = int(hist[-1]["concurso"]) + 1
 
-    base_scores, _ = calcular_score_combinacoes_reais()
-    fator_global = obter_fator_aprendizado_global()["fator"]
+    concurso_ref = int(
 
-    # =====================================================
-    # 🧠 LEITURA DO CONHECIMENTO ADQUIRIDO (FEEDBACK LOOP)
-    # =====================================================
+        hist[-1]["concurso"]
+
+    ) + 1
+
+    base_scores, _ = (
+
+        calcular_score_combinacoes_reais()
+
+    )
+
+    fator_global = (
+
+        obter_fator_aprendizado_global()["fator"]
+
+    )
+
+    # ===============================================
+    # FEEDBACK LOOP SUAVIZADO
+    # ===============================================
+
     fator_feedback_loop = 1.0
+
     try:
-        concurso_anterior = concurso_ref - 1
-        busca_feedback = supabase.table("memoria_feedback_loop") \
-            .select("fator_correcao") \
-            .eq("concurso_referencia", concurso_anterior).execute().data
-        
-        if busca_feedback:
-            fator_feedback_loop = float(busca_feedback[0]["fator_correcao"])
-            print(f"🎛️ Feedback Loop Ativo: Fator de correção {fator_feedback_loop} mapeado do concurso {concurso_anterior}")
+
+        concursos_feedback = list(
+
+            range(
+                concurso_ref - 5,
+                concurso_ref
+            )
+
+        )
+
+        rows_feedback = (
+
+            supabase
+            .table(
+                "memoria_feedback_loop"
+            )
+            .select(
+                "fator_correcao"
+            )
+            .in_(
+                "concurso_referencia",
+                concursos_feedback
+            )
+            .execute()
+            .data
+
+        )
+
+        if rows_feedback:
+
+            fatores = [
+
+                float(
+                    x[
+                        "fator_correcao"
+                    ]
+                )
+
+                for x in rows_feedback
+
+            ]
+
+            fator_feedback_loop = float(
+
+                np.mean(
+                    fatores
+                )
+
+            )
+
+            print(
+
+                f"🎛️ Feedback Médio: {round(fator_feedback_loop,4)}"
+
+            )
+
         else:
-            print(f"ℹ️ Feedback Loop Neutro: Nenhum registro prévio encontrado para o concurso {concurso_anterior}")
-    except Exception as e_fb:
-        print(f"⚠️ Falha de leitura no Feedback Loop: {e_fb}. Inicializando com peso neutro (1.0)")
+
+            print(
+                "ℹ️ Feedback neutro"
+            )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Feedback falhou: {e}"
+        )
+
         fator_feedback_loop = 1.0
 
-    # 📊 EXTRAÇÃO ANALÍTICA: Mapeia dinamicamente os últimos 25 concursos do banco
-    janela_recente = hist[-25:]
-    somas_rec, pares_rec, primos_rec, moldura_rec, repetidos_rec, seq_rec, linhas_rec = [], [], [], [], [], [], []
+    # ===============================================
+    # LEITURA DOS ÚLTIMOS CONCURSOS
+    # ===============================================
 
-    for i, h in enumerate(janela_recente):
+    janela = hist[-25:]
+
+    somas = []
+    pares = []
+    primos = []
+    moldura = []
+    repetidos = []
+    seqs = []
+    linhas = []
+
+    for i, h in enumerate(
+        janela
+    ):
+
         nums = h["numeros"]
-        ref_anterior = janela_recente[i-1]["numeros"] if i > 0 else nums
-        f_hist = calcular_filtros(nums, ref_anterior)
-        e_hist = extrair_estrutura(nums)
-        
-        somas_rec.append(f_hist["soma"])
-        pares_rec.append(f_hist["pares"])
-        primos_rec.append(f_hist["primos"])
-        moldura_rec.append(f_hist["moldura"])
-        repetidos_rec.append(f_hist["repetidos"])
-        seq_rec.append(f_hist["seq_max"])
-        linhas_rec.append(max(e_hist["linhas"]))
 
-    # 🧠 CALIBRAÇÃO DOS LIMITES POR DISTRIBUTION PERCENTILE
-    limites_calculados = {
-        "soma_min": int(np.percentile(somas_rec, 10)),      
-        "soma_max": int(np.percentile(somas_rec, 90)),      
-        "pares_min": int(min(pares_rec)),
-        "pares_max": int(max(pares_rec)),
-        "primos_min": int(min(primos_rec)),
-        "primos_max": int(max(primos_rec)),
-        "moldura_min": int(min(moldura_rec)),
-        "moldura_max": int(max(moldura_rec)),
-        "repetidos_min": int(min(repetidos_rec)) - 1,       
-        "repetidos_max": int(max(repetidos_rec)) + 1,
-        "seq_max_limite": int(max(seq_rec)) if max(seq_rec) >= 5 else 5,
-        "max_linha_limite": int(max(linhas_rec))
+        ref_ant = (
+
+            janela[i - 1]["numeros"]
+
+            if i > 0
+
+            else nums
+
+        )
+
+        f = calcular_filtros(
+            nums,
+            ref_ant
+        )
+
+        e = extrair_estrutura(
+            nums
+        )
+
+        somas.append(
+            f["soma"]
+        )
+
+        pares.append(
+            f["pares"]
+        )
+
+        primos.append(
+            f["primos"]
+        )
+
+        moldura.append(
+            f["moldura"]
+        )
+
+        repetidos.append(
+            f["repetidos"]
+        )
+
+        seqs.append(
+            f["seq_max"]
+        )
+
+        linhas.append(
+            max(
+                e["linhas"]
+            )
+        )
+
+    limites = {
+
+        "soma_min":
+            int(
+                np.percentile(
+                    somas,
+                    10
+                )
+            ),
+
+        "soma_max":
+            int(
+                np.percentile(
+                    somas,
+                    90
+                )
+            ),
+
+        "pares_min":
+            min(
+                pares
+            ),
+
+        "pares_max":
+            max(
+                pares
+            ),
+
+        "primos_min":
+            min(
+                primos
+            ),
+
+        "primos_max":
+            max(
+                primos
+            ),
+
+        "moldura_min":
+            min(
+                moldura
+            ),
+
+        "moldura_max":
+            max(
+                moldura
+            ),
+
+        "repetidos_min":
+            min(
+                repetidos
+            ) - 1,
+
+        "repetidos_max":
+            max(
+                repetidos
+            ) + 1,
+
+        "seq_max_limite":
+            max(
+                max(seqs),
+                5
+            ),
+
+        "max_linha_limite":
+            max(
+                linhas
+            )
+
     }
-
-    print(f"⚙️ Filtros dinâmicos calculados para concurso {concurso_ref}: Soma({limites_calculados['soma_min']}-{limites_calculados['soma_max']}) | Sequência Max({limites_calculados['seq_max_limite']})")
 
     memoria = {
-        m["hash_estrutura"]: m
-        for m in supabase.table("memoria_cenarios").select("*").execute().data
+
+        m[
+            "hash_estrutura"
+        ]: m
+
+        for m in
+
+        supabase
+        .table(
+            "memoria_cenarios"
+        )
+        .select("*")
+        .execute()
+        .data
+
     }
 
-    usados = set(tuple(sorted(h["numeros"])) for h in hist)
+    usados = set(
+
+        tuple(
+
+            sorted(
+                h["numeros"]
+            )
+
+        )
+
+        for h in hist
+
+    )
 
     candidatos = []
-    pool = list(range(1, 26))
 
-    for _ in range(MAX_TENTATIVAS):
+    pool = list(
+        range(1, 26)
+    )
 
-        # 🎯 Teto reduzido de 5k para 1500 para blindar o tempo de execução do loop
-        if len(candidatos) >= 1500:
+    for _ in range(
+        MAX_TENTATIVAS
+    ):
+
+        if len(
+            candidatos
+        ) >= 1500:
+
             break
 
-        jogo = sorted(random.sample(pool, 15))
+        jogo = sorted(
+
+            random.sample(
+                pool,
+                15
+            )
+
+        )
 
         if tuple(jogo) in usados:
             continue
 
-        f = calcular_filtros(jogo, ultimo)
-        estr = extrair_estrutura(jogo)
-        mem = memoria.get(estr["hash_estrutura"])
+        f = calcular_filtros(
+            jogo,
+            ultimo
+        )
 
-        # 🧠 Executa validação cruzada autônoma
-        if not validar_autonomo(f, estr["linhas"], limites_calculados):
+        estr = extrair_estrutura(
+            jogo
+        )
+
+        mem = memoria.get(
+
+            estr[
+                "hash_estrutura"
+            ]
+
+        )
+
+        if not validar_autonomo(
+            f,
+            estr["linhas"],
+            limites
+        ):
             continue
 
-        if not diversidade_ok(jogo, candidatos[-25:]):
+        if not diversidade_ok(
+            jogo,
+            candidatos[-25:]
+        ):
             continue
 
-        if any(len(set(jogo) & set(c["nums"])) > 12 for c in candidatos[-50:]):
+        if any(
+
+            len(
+
+                set(jogo)
+
+                &
+
+                set(
+                    c["nums"]
+                )
+
+            ) > 12
+
+            for c in candidatos[-20:]
+
+        ):
+
             continue
 
-        s = score(jogo, base_scores)
+        s = score(
+            jogo,
+            base_scores
+        )
 
-        # ⚙️ MULTIPLICADOR EVOLUTIVO: Pondera o erro do concurso anterior em tempo real no score acumulado
-        score_final = s * fator_global * bonus_moldura(estr, mem) * fator_feedback_loop
+        bonus_estrutura = (
+
+            bonus_moldura(
+                estr,
+                mem
+            )
+
+        )
+
+        anti_drift = 1.0
+
+        if mem:
+
+            vezes = int(
+
+                mem.get(
+                    "vezes_gerado",
+                    0
+                )
+
+            )
+
+            if vezes > 20:
+
+                anti_drift *= 0.94
+
+            elif vezes > 10:
+
+                anti_drift *= 0.97
+
+        score_final = (
+
+            s
+
+            *
+
+            fator_global
+
+            *
+
+            fator_feedback_loop
+
+            *
+
+            bonus_estrutura
+
+            *
+
+            anti_drift
+
+        )
 
         candidatos.append({
+
             "nums": jogo,
+
             "score": score_final,
+
             "filtros": f
+
         })
 
-    candidatos.sort(key=lambda x: x["score"], reverse=True)
+    candidatos.sort(
+
+        key=lambda x: x["score"],
+
+        reverse=True
+
+    )
 
     finais = []
+
     for c in candidatos:
+
         if len(finais) >= QTD_FINAL:
             break
 
-        if diversidade_ok(c["nums"], finais):
-            finais.append(c)
+        if diversidade_ok(
+            c["nums"],
+            finais
+        ):
 
-    print("🏆 TOP 7")
+            finais.append(
+                c
+            )
+
+    print(
+        "\n🏆 TOP 7"
+    )
 
     payload = []
+
     telegram = []
 
-    for i, c in enumerate(finais, 1):
+    for i, c in enumerate(
+        finais,
+        1
+    ):
 
-        linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
-        print(linha)
+        linha = (
 
-        telegram.append(linha)
+            f"{i}º | "
+
+            f"{c['score']:.6f} | "
+
+            f"{c['nums']}"
+
+        )
+
+        print(
+            linha
+        )
+
+        telegram.append(
+            linha
+        )
 
         payload.append({
-            "data_referencia": hoje,
-            "concurso_referencia": concurso_ref,
-            "indice_palpite": i,
-            "tipo": "fixo" if i == 1 else "estatistico",
-            "numeros": json.dumps(c["nums"]),
-            "pares": c["filtros"]["pares"],
-            "impares": 15 - c["filtros"]["pares"],
-            "soma_total": c["filtros"]["soma"],
-            "processado": False,
-            "conferido": False,
-            "versao_gerador": VERSAO,
+
+            "data_referencia":
+                hoje,
+
+            "concurso_referencia":
+                concurso_ref,
+
+            "indice_palpite":
+                i,
+
+            "tipo":
+
+                "fixo"
+
+                if i == 1
+
+                else "estatistico",
+
+            "numeros":
+                json.dumps(
+                    c["nums"]
+                ),
+
+            "pares":
+                c["filtros"]["pares"],
+
+            "impares":
+                15 - c["filtros"]["pares"],
+
+            "soma_total":
+                c["filtros"]["soma"],
+
+            "processado":
+                False,
+
+            "conferido":
+                False,
+
+            "versao_gerador":
+                VERSAO,
+
             "metricas": {
-                "score": round(c["score"], 6),
-                "primos": c["filtros"]["primos"],
-                "moldura": c["filtros"]["moldura"]
+
+                "score":
+                    round(
+                        c["score"],
+                        6
+                    ),
+
+                "primos":
+                    c["filtros"]["primos"],
+
+                "moldura":
+                    c["filtros"]["moldura"],
+
+                "fator_global":
+                    round(
+                        fator_global,
+                        6
+                    ),
+
+                "fator_feedback":
+                    round(
+                        fator_feedback_loop,
+                        6
+                    ),
+
+                "limites":
+                    limites
+
             }
+
         })
 
-    # Mantém intactas suas rotinas originais de deleção e persistência por upsert
-    supabase.table("palpites_validos") \
-        .delete().eq("concurso_referencia", concurso_ref).execute()
-
-    supabase.table("palpites_validos") \
-        .upsert(payload, on_conflict="concurso_referencia,indice_palpite") \
+    # Mantido exatamente como você pediu
+    (
+        supabase
+        .table(
+            "palpites_validos"
+        )
+        .delete()
+        .eq(
+            "concurso_referencia",
+            concurso_ref
+        )
         .execute()
+    )
 
-    print("\n📲 TELEGRAM_PAYLOAD_START")
-    print("\n".join(telegram))
-    print("📲 TELEGRAM_PAYLOAD_END")
+    (
+        supabase
+        .table(
+            "palpites_validos"
+        )
+        .upsert(
+            payload,
+            on_conflict="concurso_referencia,indice_palpite"
+        )
+        .execute()
+    )
+
+    print(
+        "\n📲 TELEGRAM_PAYLOAD_START"
+    )
+
+    print(
+        "\n".join(
+            telegram
+        )
+    )
+
+    print(
+        "📲 TELEGRAM_PAYLOAD_END"
+    )
 
 
 if __name__ == "__main__":
     main()
-
 
