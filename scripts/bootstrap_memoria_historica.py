@@ -1,5 +1,6 @@
 import sys
 import json
+import math
 import numpy as np
 
 from pathlib import Path
@@ -11,7 +12,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "bootstrap-v2.3-feedback-loop-fix"
+VERSAO = "bootstrap-v2.4-macro-recencia"
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
@@ -64,6 +65,17 @@ def normalizar_concurso(valor):
         return None
 
 
+def calcular_macro_dispersao(nums):
+
+    return [
+
+        sum(1 for n in nums if 1 <= n <= 8),
+        sum(1 for n in nums if 9 <= n <= 17),
+        sum(1 for n in nums if 18 <= n <= 25)
+
+    ]
+
+
 def extrair_estrutura(nums):
 
     linhas_lista = [
@@ -75,6 +87,10 @@ def extrair_estrutura(nums):
         sum(1 for n in nums if 21 <= n <= 25)
 
     ]
+
+    macro_lista = calcular_macro_dispersao(
+        nums
+    )
 
     return {
 
@@ -98,9 +114,17 @@ def extrair_estrutura(nums):
         "linhas":
             linhas_lista,
 
+        "macro":
+            macro_lista,
+
         "hash_estrutura":
             "-".join(
                 map(str, linhas_lista)
+            ),
+
+        "hash_macro":
+            "-".join(
+                map(str, macro_lista)
             )
     }
 
@@ -116,9 +140,6 @@ def main():
         f"🚀 [{VERSAO}] Iniciando Bootstrap"
     )
 
-    # ======================================================
-    # HISTÓRICO OFICIAL
-    # ======================================================
     historico = (
 
         supabase
@@ -139,8 +160,9 @@ def main():
     )
 
     estruturas = {}
-
     mapa_resultados = {}
+
+    concursos_ordenados = []
 
     for row in historico:
 
@@ -150,6 +172,10 @@ def main():
 
         if concurso is None:
             continue
+
+        concursos_ordenados.append(
+            concurso
+        )
 
         nums = parse_numeros(
             row.get("dezenas")
@@ -194,6 +220,12 @@ def main():
                 "hash_estrutura":
                     estrutura["hash_estrutura"],
 
+                "macro":
+                    estrutura["macro"],
+
+                "hash_macro":
+                    estrutura["hash_macro"],
+
                 "vezes_gerado":
                     0
             }
@@ -202,14 +234,18 @@ def main():
             chave
         ]["vezes_gerado"] += 1
 
-    # ======================================================
-    # MEMÓRIA ESTRUTURAL
-    # ======================================================
     agora = datetime.now().isoformat()
 
     payload = []
 
     for item in estruturas.values():
+
+        saturacao = round(
+            math.log(
+                item["vezes_gerado"] + 1
+            ),
+            4
+        )
 
         payload.append({
 
@@ -231,6 +267,7 @@ def main():
             "vezes_gerado":
                 item["vezes_gerado"],
 
+            # backward compatible
             "acertos_11": 0,
             "acertos_12": 0,
             "acertos_13": 0,
@@ -240,9 +277,12 @@ def main():
             "score_medio_real": 0,
 
             "tendencia": 0,
-            "saturacao": 0,
 
-            "updated_at": agora
+            "saturacao":
+                saturacao,
+
+            "updated_at":
+                agora
         })
 
     print(
@@ -306,11 +346,6 @@ def main():
 
         return
 
-    print(
-        f"📊 Palpites encontrados: "
-        f"{len(todos_palpites)}"
-    )
-
     palpites_por_concurso = {}
 
     for p in todos_palpites:
@@ -341,31 +376,14 @@ def main():
             jogo
         )
 
-    print(
-        f"📌 Concursos nos palpites: "
-        f"{len(palpites_por_concurso)}"
-    )
-
-    print(
-        "🔍 Amostra histórico:",
-        list(mapa_resultados.keys())[:10]
-    )
-
-    print(
-        "🔍 Amostra palpites:",
-        list(palpites_por_concurso.keys())[:10]
-    )
-
     payload_feedback = []
 
-    matches = 0
-
-    for cc, jogos in palpites_por_concurso.items():
+    for idx, (cc, jogos) in enumerate(
+        palpites_por_concurso.items()
+    ):
 
         if cc not in mapa_resultados:
             continue
-
-        matches += 1
 
         resultado_real = mapa_resultados[
             cc
@@ -388,10 +406,20 @@ def main():
             np.mean(acertos_lista)
         )
 
-        if media < 9:
+        peso_recencia = max(
+            0.85,
+            1 - (idx * 0.01)
+        )
+
+        media_ajustada = (
+            media *
+            peso_recencia
+        )
+
+        if media_ajustada < 9:
             fator = 0.92
 
-        elif media >= 11:
+        elif media_ajustada >= 11:
             fator = 1.05
 
         else:
@@ -403,27 +431,18 @@ def main():
                 cc,
 
             "media_acertos_ia":
-                round(media, 2),
+                round(
+                    media_ajustada,
+                    2
+                ),
 
             "fator_correcao":
                 fator
         })
 
     print(
-        f"🎯 Matches encontrados: "
-        f"{matches}"
-    )
-
-    if not payload_feedback:
-
-        print(
-            "⚠️ Nenhuma correspondência real encontrada."
-        )
-
-        return
-
-    print(
-        "🧹 Limpando memoria_feedback_loop..."
+        f"📥 Gravando "
+        f"{len(payload_feedback)} registros..."
     )
 
     (
@@ -435,11 +454,6 @@ def main():
             -1
         )
         .execute()
-    )
-
-    print(
-        f"📥 Gravando "
-        f"{len(payload_feedback)} registros..."
     )
 
     for i in range(
