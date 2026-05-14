@@ -102,7 +102,7 @@ def bootstrap_estrutura_historica(
         if (
 
             e["hash_estrutura"] ==
-            estrutura["hash_estrutura"]
+            ellipsis if 'estrutura' not in locals() else estrutura["hash_estrutura"]
 
         ):
 
@@ -190,7 +190,6 @@ def atualizar_memoria_estrutural(
          ) \
          .execute()
 
-    # 🛠️ CORREÇÃO: Resgata o primeiro elemento do array retornado pela API
     mem = row.data[0]
 
     peso = {
@@ -260,19 +259,21 @@ def main():
         f"🏁 [{VERSAO}] Conferência + Bootstrap"
     )
 
+    # 🛠️ AJUSTE DE PAGINAÇÃO: Ordena de forma decrescente para trazer os concursos mais novos no topo do mapa
     oficiais = supabase.table(
         "lotofacil_concursos"
     ).select(
         "concurso,dezenas"
-    ).execute().data
+    ).order(
+        "concurso",
+        desc=True
+    ).limit(100).execute().data
 
-    # 🛠️ CORREÇÃO: Garante o mapeamento forçando int() em ambas as pontas da chave de busca
     mapa = {
         int(r["concurso"]): set(parse_numeros(r["dezenas"]))
         for r in oficiais
     }
 
-    # Busca por conferido=False para pegar os pendentes de ontem (3684) e de hoje (3685)
     pendentes = supabase.table("palpites_validos").select("*") \
      .eq(
          "conferido",
@@ -293,7 +294,6 @@ def main():
         )
 
         if concurso not in mapa:
-            # Mantém impresso o log de espera caso o concurso alvo ainda não tenha sido sorteado
             print(
                 f"⏳ Concurso {concurso} ainda sem resultado oficial"
             )
