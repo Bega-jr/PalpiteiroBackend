@@ -23,7 +23,8 @@ from scripts.processamento_diario_lotofacil import (
 # ======================================================
 # CONFIG
 # ======================================================
-VERSAO = "v16.1-adaptive-memory-separated"
+VERSAO = "v16.2-adaptive-memory-structural"
+
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
 
@@ -40,9 +41,12 @@ MOLDURA = {
 # UTIL
 # ======================================================
 def media_segura(v, fallback=0.5):
+
     validos = [x for x in v if x is not None]
+
     if not validos:
         return fallback
+
     return float(np.mean(validos))
 
 
@@ -77,12 +81,14 @@ def calcular_filtros(nums, ultimo):
         if nums[i + 1] == nums[i] + 1:
 
             atual += 1
+
             seq_max = max(
                 seq_max,
                 atual
             )
 
         else:
+
             atual = 1
 
     return {
@@ -151,13 +157,11 @@ def validar_autonomo(
 # ======================================================
 def score(jogo, base):
 
-    # dezenas
     s1 = media_segura([
         base.get((n,), 0.5)
         for n in jogo
     ])
 
-    # duplas
     s2 = media_segura([
 
         base.get(
@@ -171,7 +175,6 @@ def score(jogo, base):
         )
     ])
 
-    # ternos
     ternos = list(
         itertools.combinations(
             jogo,
@@ -193,8 +196,6 @@ def score(jogo, base):
         for t in ternos_amostrados
     ]
 
-    # NOVO:
-    # média + pico máximo
     s3 = (
 
         media_segura(
@@ -206,8 +207,6 @@ def score(jogo, base):
         max(scores_ternos) * 0.30
     )
 
-    # NOVO:
-    # mais separação estatística
     noise = random.uniform(
         0.97,
         1.03
@@ -265,6 +264,43 @@ def bonus_moldura(
 
     if score_real >= 3:
         return 1.02
+
+    return 1.0
+
+
+# ======================================================
+# NOVO BONUS ESTRUTURAL
+# ======================================================
+def bonus_estrutura(mem):
+
+    if not mem:
+        return 1.01
+
+    vezes = int(
+        mem.get(
+            "vezes_gerado",
+            0
+        )
+    )
+
+    score_real = float(
+        mem.get(
+            "score_medio_real",
+            0
+        )
+    )
+
+    if vezes >= 40:
+        return 0.97
+
+    if vezes <= 5 and score_real >= 1:
+        return 1.04
+
+    if vezes <= 5:
+        return 1.02
+
+    if 6 <= vezes <= 20:
+        return 1.01
 
     return 1.0
 
@@ -358,8 +394,6 @@ def main():
                 ]
             )
 
-        # NOVO:
-        # evita esmagar score
         fator_feedback_loop = max(
             0.97,
             min(
@@ -582,11 +616,14 @@ def main():
         )
 
         s *= fator_global
-
         s *= fator_feedback_loop
 
         s *= bonus_moldura(
             estrutura,
+            mem
+        )
+
+        s *= bonus_estrutura(
             mem
         )
 
@@ -717,7 +754,6 @@ def main():
             }
         })
 
-    # MANTIDO EXATAMENTE COMO VOCÊ PEDIU
     (
         supabase
         .table(
@@ -760,4 +796,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
