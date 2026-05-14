@@ -234,20 +234,16 @@ def calcular_score_combinacoes_reais(
 
             # performance histórica
             # concursos mais recentes valem mais
-            if idx <= 50:
-                performance[
-                    chave
-                ]["hits_15"] += 1
+           freq_atual = freq_base[chave]
 
-            elif idx <= 200:
-                performance[
-                    chave
-                ]["hits_14"] += 1
-
+            if freq_atual >= 4:
+                performance[chave]["hits_15"] += 1
+            
+            elif freq_atual >= 2:
+                performance[chave]["hits_14"] += 1
+            
             else:
-                performance[
-                    chave
-                ]["hits_13"] += 1
+                performance[chave]["hits_13"] += 1
 
         except Exception:
             continue
