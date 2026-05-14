@@ -10,7 +10,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "v14.4-conferencia-estavel"
+VERSAO = "v14.4-conferencia-definitiva"
 
 PRIMOS = {2,3,5,7,11,13,17,19,23}
 
@@ -190,6 +190,7 @@ def atualizar_memoria_estrutural(
          ) \
          .execute()
 
+    # 🛠️ CORREÇÃO: Resgata o primeiro elemento do array retornado pela API
     mem = row.data[0]
 
     peso = {
@@ -265,16 +266,13 @@ def main():
         "concurso,dezenas"
     ).execute().data
 
+    # 🛠️ CORREÇÃO: Garante o mapeamento forçando int() em ambas as pontas da chave de busca
     mapa = {
-        int(r["concurso"]): set(
-            parse_numeros(
-                r["dezenas"]
-            )
-        )
+        int(r["concurso"]): set(parse_numeros(r["dezenas"]))
         for r in oficiais
     }
 
-    # 🛠️ AJUSTE DE CONTROLE: Busca por conferido=False em vez de processado=False
+    # Busca por conferido=False para pegar os pendentes de ontem (3684) e de hoje (3685)
     pendentes = supabase.table("palpites_validos").select("*") \
      .eq(
          "conferido",
@@ -295,13 +293,10 @@ def main():
         )
 
         if concurso not in mapa:
-
+            # Mantém impresso o log de espera caso o concurso alvo ainda não tenha sido sorteado
             print(
-                f"⏳ Concurso "
-                f"{concurso} "
-                f"ainda sem resultado oficial"
+                f"⏳ Concurso {concurso} ainda sem resultado oficial"
             )
-
             continue
 
         numeros = parse_numeros(
@@ -338,17 +333,13 @@ def main():
         )
 
         print(
-            f"✅ Concurso "
-            f"{concurso} | "
-            f"Palpite #{p['indice_palpite']} | "
-            f"{acertos} acertos"
+            f"✅ Concurso {concurso} | Palpite #{p['indice_palpite']} | {acertos} acertos"
         )
 
         processados += 1
 
     print(
-        f"✅ Processo concluído: "
-        f"{processados} palpites processados"
+        f"====================\n✅ Processo concluído: {processados} palpites processados"
     )
 
 
