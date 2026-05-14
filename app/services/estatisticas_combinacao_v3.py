@@ -1,6 +1,5 @@
 from app.services.supabase_service import get_supabase
 from collections import defaultdict
-from typing import Dict, Tuple
 import json
 import os
 import math
@@ -50,7 +49,10 @@ def extrair_metricas_jogo(nums):
 # ======================================================
 def salvar_cache(payload):
 
-    os.makedirs("tmp", exist_ok=True)
+    os.makedirs(
+        "tmp",
+        exist_ok=True
+    )
 
     with open(
         CACHE_FILE,
@@ -67,7 +69,9 @@ def salvar_cache(payload):
 
 def carregar_cache():
 
-    if not os.path.exists(CACHE_FILE):
+    if not os.path.exists(
+        CACHE_FILE
+    ):
         return None
 
     try:
@@ -78,7 +82,9 @@ def carregar_cache():
             encoding="utf-8"
         ) as f:
 
-            return json.load(f)
+            return json.load(
+                f
+            )
 
     except Exception:
         return None
@@ -95,19 +101,24 @@ def calcular_score_combinacoes_reais(
     Aprende padrões reais.
 
     Retorna:
-        base_scores
+        scores
         metadata
     """
 
+    # ==================================================
+    # CACHE
+    # ==================================================
     if usar_cache:
 
         cache = carregar_cache()
 
         if cache:
 
-            print("⚡ usando cache")
+            print(
+                "⚡ usando cache"
+            )
 
-            base_scores = {
+            scores = {
                 eval(k): v
                 for k, v in cache["scores"].items()
             }
@@ -117,7 +128,7 @@ def calcular_score_combinacoes_reais(
                 for k, v in cache["metadata"].items()
             }
 
-            return base_scores, metadata
+            return scores, metadata
 
     supabase = get_supabase()
 
@@ -130,8 +141,12 @@ def calcular_score_combinacoes_reais(
 
         res = (
             supabase
-            .table("lotofacil_concursos")
-            .select("dezenas")
+            .table(
+                "lotofacil_concursos"
+            )
+            .select(
+                "dezenas"
+            )
             .order(
                 "concurso",
                 desc=True
@@ -158,8 +173,13 @@ def calcular_score_combinacoes_reais(
 
         return {}, {}
 
-    freq_base = defaultdict(int)
-    freq_rec = defaultdict(float)
+    freq_base = defaultdict(
+        int
+    )
+
+    freq_rec = defaultdict(
+        float
+    )
 
     performance = defaultdict(
         lambda: {
@@ -169,10 +189,12 @@ def calcular_score_combinacoes_reais(
         }
     )
 
-    total = len(res.data)
+    total = len(
+        res.data
+    )
 
     # ==================================================
-    # LEITURA
+    # LEITURA DOS CONCURSOS
     # ==================================================
     for idx, row in enumerate(
         res.data
@@ -180,7 +202,9 @@ def calcular_score_combinacoes_reais(
 
         try:
 
-            raw = row["dezenas"]
+            raw = row[
+                "dezenas"
+            ]
 
             if isinstance(
                 raw,
@@ -215,6 +239,7 @@ def calcular_score_combinacoes_reais(
                 m["linhas"]
             )
 
+            # frequência bruta
             freq_base[
                 chave
             ] += 1
@@ -232,18 +257,34 @@ def calcular_score_combinacoes_reais(
                 chave
             ] += peso_rec
 
-            # performance histórica
-            # concursos mais recentes valem mais
-           freq_atual = freq_base[chave]
+            # performance real baseada em reincidência
+            freq_atual = freq_base[
+                chave
+            ]
 
             if freq_atual >= 4:
-                performance[chave]["hits_15"] += 1
-            
+
+                performance[
+                    chave
+                ][
+                    "hits_15"
+                ] += 1
+
             elif freq_atual >= 2:
-                performance[chave]["hits_14"] += 1
-            
+
+                performance[
+                    chave
+                ][
+                    "hits_14"
+                ] += 1
+
             else:
-                performance[chave]["hits_13"] += 1
+
+                performance[
+                    chave
+                ][
+                    "hits_13"
+                ] += 1
 
         except Exception:
             continue
@@ -268,35 +309,44 @@ def calcular_score_combinacoes_reais(
     for chave in freq_base:
 
         freq_score = (
-            freq_base[chave]
-            / max_base
+            freq_base[
+                chave
+            ] / max_base
         )
 
         rec_score = (
-            freq_rec[chave]
-            / max_rec
+            freq_rec[
+                chave
+            ] / max_rec
         )
 
         perf = performance[
             chave
         ]
 
-        # score real de performance
         perf_score = (
             (
-                perf["hits_15"] * 1.0
+                perf[
+                    "hits_15"
+                ] * 1.0
             ) +
             (
-                perf["hits_14"] * 0.6
+                perf[
+                    "hits_14"
+                ] * 0.6
             ) +
             (
-                perf["hits_13"] * 0.3
+                perf[
+                    "hits_13"
+                ] * 0.3
             )
         )
 
-        # evita explosão de padrões raros
+        # evita favorecer padrões raros
         robustez = math.log(
-            freq_base[chave] + 1
+            freq_base[
+                chave
+            ] + 1
         )
 
         final_score = (
@@ -343,12 +393,18 @@ def calcular_score_combinacoes_reais(
     # CACHE
     # ==================================================
     payload = {
+
         "scores": {
+
             str(k): v
+
             for k, v in scores.items()
         },
+
         "metadata": {
+
             str(k): v
+
             for k, v in metadata.items()
         }
     }
@@ -366,7 +422,7 @@ def calcular_score_combinacoes_reais(
 
 
 # ======================================================
-# LEGACY
+# COMPATIBILIDADE LEGACY
 # ======================================================
 calcular_score_combinacoes = (
     calcular_score_combinacoes_reais
