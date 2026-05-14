@@ -1,103 +1,111 @@
-from collections import defaultdict
 import math
+from collections import defaultdict
 
 from app.services.estatisticas_combinacao_v3 import (
     calcular_score_combinacoes_reais
 )
 
 
-def calcular_score_adaptativo(metadata_padrao):
-    """
-    Novo score inteligente:
+def calcular_score_adaptativo(dados):
+    hits_15 = dados.get("hits_15", 0)
+    hits_14 = dados.get("hits_14", 0)
+    hits_13 = dados.get("hits_13", 0)
 
-    Critérios:
-    - 15 pontos tem peso máximo
-    - 14 e 13 entram como suporte estatístico
-    - Consistência histórica aumenta score
-    - Frequência total aumenta confiabilidade
+    ocorrencias = dados.get("ocorrencias", 1)
 
-    Compatível com metadata do motor.
-    """
-
-    hits_15 = metadata_padrao.get("hits_15", 0)
-    hits_14 = metadata_padrao.get("hits_14", 0)
-    hits_13 = metadata_padrao.get("hits_13", 0)
-
-    ocorrencias = metadata_padrao.get("ocorrencias", 0)
-
-    janelas_ativas = metadata_padrao.get(
+    janelas_ativas = dados.get(
         "janelas_ativas",
         []
     )
 
     total_janelas = len(janelas_ativas)
 
-    # score de performance
     score_hits = (
         math.log1p(hits_15) * 1.00 +
         math.log1p(hits_14) * 0.35 +
         math.log1p(hits_13) * 0.10
     )
 
-    # score de consistência
     score_consistencia = (
         math.log1p(total_janelas) * 0.30
     )
 
-    # score de volume histórico
     score_volume = (
         math.log1p(ocorrencias) * 0.20
     )
 
-    score_total = (
+    return round(
         score_hits +
         score_consistencia +
-        score_volume
+        score_volume,
+        6
     )
 
-    return round(score_total, 6)
 
-
-def enriquecer_metadata(scores, metadata):
+def converter_para_metadata(score_base, dados_brutos):
     """
-    Mantém compatibilidade com versões antigas.
-    Caso metadata venha incompleta,
-    preenche automaticamente.
+    Compatibilidade total:
+    - dict → usa normalmente
+    - float/int → converte
+    - None → cria fallback
     """
 
-    metadata_corrigida = defaultdict(dict)
-
-    for chave in scores:
-
-        base_score = scores.get(chave, 0)
-
-        dados = metadata.get(chave, {})
-
-        metadata_corrigida[chave] = {
-            "hits_15": dados.get(
+    if isinstance(dados_brutos, dict):
+        return {
+            "hits_15": dados_brutos.get(
                 "hits_15",
-                int(base_score * 4)
+                0
             ),
-            "hits_14": dados.get(
+            "hits_14": dados_brutos.get(
                 "hits_14",
-                int(base_score * 6)
+                0
             ),
-            "hits_13": dados.get(
+            "hits_13": dados_brutos.get(
                 "hits_13",
-                int(base_score * 8)
+                0
             ),
-            "ocorrencias": dados.get(
+            "ocorrencias": dados_brutos.get(
                 "ocorrencias",
-                max(
-                    1,
-                    int(base_score * 20)
-                )
+                1
             ),
-            "janelas_ativas": dados.get(
+            "janelas_ativas": dados_brutos.get(
                 "janelas_ativas",
                 [1]
             )
         }
+
+    score_base = float(score_base)
+
+    return {
+        "hits_15": int(score_base * 4),
+        "hits_14": int(score_base * 6),
+        "hits_13": int(score_base * 8),
+        "ocorrencias": max(
+            1,
+            int(score_base * 20)
+        ),
+        "janelas_ativas": [1]
+    }
+
+
+def enriquecer_metadata(scores, metadata):
+    metadata_corrigida = defaultdict(dict)
+
+    for chave in scores:
+
+        score_base = scores[chave]
+
+        dados_brutos = metadata.get(
+            chave,
+            None
+        )
+
+        metadata_corrigida[chave] = (
+            converter_para_metadata(
+                score_base,
+                dados_brutos
+            )
+        )
 
     return metadata_corrigida
 
@@ -124,42 +132,41 @@ def identificar_padroes_elite():
         f"{len(scores)} padrões"
     )
 
-    print(
-        f"📊 Total de padrões carregados: "
-        f"{len(scores)}"
-    )
-
-    ranking_adaptativo = []
+    ranking = []
 
     for chave in scores:
 
         dados = metadata[chave]
 
-        novo_score = (
+        score_final = (
             calcular_score_adaptativo(
                 dados
             )
         )
 
-        if novo_score >= 0.30:
+        if score_final >= 0.30:
 
-            ranking_adaptativo.append(
+            ranking.append(
                 (
                     chave,
-                    novo_score,
+                    score_final,
                     dados
                 )
             )
 
-    ranking_adaptativo.sort(
+    ranking.sort(
         key=lambda x: x[1],
         reverse=True
     )
 
     print(
+        f"📊 Total de padrões carregados: "
+        f"{len(scores)}"
+    )
+
+    print(
         f"\n💎 FORAM IDENTIFICADOS "
-        f"{len(ranking_adaptativo)} "
-        f"PADRÕES DE ELITE:\n"
+        f"{len(ranking)} PADRÕES DE ELITE:\n"
     )
 
     for i, (
@@ -167,7 +174,7 @@ def identificar_padroes_elite():
         score,
         dados
     ) in enumerate(
-        ranking_adaptativo,
+        ranking,
         1
     ):
 
@@ -178,11 +185,10 @@ def identificar_padroes_elite():
         )
 
         print(
-            f"    15pts: {dados['hits_15']} | "
-            f"14pts: {dados['hits_14']} | "
-            f"13pts: {dados['hits_13']} | "
-            f"Ocorrências: {dados['ocorrencias']} | "
-            f"Janelas: {len(dados['janelas_ativas'])}"
+            f"    15pts={dados['hits_15']} | "
+            f"14pts={dados['hits_14']} | "
+            f"13pts={dados['hits_13']} | "
+            f"Freq={dados['ocorrencias']}"
         )
 
 
