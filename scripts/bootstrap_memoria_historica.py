@@ -11,9 +11,9 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "bootstrap-v2.2-feedback-loop"
+VERSAO = "bootstrap-v2.3-feedback-loop-fix"
 
-PRIMOS = {2,3,5,7,11,13,17,19,23}
+PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 
 # ======================================================
@@ -31,14 +31,37 @@ def parse_numeros(valor):
 
         try:
             return [int(x) for x in json.loads(valor)]
+
         except:
+
             try:
-                clean = valor.strip('"').replace("\\", "")
-                return [int(x) for x in json.loads(clean)]
+
+                clean = (
+                    valor
+                    .strip('"')
+                    .replace("\\", "")
+                )
+
+                return [
+                    int(x)
+                    for x in json.loads(clean)
+                ]
+
             except:
                 return []
 
     return []
+
+
+def normalizar_concurso(valor):
+
+    if valor is None:
+        return None
+
+    try:
+        return int(float(valor))
+    except:
+        return None
 
 
 def extrair_estrutura(nums):
@@ -49,29 +72,36 @@ def extrair_estrutura(nums):
         sum(1 for n in nums if 6 <= n <= 10),
         sum(1 for n in nums if 11 <= n <= 15),
         sum(1 for n in nums if 16 <= n <= 20),
-        sum(1 for n in nums if 21 <= n <= 25),
+        sum(1 for n in nums if 21 <= n <= 25)
 
     ]
 
     return {
 
-        "soma_faixa": int(
-            round(sum(nums) / 10) * 10
-        ),
+        "soma_faixa":
+            int(
+                round(sum(nums) / 10) * 10
+            ),
 
-        "pares": sum(
-            1 for n in nums if n % 2 == 0
-        ),
+        "pares":
+            sum(
+                1 for n in nums
+                if n % 2 == 0
+            ),
 
-        "primos": sum(
-            1 for n in nums if n in PRIMOS
-        ),
+        "primos":
+            sum(
+                1 for n in nums
+                if n in PRIMOS
+            ),
 
-        "linhas": linhas_lista,
+        "linhas":
+            linhas_lista,
 
-        "hash_estrutura": "-".join(
-            map(str, linhas_lista)
-        )
+        "hash_estrutura":
+            "-".join(
+                map(str, linhas_lista)
+            )
     }
 
 
@@ -83,16 +113,21 @@ def main():
     supabase = get_supabase()
 
     print(
-        f"🚀 [{VERSAO}] Iniciando Bootstrap de Memória Estrutural"
+        f"🚀 [{VERSAO}] Iniciando Bootstrap"
     )
 
+    # ======================================================
+    # HISTÓRICO OFICIAL
+    # ======================================================
     historico = (
+
         supabase
         .table("lotofacil_concursos")
         .select("concurso,dezenas")
         .order("concurso")
         .execute()
         .data
+
     )
 
     print(
@@ -101,23 +136,24 @@ def main():
     )
 
     estruturas = {}
+
     mapa_resultados = {}
 
-    # ======================================================
-    # FASE 1
-    # ======================================================
     for row in historico:
 
+        concurso = normalizar_concurso(
+            row.get("concurso")
+        )
+
+        if concurso is None:
+            continue
+
         nums = parse_numeros(
-            row["dezenas"]
+            row.get("dezenas")
         )
 
         if not nums:
             continue
-
-        concurso = int(
-            row["concurso"]
-        )
 
         mapa_resultados[
             concurso
@@ -159,13 +195,16 @@ def main():
                     0
             }
 
-        estruturas[chave][
-            "vezes_gerado"
-        ] += 1
+        estruturas[
+            chave
+        ]["vezes_gerado"] += 1
+
+    # ======================================================
+    # MEMÓRIA ESTRUTURAL
+    # ======================================================
+    agora = datetime.now().isoformat()
 
     payload = []
-
-    agora = datetime.now().isoformat()
 
     for item in estruturas.values():
 
@@ -200,16 +239,17 @@ def main():
             "tendencia": 0,
             "saturacao": 0,
 
-            "updated_at":
-                agora
+            "updated_at": agora
         })
 
     print(
-        f"🧠 Estruturas únicas mapeadas: "
+        f"🧠 Estruturas únicas: "
         f"{len(payload)}"
     )
 
-    print("🧹 Limpando memoria_cenarios...")
+    print(
+        "🧹 Limpando memoria_cenarios..."
+    )
 
     (
         supabase
@@ -219,7 +259,9 @@ def main():
         .execute()
     )
 
-    print("📥 Gravando cenários...")
+    print(
+        "📥 Gravando cenários..."
+    )
 
     for i in range(0, len(payload), 200):
 
@@ -230,10 +272,12 @@ def main():
             .execute()
         )
 
-    print("✅ Fase 1 concluída")
+    print(
+        "✅ Fase 1 concluída"
+    )
 
     # ======================================================
-    # FASE 2
+    # FEEDBACK LOOP
     # ======================================================
     print(
         "\n🔄 Iniciando feedback loop..."
@@ -266,26 +310,13 @@ def main():
 
     palpites_por_concurso = {}
 
-    ignorados = 0
-
     for p in todos_palpites:
 
-        concurso_ref = p.get(
-            "concurso_referencia"
+        cc = normalizar_concurso(
+            p.get("concurso_referencia")
         )
 
-        if not concurso_ref:
-
-            ignorados += 1
-            continue
-
-        try:
-
-            cc = int(concurso_ref)
-
-        except:
-
-            ignorados += 1
+        if cc is None:
             continue
 
         jogo = parse_numeros(
@@ -293,8 +324,6 @@ def main():
         )
 
         if not jogo:
-
-            ignorados += 1
             continue
 
         if cc not in palpites_por_concurso:
@@ -310,13 +339,18 @@ def main():
         )
 
     print(
-        f"📌 Concursos encontrados nos palpites: "
+        f"📌 Concursos nos palpites: "
         f"{len(palpites_por_concurso)}"
     )
 
     print(
-        f"⚠️ Registros ignorados: "
-        f"{ignorados}"
+        "🔍 Amostra histórico:",
+        list(mapa_resultados.keys())[:10]
+    )
+
+    print(
+        "🔍 Amostra palpites:",
+        list(palpites_por_concurso.keys())[:10]
     )
 
     payload_feedback = []
@@ -348,9 +382,7 @@ def main():
             )
 
         media = float(
-            np.mean(
-                acertos_lista
-            )
+            np.mean(acertos_lista)
         )
 
         if media < 9:
@@ -368,10 +400,7 @@ def main():
                 cc,
 
             "media_acertos_ia":
-                round(
-                    media,
-                    2
-                ),
+                round(media, 2),
 
             "fator_correcao":
                 fator
