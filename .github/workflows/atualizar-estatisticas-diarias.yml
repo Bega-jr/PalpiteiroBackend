@@ -88,12 +88,13 @@ jobs:
       - name: Gerar palpites
         run: |
           python scripts/gerar_palpites_diarios.py | tee saida.txt
-
-          # extrai bloco estruturado do script (mais seguro que grep)
-          sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' saida.txt \
-
-            | grep "º" > palpites.txt || true
-
+      
+          # extrai bloco estruturado de forma segura
+          sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' saida.txt > bloco.txt || true
+      
+          # filtra apenas linhas válidas
+          grep "º" bloco.txt > palpites.txt || true
+      
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
