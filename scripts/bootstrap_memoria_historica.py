@@ -11,7 +11,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "bootstrap-v2.1-feedback-loop"
+VERSAO = "bootstrap-v2.2-feedback-loop"
 
 PRIMOS = {2,3,5,7,11,13,17,19,23}
 
@@ -32,7 +32,11 @@ def parse_numeros(valor):
         try:
             return [int(x) for x in json.loads(valor)]
         except:
-            return []
+            try:
+                clean = valor.strip('"').replace("\\", "")
+                return [int(x) for x in json.loads(clean)]
+            except:
+                return []
 
     return []
 
@@ -82,13 +86,14 @@ def main():
         f"🚀 [{VERSAO}] Iniciando Bootstrap de Memória Estrutural"
     )
 
-    historico = supabase.table(
-        "lotofacil_concursos"
-    ).select(
-        "concurso,dezenas"
-    ).order(
-        "concurso"
-    ).execute().data
+    historico = (
+        supabase
+        .table("lotofacil_concursos")
+        .select("concurso,dezenas")
+        .order("concurso")
+        .execute()
+        .data
+    )
 
     print(
         f"📊 Concursos carregados: "
@@ -98,6 +103,9 @@ def main():
     estruturas = {}
     mapa_resultados = {}
 
+    # ======================================================
+    # FASE 1
+    # ======================================================
     for row in historico:
 
         nums = parse_numeros(
@@ -106,8 +114,14 @@ def main():
 
         if not nums:
             continue
-            
-        mapa_resultados[int(row["concurso"])] = set(nums)
+
+        concurso = int(
+            row["concurso"]
+        )
+
+        mapa_resultados[
+            concurso
+        ] = set(nums)
 
         estrutura = extrair_estrutura(
             nums
@@ -195,82 +209,226 @@ def main():
         f"{len(payload)}"
     )
 
-    # 🛠️ CORREÇÃO ESTRUTURAL: Clear & Insert para anular erro 42P10
-    print("🧹 Limpando tabela memoria_cenarios antes da carga...")
-    supabase.table("memoria_cenarios").delete().neq("soma_faixa", -1).execute()
-    
-    print("📥 Gravando cenários mapeados...")
-    # Envia em blocos de 200 para evitar quebras por timeout de payloads gigantescos
+    print("🧹 Limpando memoria_cenarios...")
+
+    (
+        supabase
+        .table("memoria_cenarios")
+        .delete()
+        .neq("soma_faixa", -1)
+        .execute()
+    )
+
+    print("📥 Gravando cenários...")
+
     for i in range(0, len(payload), 200):
-        supabase.table("memoria_cenarios").insert(payload[i:i+200]).execute()
 
-    print("✅ Fase 1: Memória de cenários atualizada com sucesso.")
+        (
+            supabase
+            .table("memoria_cenarios")
+            .insert(payload[i:i+200])
+            .execute()
+        )
 
-    # =====================================================
-    # FASE 2: RETROALIMENTAÇÃO COMPLETA (FEEDBACK LOOP)
-    # =====================================================
-    print("\n🔄 Iniciando Fase 2: Retroalimentação do Ciclo de Aprendizado por Erro...")
-    
-    todos_palpites = supabase.table("palpites_validos")\
-        .select("concurso_referencia,numeros")\
-        .order("concurso_referencia").execute().data
-        
+    print("✅ Fase 1 concluída")
+
+    # ======================================================
+    # FASE 2
+    # ======================================================
+    print(
+        "\n🔄 Iniciando feedback loop..."
+    )
+
+    todos_palpites = (
+
+        supabase
+        .table("palpites_validos")
+        .select(
+            "concurso_referencia,numeros"
+        )
+        .execute()
+        .data
+
+    )
+
     if not todos_palpites:
-        print("⚠️ Nenhum palpite antigo localizado para retroalimentação.")
+
+        print(
+            "⚠️ Nenhum palpite encontrado."
+        )
+
         return
-        
+
+    print(
+        f"📊 Palpites encontrados: "
+        f"{len(todos_palpites)}"
+    )
+
     palpites_por_concurso = {}
+
+    ignorados = 0
+
     for p in todos_palpites:
-        cc = int(p["concurso_referencia"])
+
+        concurso_ref = p.get(
+            "concurso_referencia"
+        )
+
+        if not concurso_ref:
+
+            ignorados += 1
+            continue
+
+        try:
+
+            cc = int(concurso_ref)
+
+        except:
+
+            ignorados += 1
+            continue
+
+        jogo = parse_numeros(
+            p.get("numeros")
+        )
+
+        if not jogo:
+
+            ignorados += 1
+            continue
+
         if cc not in palpites_por_concurso:
-            palpites_por_concurso[cc] = []
-        palpites_por_concurso[cc].append(parse_numeros(p["numeros"]))
-        
+
+            palpites_por_concurso[
+                cc
+            ] = []
+
+        palpites_por_concurso[
+            cc
+        ].append(
+            jogo
+        )
+
+    print(
+        f"📌 Concursos encontrados nos palpites: "
+        f"{len(palpites_por_concurso)}"
+    )
+
+    print(
+        f"⚠️ Registros ignorados: "
+        f"{ignorados}"
+    )
+
     payload_feedback = []
-    
-    for cc, lista_jogos in palpites_por_concurso.items():
+
+    matches = 0
+
+    for cc, jogos in palpites_por_concurso.items():
+
         if cc not in mapa_resultados:
             continue
-            
-        resultado_real = mapa_resultados[cc]
-        acertos_do_concurso = []
-        
-        for jogo in lista_jogos:
-            if not jogo:
-                continue
-            acertos = len(set(jogo) & resultado_real)
-            acertos_do_concurso.append(acertos)
-            
-        if not acertos_do_concurso:
-            continue
-            
-        media_acertos = float(np.mean(acertos_do_concurso))
-        
-        if media_acertos < 9.0:
-            fator_correcao = 0.92  
-        elif media_acertos >= 11.0:
-            fator_correcao = 1.05  
+
+        matches += 1
+
+        resultado_real = mapa_resultados[
+            cc
+        ]
+
+        acertos_lista = []
+
+        for jogo in jogos:
+
+            acertos = len(
+                set(jogo) &
+                resultado_real
+            )
+
+            acertos_lista.append(
+                acertos
+            )
+
+        media = float(
+            np.mean(
+                acertos_lista
+            )
+        )
+
+        if media < 9:
+            fator = 0.92
+
+        elif media >= 11:
+            fator = 1.05
+
         else:
-            fator_correcao = 1.00  
-            
+            fator = 1.00
+
         payload_feedback.append({
-            "concurso_referencia": cc,
-            "media_acertos_ia": round(media_acertos, 2),
-            "fator_correcao": fator_correcao
+
+            "concurso_referencia":
+                cc,
+
+            "media_acertos_ia":
+                round(
+                    media,
+                    2
+                ),
+
+            "fator_correcao":
+                fator
         })
-        
-    if payload_feedback:
-        print(f"🧹 Limpando tabela memoria_feedback_loop...")
-        supabase.table("memoria_feedback_loop").delete().neq("concurso_referencia", -1).execute()
-        
-        print(f"📥 Gravando {len(payload_feedback)} registros de aprendizado no Supabase...")
-        for i in range(0, len(payload_feedback), 200):
-            supabase.table("memoria_feedback_loop").insert(payload_feedback[i:i+200]).execute()
-        print("✅ Fase 2 concluída com sucesso! Base de conhecimento viva.")
-    else:
-        print("ℹ️ Nenhuma correspondência de palpites antigos encontrada.")
+
+    print(
+        f"🎯 Matches encontrados: "
+        f"{matches}"
+    )
+
+    if not payload_feedback:
+
+        print(
+            "⚠️ Nenhuma correspondência real encontrada."
+        )
+
+        return
+
+    print(
+        "🧹 Limpando memoria_feedback_loop..."
+    )
+
+    (
+        supabase
+        .table("memoria_feedback_loop")
+        .delete()
+        .neq(
+            "concurso_referencia",
+            -1
+        )
+        .execute()
+    )
+
+    print(
+        f"📥 Gravando "
+        f"{len(payload_feedback)} registros..."
+    )
+
+    for i in range(
+        0,
+        len(payload_feedback),
+        200
+    ):
+
+        (
+            supabase
+            .table("memoria_feedback_loop")
+            .insert(
+                payload_feedback[i:i+200]
+            )
+            .execute()
+        )
+
+    print(
+        "✅ Fase 2 concluída"
+    )
 
 
 if __name__ == "__main__":
     main()
-
