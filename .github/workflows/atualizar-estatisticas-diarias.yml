@@ -4,8 +4,7 @@ on:
   schedule:
     # 📻 Disparo principal (21:45 BRT = 00:45 UTC)
     - cron: "45 0 * * 0-5"
-    # 🛡️ Disparo de Segurança (23:15 BRT = 02:15 UTC)
-    - cron: "15 2 * * 0-5"
+    
   workflow_dispatch:
 
 jobs:
