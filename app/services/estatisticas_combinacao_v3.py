@@ -230,13 +230,29 @@ def calcular_score_combinacoes_reais(
                 nums
             )
 
+            # reduz granularidade para criar reincidência real
+            soma_bucket = round(
+                m["soma"] / 20
+            ) * 20
+            
+            pares_bucket = (
+                m["pares"] // 2
+            ) * 2
+            
+            primos_bucket = (
+                m["primos"] // 2
+            ) * 2
+            
+            linhas_bucket = tuple(
+                min(4, x)
+                for x in m["linhas"]
+            )
+            
             chave = (
-                round(
-                    m["soma"] / 10
-                ) * 10,
-                m["pares"],
-                m["primos"],
-                m["linhas"]
+                soma_bucket,
+                pares_bucket,
+                primos_bucket,
+                linhas_bucket
             )
 
             # frequência bruta
