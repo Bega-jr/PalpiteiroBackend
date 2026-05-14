@@ -124,7 +124,10 @@ def main():
         supabase
         .table("lotofacil_concursos")
         .select("concurso,dezenas")
-        .order("concurso")
+        .order(
+            "concurso",
+            desc=True
+        )
         .execute()
         .data
 
