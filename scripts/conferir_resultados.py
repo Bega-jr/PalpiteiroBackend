@@ -10,7 +10,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "v14.3"
+VERSAO = "v14.4-conferencia-estavel"
 
 PRIMOS = {2,3,5,7,11,13,17,19,23}
 
@@ -266,21 +266,18 @@ def main():
     ).execute().data
 
     mapa = {
-
         int(r["concurso"]): set(
             parse_numeros(
                 r["dezenas"]
             )
         )
-
         for r in oficiais
     }
 
-    pendentes = supabase.table(
-        "palpites_validos"
-    ).select("*") \
+    # 🛠️ AJUSTE DE CONTROLE: Busca por conferido=False em vez de processado=False
+    pendentes = supabase.table("palpites_validos").select("*") \
      .eq(
-         "processado",
+         "conferido",
          False
      ) \
      .execute().data
@@ -312,9 +309,7 @@ def main():
         )
 
         acertos = len(
-
             set(numeros) &
-
             mapa[concurso]
         )
 
@@ -359,3 +354,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
