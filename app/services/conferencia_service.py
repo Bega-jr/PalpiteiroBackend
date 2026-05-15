@@ -1,328 +1,115 @@
 import json
-
-from app.services.supabase_service import (
-    get_supabase
-)
-
+from app.services.supabase_service import get_supabase
 
 def conferir_jogos_do_dia():
     """
-    Faz conferência histórica de todos concursos
-    e grava performance real por versão do gerador.
+    Faz conferência histórica otimizada de todos os concursos
+    e grava a performance real em lote (upsert) mapeando concurso_inicio.
     """
-
     supabase = get_supabase()
+    print("🚀 Iniciando conferência histórica...")
 
-    print(
-        "🚀 Iniciando conferência histórica..."
-    )
-
-    total_concursos = 0
-    total_palpites = 0
-
-    # ==================================================
-    # RESULTADOS OFICIAIS
-    # ==================================================
+    # 1. Busca todos os resultados oficiais de uma vez
     res_oficiais = (
-        supabase
-        .table("lotofacil_concursos")
-        .select(
-            "concurso, dezenas, data"
-        )
-        .order(
-            "concurso",
-            desc=True
-        )
+        supabase.table("lotofacil_concursos")
+        .select("concurso, dezenas, data")
+        .order("concurso", desc=True)
         .execute()
     )
 
     if not res_oficiais.data:
+        print("❌ Nenhum concurso oficial encontrado")
+        return "Nenhum concurso oficial encontrado."
 
-        print(
-            "❌ Nenhum concurso oficial encontrado"
-        )
+    total_concursos = 0
+    total_palpites = 0
+    payloads_para_salvar = []
 
-        return (
-            "Nenhum concurso oficial encontrado."
-        )
-
-    # ==================================================
-    # PROCESSA CADA CONCURSO
-    # ==================================================
     for sorteio in res_oficiais.data:
-
         try:
-
-            concurso_id = sorteio[
-                "concurso"
-            ]
-
-            data_ref = sorteio[
-                "data"
-            ]
-
-            dezenas_sorteadas = set(
-                map(
-                    int,
-                    sorteio["dezenas"]
-                )
-            )
-
+            concurso_id = sorteio["concurso"]
+            data_ref = sorteio["data"]
+            dezenas_sorteadas = set(map(int, sorteio["dezenas"]))
         except Exception as e:
-
-            print(
-                f"❌ Erro no concurso "
-                f"{sorteio}: {e}"
-            )
-
+            print(f"❌ Erro no concurso {sorteio.get('concurso')}: {e}")
             continue
 
-        # ==============================================
-        # BUSCA PALPITES DO DIA
-        # ==============================================
+        # 2. Busca palpites específicos da data de referência
         palpites_res = (
-            supabase
-            .table("palpites_validos")
-            .select("*")
-            .eq(
-                "data_referencia",
-                data_ref
-            )
+            supabase.table("palpites_validos")
+            .select("numeros, tipo, versao_gerador")
+            .eq("data_referencia", data_ref)
             .execute()
         )
 
-        if not palpites_res.data:
+        if not p_data := palpites_res.data:
             continue
 
         resumo = {}
 
-        # ==============================================
-        # PROCESSA PALPITES
-        # ==============================================
-        for p in palpites_res.data:
-
+        # 3. Processamento em memória rápido usando Sets
+        for p in p_data:
             try:
-
-                raw_nums = p.get(
-                    "numeros"
-                )
-
+                raw_nums = p.get("numeros")
                 if not raw_nums:
                     continue
 
-                # -------------------------
-                # NORMALIZA JSON
-                # -------------------------
-                if isinstance(
-                    raw_nums,
-                    str
-                ):
-
-                    clean = (
-                        raw_nums
-                        .strip('"')
-                        .replace(
-                            "\\",
-                            ""
-                        )
-                    )
-
-                    numeros_lista = (
-                        json.loads(
-                            clean
-                        )
-                    )
-
+                # Normalização segura de JSON
+                if isinstance(raw_nums, str):
+                    numeros_lista = json.loads(raw_nums.strip('"').replace("\\", ""))
                 else:
+                    numeros_lista = raw_nums
 
-                    numeros_lista = (
-                        raw_nums
-                    )
-
-                # -------------------------
-                # VALIDA
-                # -------------------------
-                if len(
-                    numeros_lista
-                ) != 15:
-
+                if len(numeros_lista) != 15:
                     continue
 
-                numeros_palpite = set(
-                    map(
-                        int,
-                        numeros_lista
-                    )
-                )
-
-                if len(
-                    numeros_palpite
-                ) != 15:
-
+                numeros_palpite = set(map(int, numeros_lista))
+                if len(numeros_palpite) != 15:
                     continue
 
-                # -------------------------
-                # CALCULA ACERTOS
-                # -------------------------
-                acertos = len(
-                    numeros_palpite &
-                    dezenas_sorteadas
-                )
-
-                tipo = p.get(
-                    "tipo",
-                    "fixo"
-                )
-
-                versao = p.get(
-                    "versao_gerador",
-                    "legacy"
-                )
-
-                chave = (
-                    tipo,
-                    versao
-                )
+                acertos = len(numeros_palpite & dezenas_sorteadas)
+                tipo = p.get("tipo", "fixo")
+                versao = p.get("versao_gerador", "legacy")
+                chave = (tipo, versao)
 
                 if chave not in resumo:
-
-                    resumo[chave] = {
-                        "11": 0,
-                        "12": 0,
-                        "13": 0,
-                        "14": 0,
-                        "15": 0
-                    }
+                    resumo[chave] = {"11": 0, "12": 0, "13": 0, "14": 0, "15": 0}
 
                 if acertos >= 11:
-
-                    resumo[
-                        chave
-                    ][
-                        str(acertos)
-                    ] += 1
+                    resumo[chave][str(acertos)] += 1
 
                 total_palpites += 1
-
             except Exception as e:
-
-                print(
-                    f"⚠️ Erro no palpite: "
-                    f"{e}"
-                )
-
+                print(f"⚠️ Erro no palpite: {e}")
                 continue
 
-        # ==============================================
-        # GRAVA PERFORMANCE
-        # ==============================================
-        for (
-            tipo,
-            versao
-        ), counts in resumo.items():
-
-            try:
-
-                # remove somente o registro idêntico
-                (
-                    supabase
-                    .table(
-                        "palpites_resultados_reais"
-                    )
-                    .delete()
-                    .eq(
-                        "concurso",
-                        concurso_id
-                    )
-                    .eq(
-                        "tipo_palpite",
-                        tipo
-                    )
-                    .eq(
-                        "versao_gerador",
-                        versao
-                    )
-                    .execute()
-                )
-
-                payload = {
-
-                    "concurso":
-                        concurso_id,
-
-                    "tipo_palpite":
-                        tipo,
-
-                    "versao_gerador":
-                        versao,
-
-                    "acertos_11":
-                        counts["11"],
-
-                    "acertos_12":
-                        counts["12"],
-
-                    "acertos_13":
-                        counts["13"],
-
-                    "acertos_14":
-                        counts["14"],
-
-                    "acertos_15":
-                        counts["15"],
-
-                    "total_concursos":
-                        1,
-
-                    "data_referencia":
-                        data_ref
-                }
-
-                (
-                    supabase
-                    .table(
-                        "palpites_resultados_reais"
-                    )
-                    .insert(
-                        payload
-                    )
-                    .execute()
-                )
-
-                print(
-                    f"✅ {concurso_id} | "
-                    f"{tipo} | "
-                    f"{versao}"
-                )
-
-            except Exception as e:
-
-                print(
-                    f"❌ Erro salvando "
-                    f"{concurso_id}: {e}"
-                )
+        # 4. Prepara dados para Upsert em Lote (Usando concurso_inicio)
+        for (tipo, versao), counts in resumo.items():
+            payloads_para_salvar.append({
+                "concurso_inicio": concurso_id,  # 👈 Ajustado para bater com a unique constraint do banco
+                "tipo_palpite": tipo,
+                "versao_gerador": versao,
+                "acertos_11": counts["11"],
+                "acertos_12": counts["12"],
+                "acertos_13": counts["13"],
+                "acertos_14": counts["14"],
+                "acertos_15": counts["15"],
+                "total_concursos": 1,
+                "data_referencia": data_ref
+            })
 
         total_concursos += 1
 
-    # ==================================================
-    # FINAL
-    # ==================================================
-    print(
-        "\n🏁 Conferência concluída"
-    )
+    # 5. Executa a persistência em lote usando o Upsert nativo
+    if payloads_para_salvar:
+        try:
+            print(f"💾 Salvando {len(payloads_para_salvar)} registros de performance...")
+            supabase.table("palpites_resultados_reais").upsert(payloads_para_salvar).execute()
+        except Exception as e:
+            print(f"❌ Erro fatal no Upsert: {e}")
 
-    print(
-        f"📌 Concursos: "
-        f"{total_concursos}"
-    )
+    print("\n🏁 Conferência concluída")
+    print(f"📌 Concursos processados: {total_concursos}")
+    print(f"📌 Palpites validados: {total_palpites}")
 
-    print(
-        f"📌 Palpites: "
-        f"{total_palpites}"
-    )
-
-    return (
-        f"{total_concursos} concursos | "
-        f"{total_palpites} palpites"
-    )
-
+    return f"{total_concursos} concursos | {total_palpites} palpites"
