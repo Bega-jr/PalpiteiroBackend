@@ -18,20 +18,19 @@ def _resumo_base() -> Dict[str, int]:
 # ======================================================
 # Desempenho do Gerador (FONTE ÚNICA = VIEW)
 # ======================================================
-def obter_desempenho_gerador(ano: int) -> Dict[str, Any]:
+def obter_desempenho_gerador():
     """
-    Retorna o desempenho NORMALIZADO do gerador
+    Retorna o desempenho HISTÓRICO GLOBAL normalizado do gerador
     usando exclusivamente a view vw_desempenho_gerador.
 
+    ✔ Adaptado para a estrutura real da View (Sem filtro de ano)
     ✔ Compatível com o front atual
-    ✔ Suporta múltiplos registros no ano
-    ✔ Não depende de lógica paralela
+    ✔ Consolida todas as versões e tipos existentes
     """
 
     supabase = get_supabase()
 
-    # Se na View a coluna 'ano' for armazenada como string/text, 
-    # o PostgREST do Supabase converte tipos primitivos int/str automaticamente no .eq()
+    # Removido o filtro .eq("ano") que quebraria a execução
     resp = (
         supabase
         .table("vw_desempenho_gerador")
@@ -44,7 +43,6 @@ def obter_desempenho_gerador(ano: int) -> Dict[str, Any]:
             acertos_15
             """
         )
-        .eq("ano", ano)
         .execute()
     )
 
@@ -52,14 +50,13 @@ def obter_desempenho_gerador(ano: int) -> Dict[str, Any]:
         return {
             "status": "ok",
             "resumo": _resumo_base(),
-            "total_concursos": 0,
-            "ano_referencia": ano,
+            "total_registros": 0
         }
 
     resumo = _resumo_base()
 
+    # Soma os acertos de todas as linhas (várias versões/tipos) retornadas pela View
     for row in resp.data:
-        # Uso do int() garante resiliência caso a View retorne os números como strings ou numeric
         resumo["11"] += int(row.get("acertos_11") or 0)
         resumo["12"] += int(row.get("acertos_12") or 0)
         resumo["13"] += int(row.get("acertos_13") or 0)
@@ -69,8 +66,6 @@ def obter_desempenho_gerador(ano: int) -> Dict[str, Any]:
     return {
         "status": "ok",
         "resumo": resumo,
-        # Mantido len() conforme sua lógica original. Se a View trouxer duplicidade de linhas 
-        # por versão, este número representará o total de registros retornados da agregação.
-        "total_concursos": len(resp.data),
-        "ano_referencia": ano,
+        "total_registros": len(resp.data)
     }
+
