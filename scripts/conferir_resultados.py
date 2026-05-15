@@ -36,218 +36,6 @@ def parse_numeros(valor):
     return []
 
 
-def extrair_estrutura(nums):
-
-    linhas = [
-
-        sum(1 for n in nums if 1 <= n <= 5),
-        sum(1 for n in nums if 6 <= n <= 10),
-        sum(1 for n in nums if 11 <= n <= 15),
-        sum(1 for n in nums if 16 <= n <= 20),
-        sum(1 for n in nums if 21 <= n <= 25),
-
-    ]
-
-    return {
-
-        "soma_faixa": int(
-            round(sum(nums) / 10) * 10
-        ),
-
-        "pares": sum(
-            1 for n in nums
-            if n % 2 == 0
-        ),
-
-        "primos": sum(
-            1 for n in nums
-            if n in PRIMOS
-        ),
-
-        "hash_estrutura": "-".join(
-            map(str, linhas)
-        )
-    }
-
-
-# ======================================================
-# BOOTSTRAP HISTORICO
-# ======================================================
-def bootstrap_estrutura_historica(
-    supabase,
-    estrutura
-):
-
-    historico = supabase.table(
-        "lotofacil_concursos"
-    ).select(
-        "dezenas"
-    ).execute().data
-
-    freq = 0
-
-    for row in historico:
-
-        nums = parse_numeros(
-            row["dezenas"]
-        )
-
-        if not nums:
-            continue
-
-        e = extrair_estrutura(
-            nums
-        )
-
-        if (
-
-            e["hash_estrutura"] ==
-            ellipsis if 'estrutura' not in locals() else estrutura["hash_estrutura"]
-
-        ):
-
-            freq += 1
-
-    supabase.table(
-        "memoria_cenarios"
-    ).insert({
-
-        "soma_faixa":
-            estrutura["soma_faixa"],
-
-        "pares":
-            estrutura["pares"],
-
-        "primos":
-            estrutura["primos"],
-
-        "hash_estrutura":
-            estrutura["hash_estrutura"],
-
-        "vezes_gerado":
-            max(freq, 1),
-
-        "score_medio_real":
-            0,
-
-        "created_at":
-            datetime.now().isoformat(),
-
-        "updated_at":
-            datetime.now().isoformat()
-
-    }).execute()
-
-    print(
-        f"🧠 Bootstrap criado: "
-        f"{estrutura['hash_estrutura']} "
-        f"| freq histórica={freq}"
-    )
-
-
-# ======================================================
-# MEMORIA ESTRUTURAL
-# ======================================================
-def atualizar_memoria_estrutural(
-    supabase,
-    palpite,
-    acertos
-):
-
-    numeros = parse_numeros(
-        palpite["numeros"]
-    )
-
-    if not numeros:
-        return
-
-    estrutura = extrair_estrutura(
-        numeros
-    )
-
-    row = supabase.table(
-        "memoria_cenarios"
-    ).select("*") \
-     .eq(
-         "hash_estrutura",
-         estrutura["hash_estrutura"]
-     ) \
-     .execute()
-
-    if not row.data:
-
-        bootstrap_estrutura_historica(
-            supabase,
-            estrutura
-        )
-
-        row = supabase.table(
-            "memoria_cenarios"
-        ).select("*") \
-         .eq(
-             "hash_estrutura",
-             estrutura["hash_estrutura"]
-         ) \
-         .execute()
-
-    mem = row.data[0]
-
-    peso = {
-        11: 1,
-        12: 2,
-        13: 5,
-        14: 10,
-        15: 15
-    }.get(acertos, 0)
-
-    vezes = int(
-        mem.get(
-            "vezes_gerado",
-            0
-        )
-    )
-
-    score_antigo = float(
-        mem.get(
-            "score_medio_real",
-            0
-        )
-    )
-
-    novo_total = vezes + 1
-
-    novo_score = (
-        (score_antigo * vezes) + peso
-    ) / novo_total
-
-    update = {
-
-        "vezes_gerado":
-            novo_total,
-
-        "score_medio_real":
-            round(
-                novo_score,
-                4
-            ),
-
-        "ultima_aparicao":
-            datetime.now().date().isoformat(),
-
-        "updated_at":
-            datetime.now().isoformat()
-    }
-
-    supabase.table(
-        "memoria_cenarios"
-    ).update(
-        update
-    ).eq(
-        "id",
-        mem["id"]
-    ).execute()
-
-
 # ======================================================
 # MAIN
 # ======================================================
@@ -255,11 +43,8 @@ def main():
 
     supabase = get_supabase()
 
-    print(
-        f"🏁 [{VERSAO}] Conferência + Bootstrap"
-    )
+    print(f"🏁 [{VERSAO}] Conferência + Bootstrap")
 
-    # 🛠️ AJUSTE DE PAGINAÇÃO: Ordena de forma decrescente para trazer os concursos mais novos no topo do mapa
     oficiais = supabase.table(
         "lotofacil_concursos"
     ).select(
@@ -274,75 +59,99 @@ def main():
         for r in oficiais
     }
 
-    pendentes = supabase.table("palpites_validos").select("*") \
-     .eq(
-         "conferido",
-         False
-     ) \
+    pendentes = supabase.table(
+        "palpites_validos"
+    ).select("*") \
+     .eq("conferido", False) \
      .execute().data
 
-    print(
-        f"📌 {len(pendentes)} palpites pendentes"
-    )
+    print(f"📌 {len(pendentes)} palpites pendentes")
 
     processados = 0
 
+    # ======================================================
+    # AGRUPA POR CONCURSO (IMPORTANTE PARA AUDITORIA LIMPA)
+    # ======================================================
+    por_concurso = {}
+
     for p in pendentes:
 
-        concurso = int(
-            p["concurso_referencia"]
-        )
+        concurso = int(p["concurso_referencia"])
+
+        if concurso not in por_concurso:
+            por_concurso[concurso] = []
+
+        por_concurso[concurso].append(p)
+
+    # ======================================================
+    # PROCESSAMENTO
+    # ======================================================
+    for concurso, lista in por_concurso.items():
 
         if concurso not in mapa:
-            print(
-                f"⏳ Concurso {concurso} ainda sem resultado oficial"
-            )
+            print(f"⏳ Concurso {concurso} ainda sem resultado oficial")
             continue
 
-        numeros = parse_numeros(
-            p["numeros"]
-        )
+        resultado = mapa[concurso]
 
-        acertos = len(
-            set(numeros) &
-            mapa[concurso]
-        )
+        # ===========================
+        # HEADER DA AUDITORIA
+        # ===========================
+        print("\n" + "="*50)
+        print(f"📊 Concurso {concurso} — Auditoria de Performance\n")
+        print(f"🎯 Resultado oficial:")
+        print(sorted(resultado))
+        print("\n📌 Resultado IA:\n")
 
-        supabase.table(
-            "palpites_validos"
-        ).update({
+        ranking = []
 
-            "acertos":
-                acertos,
+        for p in lista:
 
-            "processado":
-                True,
+            numeros = parse_numeros(p["numeros"])
+            acertos = len(set(numeros) & resultado)
 
-            "conferido":
-                True
+            ranking.append({
+                "id": p["id"],
+                "idx": p["indice_palpite"],
+                "acertos": acertos,
+                "numeros": numeros
+            })
 
-        }).eq(
-            "id",
-            p["id"]
-        ).execute()
+            # atualiza banco
+            supabase.table(
+                "palpites_validos"
+            ).update({
+                "acertos": acertos,
+                "processado": True,
+                "conferido": True
+            }).eq(
+                "id",
+                p["id"]
+            ).execute()
 
-        atualizar_memoria_estrutural(
-            supabase,
-            p,
-            acertos
-        )
+            processados += 1
 
-        print(
-            f"✅ Concurso {concurso} | Palpite #{p['indice_palpite']} | {acertos} acertos"
-        )
+        # ===========================
+        # ORDENA POR PERFORMANCE
+        # ===========================
+        ranking.sort(key=lambda x: x["acertos"], reverse=True)
 
-        processados += 1
+        # ===========================
+        # OUTPUT FINAL (TELEGRAM/LOG)
+        # ===========================
+        for r in ranking:
+
+            print(
+                f"🔹 Palpite #{r['idx']} → {r['acertos']} acertos"
+            )
+
+        print("="*50)
 
     print(
-        f"====================\n✅ Processo concluído: {processados} palpites processados"
+        f"\n====================\n"
+        f"✅ Processo concluído: {processados} palpites processados"
     )
 
 
 if __name__ == "__main__":
     main()
-
