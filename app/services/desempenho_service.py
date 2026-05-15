@@ -1,5 +1,5 @@
 from app.services.supabase_service import get_supabase
-from typing import Dict
+from typing import Dict, Any
 
 
 # ======================================================
@@ -18,7 +18,7 @@ def _resumo_base() -> Dict[str, int]:
 # ======================================================
 # Desempenho do Gerador (FONTE ÚNICA = VIEW)
 # ======================================================
-def obter_desempenho_gerador(ano: int):
+def obter_desempenho_gerador(ano: int) -> Dict[str, Any]:
     """
     Retorna o desempenho NORMALIZADO do gerador
     usando exclusivamente a view vw_desempenho_gerador.
@@ -30,6 +30,8 @@ def obter_desempenho_gerador(ano: int):
 
     supabase = get_supabase()
 
+    # Se na View a coluna 'ano' for armazenada como string/text, 
+    # o PostgREST do Supabase converte tipos primitivos int/str automaticamente no .eq()
     resp = (
         supabase
         .table("vw_desempenho_gerador")
@@ -57,15 +59,18 @@ def obter_desempenho_gerador(ano: int):
     resumo = _resumo_base()
 
     for row in resp.data:
-        resumo["11"] += int(row.get("acertos_11", 0))
-        resumo["12"] += int(row.get("acertos_12", 0))
-        resumo["13"] += int(row.get("acertos_13", 0))
-        resumo["14"] += int(row.get("acertos_14", 0))
-        resumo["15"] += int(row.get("acertos_15", 0))
+        # Uso do int() garante resiliência caso a View retorne os números como strings ou numeric
+        resumo["11"] += int(row.get("acertos_11") or 0)
+        resumo["12"] += int(row.get("acertos_12") or 0)
+        resumo["13"] += int(row.get("acertos_13") or 0)
+        resumo["14"] += int(row.get("acertos_14") or 0)
+        resumo["15"] += int(row.get("acertos_15") or 0)
 
     return {
         "status": "ok",
         "resumo": resumo,
+        # Mantido len() conforme sua lógica original. Se a View trouxer duplicidade de linhas 
+        # por versão, este número representará o total de registros retornados da agregação.
         "total_concursos": len(resp.data),
         "ano_referencia": ano,
     }
