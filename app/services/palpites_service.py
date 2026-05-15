@@ -8,17 +8,19 @@ VERSAO_GERADOR_ATUAL = "v4-memoria-estrategica"
 # BACKTEST (NÃO BLOQUEANTE)
 # ==========================================================
 def calcular_score_backtest(reg):
-    total = reg.get("total_concursos", 0) * reg.get("qtd_palpites", 0)
+    # Ajustado de qtd_palpites para total_palpites_avaliados caso mude na view, 
+    # mantendo fallbacks seguros para evitar divisão por zero
+    total = int(reg.get("total_concursos", 1)) * int(reg.get("qtd_palpites", 1) or 1)
 
     if total == 0:
         return 0
 
     score = (
-        reg.get("acertos_11", 0) * 1 +
-        reg.get("acertos_12", 0) * 2 +
-        reg.get("acertos_13", 0) * 5 +
-        reg.get("acertos_14", 0) * 20 +
-        reg.get("acertos_15", 0) * 100
+        int(reg.get("acertos_11", 0) or 0) * 1 +
+        int(reg.get("acertos_12", 0) or 0) * 2 +
+        int(reg.get("acertos_13", 0) or 0) * 5 +
+        int(reg.get("acertos_14", 0) or 0) * 20 +
+        int(reg.get("acertos_15", 0) or 0) * 100
     ) / total
 
     return round(score, 4)
@@ -78,17 +80,20 @@ def obter_palpite_fixo_publico():
     numeros = _safe_json(r.get("numeros"))
     metricas = _safe_json(r.get("metricas"))
 
+    # Estrutura unificada injetando o nó 'metricas' exigido pelo roteador da API
     return {
-        "versao_gerador": metricas.get("versao", VERSAO_GERADOR_ATUAL),
         "data_referencia": r.get("data_referencia"),
         "numeros": numeros,
-        "soma": r.get("soma_total"),
-        "pares": r.get("pares"),
-        "impares": r.get("impares"),
-        "score_final": metricas.get("score_final"),
-        "ranking": metricas.get("ranking"),
-        "score_backtest": obter_score_backtest(supabase, "fixo"),
-        "memoria_aplicada": metricas.get("memoria_aplicada", False),
+        "soma": r.get("soma_total") or r.get("soma", 0),
+        "pares": r.get("pares") or 0,
+        "impares": r.get("impares") or 0,
+        "metricas": {
+            "score": metricas.get("score_final") or metricas.get("score", 0),
+            "metodo": metricas.get("versao", VERSAO_GERADOR_ATUAL),
+            "ranking": metricas.get("ranking"),
+            "score_backtest": obter_score_backtest(supabase, "fixo"),
+            "memoria_aplicada": metricas.get("memoria_aplicada", False)
+        }
     }
 
 
@@ -98,35 +103,55 @@ def obter_palpite_fixo_publico():
 def obter_palpites_estatisticos_publico():
     supabase = get_supabase()
 
+    # 1. Busca primeiro qual é a data de referência mais recente disponível
+    ultima_data_res = (
+        supabase
+        .table("palpites_validos")
+        .select("data_referencia")
+        .eq("tipo", "estatistico")
+        .order("data_referencia", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if not ultima_data_res.data:
+        return []
+
+    data_recente = ultima_data_res.data[0]["data_referencia"]
+
+    # 2. Busca apenas os palpites estatísticos daquela data específica
     res = (
         supabase
         .table("palpites_validos")
         .select("*")
         .eq("tipo", "estatistico")
+        .eq("data_referencia", data_recente) # Filtro essencial para não misturar histórico
         .order("indice_palpite")
         .execute()
     )
 
     score_backtest = obter_score_backtest(supabase, "estatistico")
-
     palpites = []
 
     for r in res.data or []:
         numeros = _safe_json(r.get("numeros"))
         metricas = _safe_json(r.get("metricas"))
 
+        # Estrutura unificada injetando o nó 'metricas' exigido pelo roteador da API
         palpites.append({
-            "versao_gerador": metricas.get("versao", VERSAO_GERADOR_ATUAL),
             "data_referencia": r.get("data_referencia"),
-            "indice_palpite": r.get("indice_palpite"),
+            "indice_palpite": r.get("indice_palpite") or 0,
             "numeros": numeros,
-            "soma": r.get("soma_total"),
-            "pares": r.get("pares"),
-            "impares": r.get("impares"),
-            "score_final": metricas.get("score_final"),
-            "ranking": metricas.get("ranking"),
-            "score_backtest": score_backtest,
-            "memoria_aplicada": metricas.get("memoria_aplicada", False),
+            "soma": r.get("soma_total") or r.get("soma", 0),
+            "pares": r.get("pares") or 0,
+            "impares": r.get("impares") or 0,
+            "metricas": {
+                "score": metricas.get("score_final") or metricas.get("score", 0),
+                "metodo": metricas.get("versao", VERSAO_GERADOR_ATUAL),
+                "ranking": metricas.get("ranking"),
+                "score_backtest": score_backtest,
+                "memoria_aplicada": metricas.get("memoria_aplicada", False)
+            }
         })
 
     return palpites
