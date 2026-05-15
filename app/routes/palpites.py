@@ -14,15 +14,20 @@ def palpite_fixo():
     if not registro:
         raise HTTPException(status_code=404, detail="Palpite fixo não encontrado")
 
+    # Mapeado como array dentro de 'palpites' para manter o contrato unificado do front-end
     return {
         "status": "ok",
         "data_referencia": registro["data_referencia"],
-        "numeros": registro["numeros"],
-        "soma": registro["soma"],
-        "pares": registro["pares"],
-        "impares": registro["impares"],
-        "score": registro["metricas"].get("score"),
-        "metodo": registro["metricas"].get("metodo"),
+        "palpites": [
+            {
+                "numeros": registro["numeros"],
+                "soma": registro["soma"],
+                "pares": registro["pares"],
+                "impares": registro["impares"],
+                "score": registro["metricas"].get("score") if registro.get("metricas") else 0,
+                "metodo": registro["metricas"].get("metodo") if registro.get("metricas") else "fixo",
+            }
+        ],
     }
 
 
@@ -36,13 +41,14 @@ def palpites_estatisticos():
         "total": len(dados),
         "palpites": [
             {
-                "indice": r["indice_palpite"],
-                "numeros": r["numeros"],
-                "soma": r["soma"],
-                "pares": r["pares"],
-                "impares": r["impares"],
-                "score": r["metricas"].get("score"),
-                "metodo": r["metricas"].get("metodo"),
+                "indice": r.get("indice_palpite", 0),
+                "numeros": r.get("numeros", []),
+                "soma": r.get("soma", 0),
+                "pares": r.get("pares", 0),
+                "impares": r.get("impares", 0),
+                # Tratamento preventivo com get() seguro para evitar novas falhas 500
+                "score": r["metricas"].get("score", 0) if r.get("metricas") else 0,
+                "metodo": r["metricas"].get("metodo", "estatistico") if r.get("metricas") else "estatistico",
             }
             for r in dados
         ],
