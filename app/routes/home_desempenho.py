@@ -1,33 +1,28 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from app.services.desempenho_service import obter_desempenho_gerador
 
+# Mantido o prefixo /home original (A rota final acessada será /home/desempenho)
 router = APIRouter(prefix="/home", tags=["Home"])
 
 
 @router.get("/desempenho")
-def desempenho_gerador(
-    ano: int = Query(2026),
-):
+def desempenho_gerador():
     """
-    Endpoint ÚNICO e ESTÁVEL para o card de desempenho.
-
-    - Fonte: vw_desempenho_gerador
-    - Sem soma manual
-    - Sem duplicação
+    Endpoint ÚNICO, GLOBAL e ESTÁVEL para o card de desempenho.
+    - Fonte: vw_desempenho_gerador (Agregada e dinâmica)
+    - Sem filtro de ano para evitar quebras de contrato com o Lovable
     """
-
     try:
-        dados = obter_desempenho_gerador(ano=ano)
+        dados = obter_desempenho_gerador()
     except Exception as e:
         return {
             "status": "error",
-            "message": str(e),
-            "ano": ano,
+            "message": str(e)
         }
 
     return {
         "status": "ok",
-        "ano": ano,
         "resumo": dados["resumo"],
         "total_concursos": dados["total_concursos"],
+        "total_palpites_avaliados": dados["total_palpites_avaliados"], # Exigido pelo novo front
     }
