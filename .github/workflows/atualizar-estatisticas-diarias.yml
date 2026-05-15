@@ -3,7 +3,7 @@ name: Pipeline Lotofácil 2026 - IA Evolutiva v15.2
 on:
   schedule:
     # 📻 Disparo principal (21:45 BRT = 00:45 UTC)
-    - cron: "45 21 * * 0-5"
+    - cron: "45 0 * * 0-5"
     
   workflow_dispatch:
 
