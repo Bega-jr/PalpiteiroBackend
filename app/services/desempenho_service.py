@@ -18,19 +18,20 @@ def _resumo_base() -> Dict[str, int]:
 # ======================================================
 # Desempenho do Gerador (FONTE ÚNICA = VIEW)
 # ======================================================
-def obter_desempenho_gerador():
+def obter_desempenho_gerador() -> Dict[str, Any]:
     """
-    Retorna o desempenho HISTÓRICO GLOBAL normalizado do gerador
+    Retorna o desempenho HISTÓRICO GLOBAL unificado do gerador
     usando exclusivamente a view vw_desempenho_gerador.
 
-    ✔ Adaptado para a estrutura real da View (Sem filtro de ano)
-    ✔ Compatível com o front atual
-    ✔ Consolida todas as versões e tipos existentes
+    ✔ Sem filtro de ano (Evita quebras de API)
+    ✔ Métrica unificada do gerador como um todo
+    ✔ Inclui volumetria de palpites reais
+    ✔ Compatível com o formato esperado pelo front
     """
 
     supabase = get_supabase()
 
-    # Removido o filtro .eq("ano") que quebraria a execução
+    # Adicionado 'qtd_palpites' na projeção dos campos buscados
     resp = (
         supabase
         .table("vw_desempenho_gerador")
@@ -40,7 +41,8 @@ def obter_desempenho_gerador():
             acertos_12,
             acertos_13,
             acertos_14,
-            acertos_15
+            acertos_15,
+            qtd_palpites
             """
         )
         .execute()
@@ -50,22 +52,25 @@ def obter_desempenho_gerador():
         return {
             "status": "ok",
             "resumo": _resumo_base(),
-            "total_registros": 0
+            "total_concursos": 0,
+            "total_palpites_avaliados": 0
         }
 
     resumo = _resumo_base()
+    total_palpites = 0
 
-    # Soma os acertos de todas as linhas (várias versões/tipos) retornadas pela View
+    # Soma os acertos e palpites de todas as linhas (várias versões/tipos)
     for row in resp.data:
         resumo["11"] += int(row.get("acertos_11") or 0)
         resumo["12"] += int(row.get("acertos_12") or 0)
         resumo["13"] += int(row.get("acertos_13") or 0)
         resumo["14"] += int(row.get("acertos_14") or 0)
         resumo["15"] += int(row.get("acertos_15") or 0)
+        total_palpites += int(row.get("qtd_palpites") or 0)
 
     return {
         "status": "ok",
         "resumo": resumo,
-        "total_registros": len(resp.data)
+        "total_concursos": len(resp.data),
+        "total_palpites_avaliados": total_palpites
     }
-
