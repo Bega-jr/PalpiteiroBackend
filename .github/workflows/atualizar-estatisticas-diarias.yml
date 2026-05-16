@@ -4,7 +4,7 @@ on:
   schedule:
     # 📻 Disparo principal (21:45 BRT = 00:45 UTC)
     - cron: "45 0 * * 0-5"
-    
+
   workflow_dispatch:
 
 jobs:
@@ -39,36 +39,34 @@ jobs:
         run: python scripts/atualizar_lotofacil.py
 
       # =========================
-      # ETAPA 2 (CONFERÊNCIA COM CAPTURA DE ACERTOS)
-      # =====================================================
+      # ETAPA 2 (CONFERÊNCIA)
+      # =========================
       - name: Conferência
         run: |
-          # Executa salvando o log em arquivo físico
           python scripts/conferir_resultados.py | tee saida_conferencia.txt
-          
-          # Extrai apenas as linhas de acertos e o bloco de finalização para o resumo do Telegram
-          sed -n '/📌/,/====================/p' saida_conferencia.txt > auditoria.txt || true
-          
+
+          # Extrai exatamente o mesmo bloco exibido no log
+          sed -n '/==================================================/,/====================/p' \
+            saida_conferencia.txt > auditoria.txt || true
+
           echo "AUDITORIA<<EOF" >> $GITHUB_ENV
           cat auditoria.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # =====================================================
-      # TELEGRAM NOTIFICAÇÃO DE RESULTADO REAIS (SÓ SE HOUVER CONCURSO CONFERIDO)
-      # =====================================================
+      # =========================
+      # TELEGRAM AUDITORIA
+      # =========================
       - name: Telegram auditoria acertos
-        if: success() && contains(env.AUDITORIA, 'acertos')
+        if: success() && contains(env.AUDITORIA, 'Palpite #')
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXT_AUDITORIA="📊 *Auditoria de Performance Operacional*
-
-          ${{ env.AUDITORIA }}"
+          TEXT_AUDITORIA="${{ env.AUDITORIA }}"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT_AUDITORIA" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT_AUDITORIA" | jq -Rs .)}"
 
       # =========================
       # ETAPA 2.1
@@ -88,19 +86,19 @@ jobs:
       - name: Gerar palpites
         run: |
           python scripts/gerar_palpites_diarios.py | tee saida.txt
-      
-          # extrai bloco estruturado de forma segura
-          sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' saida.txt > bloco.txt || true
-      
-          # filtra apenas linhas válidas
+
+          # Extrai payload Telegram
+          sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
+            saida.txt > bloco.txt || true
+
           grep "º" bloco.txt > palpites.txt || true
-      
+
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       # =========================
-      # TELEGRAM PALPITES NOVOS
+      # TELEGRAM PALPITES
       # =========================
       - name: Telegram sucesso
         if: success()
