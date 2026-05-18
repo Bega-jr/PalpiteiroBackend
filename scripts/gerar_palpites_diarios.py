@@ -357,17 +357,19 @@ def main():
     )
 
 
-       # ======================================
-    # META LEARNING (Chaves atualizadas conforme o Service)
+    # ======================================
+    # META LEARNING (Alinhado com as 8 colunas da sua tabela)
     # ======================================
     pesos = obter_pesos_ensemble()
 
-    peso_base = float(pesos.get("peso_base", 0.40))
-    peso_memoria = float(pesos.get("peso_memoria", 0.20))
-    peso_regime = float(pesos.get("peso_regime", 0.15))
-    peso_feedback = float(pesos.get("peso_feedback", 0.15))
-    peso_recencia = float(pesos.get("peso_recencia", 0.10))
-
+    p_base = float(pesos.get("peso_base", 0.30))
+    p_global = float(pesos.get("peso_global", 0.15))
+    p_feedback = float(pesos.get("peso_feedback", 0.15))
+    p_regime = float(pesos.get("peso_regime", 0.10))
+    p_moldura = float(pesos.get("peso_moldura", 0.10))
+    p_estrutura = float(pesos.get("peso_estrutura", 0.10))
+    p_fadiga = float(pesos.get("peso_fadiga", 0.05))
+    p_recencia = float(pesos.get("peso_recencia", 0.05))
 
     # ======================================
     # MEMÓRIA
@@ -473,16 +475,15 @@ def main():
             continue
 
 
-               # ======================================
+        # ======================================
         # ENSEMBLE ADAPTATIVO (Atualizado)
         # ======================================
         s1, s2, s3 = score_base(jogo, base_scores)
 
-        # 1. Consolida o score estatístico base (unidade, dupla, terno com pesos fixos equilibrados)
+        # 1. Consolida o score estatístico base (unidade, dupla, terno)
         score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
 
         # 2. Mescla os múltiplos critérios usando os novos pesos do Meta-Learning
-        # peso_base dita a estatística pura, peso_memoria dita os cenários históricos e peso_regime dita a tendência global
         score_final = (
             (score_estatistico * peso_base) +
             (bonus_estrutura(mem) * peso_memoria) +
@@ -528,10 +529,12 @@ def main():
             "soma_total": c["filtros"]["soma"],
             "processado": False,
             "conferido": False,
-            "versao_generator": VERSAO
+            
+            # CORREÇÃO CRUCIAL: Ajustado para o nome real da sua coluna no banco
+            "versao_gerador": VERSAO 
         })
 
-    # Envia os palpites válidos para o banco
+    # Envia os palpites válidos para o banco sem rejeição de esquema
     supabase.table("palpites_validos").upsert(
         payload, on_conflict="concurso_referencia,indice_palpite"
     ).execute()
