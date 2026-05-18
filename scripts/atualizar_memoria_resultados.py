@@ -1,501 +1,633 @@
 import sys
-import json
-
 from pathlib import Path
+import numpy as np
+import json
 from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
+from app.services.estatisticas_service import (
+    obter_estatisticas_com_score,
+    carregar_historico
+)
 
-
-PRIMOS = {
-    2, 3, 5, 7, 11,
-    13, 17, 19, 23
-}
-
-
-# ======================================================
-# BONUS DE CONTEXTO
-# ======================================================
-PESO_REGIME = {
-
-    "EXPANSAO_QUENTES": 1.00,
-
-    "NEUTRO": 1.03,
-
-    "CONTRACAO_FRIAS": 1.06
-}
+NUMEROS_PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 
 
 # ======================================================
-# AUX
+# UTILITÁRIOS
 # ======================================================
-def parse_numeros(valor):
 
-    if isinstance(
-        valor,
-        list
-    ):
+def normalizar(col):
+    return (col - col.min()) / (col.max() - col.min() + 1e-9)
 
-        return [
-            int(x)
-            for x in valor
-        ]
 
-    if isinstance(
-        valor,
-        str
-    ):
+def calcular_tendencia(historico, numero, janela=25):
+    ultimos = historico[-janela:]
+    presencas = [1 if numero in h["numeros"] else 0 for h in ultimos]
+    return float(np.mean(presencas))
 
-        try:
 
-            return [
+def calcular_ciclo_historico_completo(historico):
 
-                int(x)
+    todos_25 = set(range(1, 26))
+    sorteados = set()
+    ciclo = 1
 
-                for x in json.loads(
-                    valor
-                )
-            ]
+    for concurso in historico:
+        sorteados.update(concurso["numeros"])
 
-        except:
+        if sorteados == todos_25:
+            sorteados = set()
+            ciclo += 1
 
-            return []
+    faltantes = sorted(todos_25 - sorteados)
 
-    return []
+    return (
+        faltantes if faltantes else list(range(1, 26)),
+        ciclo
+    )
 
 
 def extrair_estrutura(nums):
 
     linhas = [
-
-        sum(
-            1 for n in nums
-            if 1 <= n <= 5
-        ),
-
-        sum(
-            1 for n in nums
-            if 6 <= n <= 10
-        ),
-
-        sum(
-            1 for n in nums
-            if 11 <= n <= 15
-        ),
-
-        sum(
-            1 for n in nums
-            if 16 <= n <= 20
-        ),
-
-        sum(
-            1 for n in nums
-            if 21 <= n <= 25
-        )
+        sum(1 for n in nums if 1 <= n <= 5),
+        sum(1 for n in nums if 6 <= n <= 10),
+        sum(1 for n in nums if 11 <= n <= 15),
+        sum(1 for n in nums if 16 <= n <= 20),
+        sum(1 for n in nums if 21 <= n <= 25),
     ]
 
     return {
-
-        "pares":
-
-            sum(
-                1 for n in nums
-                if n % 2 == 0
-            ),
-
-        "primos":
-
-            sum(
-                1 for n in nums
-                if n in PRIMOS
-            ),
-
-        "hash_estrutura":
-
-            "-".join(
-                map(
-                    str,
-                    linhas
-                )
-            )
+        "soma_faixa": int(round(sum(nums) / 10) * 10),
+        "pares": sum(1 for n in nums if n % 2 == 0),
+        "primos": sum(1 for n in nums if n in NUMEROS_PRIMOS),
+        "linhas": linhas,
+        "hash_estrutura": "-".join(map(str, linhas))
     }
 
 
-def calcular_acertos(
-    palpite,
-    resultado
+# ======================================================
+# MEMÓRIA
+# ======================================================
+
+def buscar_memoria_real(
+    supabase,
+    estrutura
 ):
 
-    return len(
-        set(palpite)
-        &
-        set(resultado)
+    resp = (
+
+        supabase
+        .table("memoria_cenarios")
+        .select("*")
+        .eq(
+            "hash_estrutura",
+            estrutura["hash_estrutura"]
+        )
+        .limit(1)
+        .execute()
     )
-
-
-# ======================================================
-# PESO BASE
-# ======================================================
-def peso_acerto(acertos):
-
-    pesos = {
-
-        11: 0.10,
-        12: 0.25,
-        13: 0.50,
-        14: 0.80,
-        15: 1.00
-    }
-
-    return pesos.get(
-        acertos,
-        0.02
-    )
-
-
-# ======================================================
-# SCORE V15
-# ======================================================
-def score_v15(row):
 
     return (
-
-        row.get(
-            "score_medio_real",
-            0
-        ) * 0.50
-
-        +
-
-        row.get(
-            "taxa_7d",
-            0
-        ) * 0.30
-
-        +
-
-        row.get(
-            "taxa_30d",
-            0
-        ) * 0.20
+        resp.data[0]
+        if resp.data
+        else None
     )
 
 
+buscar_cenario_similar = buscar_memoria_real
+
+
+def calcular_saturacao(memoria):
+
+    if not memoria:
+        return 0.0
+
+    vezes = int(
+        memoria.get(
+            "vezes_gerado",
+            0
+        )
+    )
+
+    if vezes <= 2:
+        return 0.0
+
+    return min(
+        vezes / 20,
+        1.0
+    )
+
+
+def calcular_tendencia_memoria(memoria):
+
+    if not memoria:
+        return 0.0
+
+    return float(
+        memoria.get(
+            "score_medio_real",
+            0
+        )
+    )
+
+
+def ajustar_por_memoria(
+    df,
+    memoria
+):
+
+    if not memoria:
+
+        print(
+            "🧠 Novo cenário (sem histórico)"
+        )
+
+        return df
+
+    score_real = float(
+        memoria.get(
+            "score_medio_real",
+            0
+        )
+    )
+
+    vezes = int(
+        memoria.get(
+            "vezes_gerado",
+            0
+        )
+    )
+
+    print(
+        f"🧠 Memória Ativa | "
+        f"Score Real: {score_real:.2f} | "
+        f"Testado: {vezes}x"
+    )
+
+    if score_real >= 5:
+
+        df["score"] *= 1.15
+
+        print(
+            "🔥 Alta performance (+15%)"
+        )
+
+    elif score_real >= 1:
+
+        df["score"] *= 1.05
+
+        print(
+            "📈 Cenário consistente (+5%)"
+        )
+
+    elif vezes >= 5 and score_real == 0:
+
+        df["score"] *= 0.85
+
+        print(
+            "❄️ Cenário saturado (-15%)"
+        )
+
+    return df
+
+
 # ======================================================
-# TELEMETRIA
+# REGIME DINÂMICO (META LEARNING)
 # ======================================================
-def obter_contexto_geracao(
+
+def calcular_regime_dinamico(
     supabase,
-    concurso_ref
+    score_atual
 ):
 
     try:
 
-        rows = (
+        historico_regimes = (
 
             supabase
-            .table(
-                "telemetria_geracao"
+            .table("memoria_regimes")
+            .select("score_global")
+            .order(
+                "concurso",
+                desc=True
             )
-            .select(
-                "regime,versao_gerador"
-            )
-            .eq(
-                "concurso_referencia",
-                concurso_ref
-            )
-            .limit(1)
+            .limit(30)
             .execute()
             .data
         )
 
-        if not rows:
+        if len(historico_regimes) < 5:
 
-            return {
-                "regime": None,
-                "versao": None
-            }
+            print(
+                "📊 Histórico insuficiente para regime adaptativo"
+            )
 
-        return {
+            return "NEUTRO"
 
-            "regime":
-                rows[0].get(
-                    "regime"
-                ),
+        scores = [
 
-            "versao":
-                rows[0].get(
-                    "versao_gerador"
-                )
-        }
+            float(
+                x["score_global"]
+            )
 
-    except:
+            for x in historico_regimes
 
-        return {
-            "regime": None,
-            "versao": None
-        }
+            if x.get(
+                "score_global"
+            ) is not None
+        ]
+
+        media = float(
+            np.mean(scores)
+        )
+
+        desvio = float(
+            np.std(scores)
+        )
+
+        limite_quente = (
+            media + (desvio * 0.50)
+        )
+
+        limite_frio = (
+            media - (desvio * 0.50)
+        )
+
+        print(
+            f"📈 Regime adaptativo | "
+            f"Média={media:.4f} | "
+            f"DP={desvio:.4f}"
+        )
+
+        print(
+            f"🔥 Quente>{limite_quente:.4f} | "
+            f"❄️ Frio<{limite_frio:.4f}"
+        )
+
+        if score_atual >= limite_quente:
+            return "EXPANSAO_QUENTES"
+
+        elif score_atual <= limite_frio:
+            return "CONTRACAO_FRIAS"
+
+        return "NEUTRO"
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Erro regime adaptativo: {e}"
+        )
+
+        return "NEUTRO"
 
 
 # ======================================================
 # MAIN
 # ======================================================
+
 def main():
 
     supabase = get_supabase()
 
     print(
-        "🧠 Atualizando memória v16"
+        "🚀 [v4.8-META-LEARNING] Processamento Inteligente Ativo"
     )
 
-    concurso = (
+    try:
 
-        supabase
-        .table(
-            "lotofacil_concursos"
-        )
-        .select(
-            "concurso,dezenas"
-        )
-        .order(
-            "concurso",
-            desc=True
-        )
-        .limit(1)
-        .execute()
-        .data[0]
-    )
+        historico = carregar_historico()
 
-    concurso_ref = int(
-        concurso[
-            "concurso"
-        ]
-    )
+        if not historico:
 
-    resultado = parse_numeros(
-        concurso[
-            "dezenas"
-        ]
-    )
+            print(
+                "⚠️ Histórico vazio"
+            )
 
-    contexto = obter_contexto_geracao(
-        supabase,
-        concurso_ref
-    )
+            return
 
-    regime = contexto[
-        "regime"
-    ]
+        ultimo = historico[-1]
 
-    fator_regime = PESO_REGIME.get(
-        regime,
-        1.0
-    )
-
-    palpites = (
-
-        supabase
-        .table(
-            "palpites_validos"
-        )
-        .select("*")
-        .eq(
-            "concurso_referencia",
-            concurso_ref
-        )
-        .execute()
-        .data
-    )
-
-    if not palpites:
+        concurso = ultimo["concurso"]
+        data = ultimo["data"]
+        dezenas = ultimo["numeros"]
 
         print(
-            "⚠️ Nenhum palpite encontrado"
+            f"📌 Concurso {concurso} | Data {data}"
         )
 
-        return
+        df = obter_estatisticas_com_score()
 
-    for p in palpites:
+        df.loc[
+            df["numero"].isin(dezenas),
+            "atraso"
+        ] = 0
 
-        numeros = parse_numeros(
-            p[
-                "numeros"
-            ]
+        df["tendencia"] = df["numero"].apply(
+            lambda n: calcular_tendencia(
+                historico,
+                n
+            )
         )
 
-        if not numeros:
-            continue
+        df["freq_norm"] = normalizar(
+            df["frequencia"]
+        )
+
+        df["atraso_norm"] = (
+            1 - normalizar(
+                df["atraso"]
+            )
+        )
+
+        df["tendencia_norm"] = normalizar(
+            df["tendencia"]
+        )
+
+        df["score_norm"] = normalizar(
+            df["score"]
+        )
+
+        df["score"] = (
+
+            df["freq_norm"] * 0.35 +
+
+            df["tendencia_norm"] * 0.30 +
+
+            df["atraso_norm"] * 0.20 +
+
+            df["score_norm"] * 0.15
+        )
+
+        # ==================================================
+        # MEMÓRIA
+        # ==================================================
 
         estrutura = extrair_estrutura(
-            numeros
+            dezenas
         )
 
-        acertos = calcular_acertos(
-            numeros,
-            resultado
+        memoria = buscar_memoria_real(
+            supabase,
+            estrutura
         )
 
-        peso = peso_acerto(
-            acertos
+        df = ajustar_por_memoria(
+            df,
+            memoria
         )
 
-        # bônus contextual
-        peso *= fator_regime
-
-        busca = (
-
-            supabase
-            .table(
-                "memoria_cenarios"
-            )
-            .select("*")
-            .eq(
-                "hash_estrutura",
-                estrutura[
-                    "hash_estrutura"
-                ]
-            )
-            .execute()
-        )
-
-        if not busca.data:
-            continue
-
-        row = busca.data[0]
-
-        vezes = int(
-
-            row.get(
-                "vezes_gerado",
-                0
+        tendencia_memoria = (
+            calcular_tendencia_memoria(
+                memoria
             )
         )
 
-        score_antigo = float(
-
-            row.get(
-                "score_medio_real",
-                0
+        saturacao = (
+            calcular_saturacao(
+                memoria
             )
         )
 
-        novo_vezes = (
-            vezes + 1
-        )
+        payload = {
 
-        # ===================================
-        # MÉDIA INCREMENTAL
-        # ===================================
-        score_novo = (
+            "hash_estrutura":
+                estrutura["hash_estrutura"],
 
-            (
-                score_antigo
-                *
-                vezes
-            )
+            "soma_faixa":
+                estrutura["soma_faixa"],
 
-            +
+            "pares":
+                estrutura["pares"],
 
-            peso
+            "primos":
+                estrutura["primos"],
 
-        ) / novo_vezes
+            "linhas":
+                estrutura["linhas"],
 
-        # proteção contra explosão
-        score_novo = min(
-            1.20,
-            score_novo
-        )
-
-        taxa_7d = row.get(
-            "taxa_7d",
-            0
-        )
-
-        taxa_30d = row.get(
-            "taxa_30d",
-            0
-        )
-
-        score_final = (
-
-            score_novo * 0.70
-
-            +
-
-            taxa_7d * 0.20
-
-            +
-
-            taxa_30d * 0.10
-        )
-
-        update = {
-
-            "vezes_gerado":
-                novo_vezes,
-
-            "score_medio_real":
+            "tendencia":
                 round(
-                    score_novo,
+                    tendencia_memoria,
                     4
                 ),
 
-            "score_v15":
+            "saturacao":
                 round(
-                    score_final,
+                    saturacao,
                     4
                 ),
 
             "ultima_aparicao":
-                datetime.now()
-                .date()
-                .isoformat(),
+                data,
 
             "updated_at":
-                datetime.now()
-                .isoformat()
+                datetime.now().isoformat()
         }
 
-        # distribuição real
-        if acertos >= 11:
-
-            col = (
-                f"acertos_{acertos}"
-            )
-
-            update[col] = (
-
-                row.get(
-                    col,
-                    0
-                )
-
-                +
-
-                1
-            )
-
         (
+
             supabase
-            .table(
-                "memoria_cenarios"
-            )
-            .update(
-                update
-            )
-            .eq(
-                "id",
-                row["id"]
+            .table("memoria_cenarios")
+            .upsert(
+                payload,
+                on_conflict="soma_faixa,pares,primos,hash_estrutura"
             )
             .execute()
         )
 
-    print(
-        f"✅ Memória atualizada | Regime={regime}"
-    )
+        print(
+            "🔄 Memória atualizada via UPSERT seguro"
+        )
+
+        # ==================================================
+        # FEEDBACK LOOP
+        # ==================================================
+
+        try:
+
+            palpites_passados = (
+
+                supabase
+                .table("palpites_validos")
+                .select("numeros")
+                .eq(
+                    "concurso_referencia",
+                    int(concurso)
+                )
+                .execute()
+                .data
+            )
+
+            if palpites_passados:
+
+                acertos_do_dia = []
+
+                for p in palpites_passados:
+
+                    jogo_limpo = [
+
+                        int(x)
+
+                        for x in json.loads(
+                            p["numeros"]
+                        )
+                    ]
+
+                    acertos = len(
+                        set(jogo_limpo)
+                        &
+                        set(dezenas)
+                    )
+
+                    acertos_do_dia.append(
+                        acertos
+                    )
+
+                media_acertos = float(
+                    np.mean(
+                        acertos_do_dia
+                    )
+                )
+
+                if media_acertos < 9.0:
+
+                    fator_correcao = 0.92
+
+                elif media_acertos >= 11.0:
+
+                    fator_correcao = 1.05
+
+                else:
+
+                    fator_correcao = 1.00
+
+                payload_feedback = {
+
+                    "concurso_referencia":
+                        int(concurso),
+
+                    "media_acertos_ia":
+                        round(
+                            media_acertos,
+                            2
+                        ),
+
+                    "fator_correcao":
+                        fator_correcao
+                }
+
+                (
+
+                    supabase
+                    .table("memoria_feedback_loop")
+                    .upsert(
+                        payload_feedback,
+                        on_conflict="concurso_referencia"
+                    )
+                    .execute()
+                )
+
+                print(
+                    f"📡 Feedback Loop auditado | "
+                    f"Média={media_acertos:.2f}"
+                )
+
+        except Exception as e_fb:
+
+            print(
+                f"⚠️ Feedback Loop erro: {e_fb}"
+            )
+
+        # ==================================================
+        # REGIME DINÂMICO
+        # ==================================================
+
+        _, ciclo = calcular_ciclo_historico_completo(
+            historico
+        )
+
+        media_score = float(
+
+            df[
+                df["numero"].isin(
+                    dezenas
+                )
+            ]["score"].mean()
+        )
+
+        regime = calcular_regime_dinamico(
+            supabase,
+            media_score
+        )
+
+        check_reg = (
+
+            supabase
+            .table("memoria_regimes")
+            .select("id")
+            .eq(
+                "concurso",
+                int(concurso)
+            )
+            .execute()
+        )
+
+        if not check_reg.data:
+
+            (
+
+                supabase
+                .table("memoria_regimes")
+                .insert({
+
+                    "data_referencia":
+                        data,
+
+                    "concurso":
+                        int(concurso),
+
+                    "numero_ciclo":
+                        int(ciclo),
+
+                    "tipo_regime":
+                        regime,
+
+                    "score_global":
+                        media_score,
+
+                    "media_soma":
+                        float(sum(dezenas)),
+
+                    "media_pares":
+                        int(
+                            estrutura["pares"]
+                        )
+                })
+                .execute()
+            )
+
+            print(
+                f"📡 Regime salvo: {regime}"
+            )
+
+        else:
+
+            print(
+                f"ℹ️ Concurso {concurso} já existe em memoria_regimes"
+            )
+
+    except Exception as e:
+
+        print(
+            f"❌ Erro crítico: {e}"
+        )
+
+        sys.exit(1)
 
 
 if __name__ == "__main__":
