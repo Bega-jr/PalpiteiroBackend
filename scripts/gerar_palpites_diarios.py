@@ -15,6 +15,11 @@ from app.services.supabase_service import get_supabase
 from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
 
+from app.services.meta_learning_service import (
+    obter_pesos_ensemble,
+    registrar_execucao_ensemble
+)
+
 from scripts.processamento_diario_lotofacil import (
     carregar_historico,
     extrair_estrutura
@@ -24,7 +29,7 @@ from scripts.processamento_diario_lotofacil import (
 # ======================================================
 # CONFIG
 # ======================================================
-VERSAO = "v17.0-meta-learning"
+VERSAO = "v17.1-adaptive-ensemble"
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
@@ -204,9 +209,9 @@ def validar_autonomo(
 
 
 # ======================================================
-# SCORE
+# SCORE BASE
 # ======================================================
-def score(jogo, base):
+def score_base(jogo, base):
 
     s1 = media_segura([
         base.get((n,), 0.5)
@@ -258,82 +263,20 @@ def score(jogo, base):
         max(scores_ternos) * 0.30
     )
 
-    noise = random.uniform(
-        0.97,
-        1.03
-    )
-
-    return (
-
-        (
-            (s1 * 0.25)
-            +
-            (s2 * 0.35)
-            +
-            (s3 * 0.40)
-        )
-
-        * noise
-    )
+    return s1, s2, s3
 
 
 # ======================================================
 # BONUS
 # ======================================================
-def bonus_moldura(
-    estrutura,
-    memoria
-):
-
-    if not memoria:
-        return 1.0
-
-    linhas = estrutura["linhas"]
-
-    vezes = int(
-        memoria.get(
-            "vezes_gerado",
-            0
-        )
-    )
-
-    score_real = float(
-        memoria.get(
-            "score_medio_real",
-            0
-        )
-    )
-
-    if max(linhas) >= 10:
-        return 0.90
-
-    if 2 <= max(linhas) <= 5:
-        return 1.08
-
-    if vezes <= 2:
-        return 1.05
-
-    if score_real >= 3:
-        return 1.02
-
-    return 1.0
-
-
 def bonus_estrutura(mem):
 
     if not mem:
-        return 1.01
+        return 1.0
 
     vezes = int(
         mem.get(
             "vezes_gerado",
-            0
-        )
-    )
-
-    score_real = float(
-        mem.get(
-            "score_medio_real",
             0
         )
     )
@@ -341,90 +284,12 @@ def bonus_estrutura(mem):
     if vezes >= 40:
         return 0.97
 
-    if vezes <= 5 and score_real >= 1:
-        return 1.04
-
     if vezes <= 5:
-        return 1.02
-
-    if 6 <= vezes <= 20:
-        return 1.01
-
-    return 1.0
-
-
-def bonus_regime(tipo_regime):
-
-    if not tipo_regime:
-        return 1.0
-
-    if tipo_regime == "EXPANSAO_QUENTES":
         return 1.03
 
-    if tipo_regime == "CONTRACAO_FRIAS":
-        return 0.97
-
     return 1.0
 
 
-def bonus_fadiga(mem):
-
-    if not mem:
-        return 1.0
-
-    fadiga = float(
-        mem.get(
-            "fadiga_estrutura",
-            0
-        )
-    )
-
-    if fadiga >= 0.80:
-        return 0.93
-
-    if fadiga >= 0.50:
-        return 0.97
-
-    return 1.02
-
-
-def bonus_recencia(mem):
-
-    if not mem:
-        return 1.0
-
-    taxa_7d = float(
-        mem.get(
-            "taxa_7d",
-            0
-        )
-    )
-
-    taxa_30d = float(
-        mem.get(
-            "taxa_30d",
-            0
-        )
-    )
-
-    media = (
-        taxa_7d * 0.6
-        +
-        taxa_30d * 0.4
-    )
-
-    if media >= 0.50:
-        return 1.05
-
-    if media <= 0.10:
-        return 0.95
-
-    return 1.0
-
-
-# ======================================================
-# DIVERSIDADE
-# ======================================================
 def diversidade_ok(
     novo,
     lista
@@ -480,6 +345,9 @@ def main():
         return
 
 
+    # ======================================
+    # BASE
+    # ======================================
     base_scores, _ = (
         calcular_score_combinacoes_reais()
     )
@@ -488,66 +356,37 @@ def main():
         obter_fator_aprendizado_global()["fator"]
     )
 
-    tipo_regime = None
 
-    try:
+    # ======================================
+    # META LEARNING
+    # ======================================
+    pesos = obter_pesos_ensemble()
 
-        reg = (
-
-            supabase
-            .table(
-                "memoria_regimes"
-            )
-            .select(
-                "tipo_regime"
-            )
-            .order(
-                "concurso",
-                desc=True
-            )
-            .limit(1)
-            .execute()
-            .data
+    peso_unitario = float(
+        pesos.get(
+            "peso_unitario",
+            0.25
         )
+    )
 
-        if reg:
-            tipo_regime = reg[0]["tipo_regime"]
-
-    except:
-        pass
-
-
-    fator_feedback_loop = 1.0
-
-    try:
-
-        rows = (
-
-            supabase
-            .table(
-                "memoria_feedback_loop"
-            )
-            .select(
-                "fator_correcao"
-            )
-            .eq(
-                "concurso_referencia",
-                concurso_ref - 1
-            )
-            .execute()
-            .data
+    peso_duplas = float(
+        pesos.get(
+            "peso_duplas",
+            0.35
         )
+    )
 
-        if rows:
-
-            fator_feedback_loop = float(
-                rows[0]["fator_correcao"]
-            )
-
-    except:
-        pass
+    peso_ternos = float(
+        pesos.get(
+            "peso_ternos",
+            0.40
+        )
+    )
 
 
+    # ======================================
+    # MEMÓRIA
+    # ======================================
     memoria = {
 
         m["hash_estrutura"]: m
@@ -564,7 +403,6 @@ def main():
         )
     }
 
-
     usados = set(
 
         tuple(
@@ -576,69 +414,25 @@ def main():
         for h in hist
     )
 
-
     candidatos = []
 
     pool = list(
         range(1, 26)
     )
 
-    janela = hist[-25:]
-
-    somas = []
-    pares = []
-    primos = []
-    molduras = []
-    repetidos = []
-    seqs = []
-    linhas = []
-
-    for i, h in enumerate(janela):
-
-        nums = h["numeros"]
-
-        ref_ant = (
-            janela[i - 1]["numeros"]
-            if i > 0
-            else nums
-        )
-
-        filtros = calcular_filtros(
-            nums,
-            ref_ant
-        )
-
-        estrutura = extrair_estrutura(
-            nums
-        )
-
-        somas.append(filtros["soma"])
-        pares.append(filtros["pares"])
-        primos.append(filtros["primos"])
-        molduras.append(filtros["moldura"])
-        repetidos.append(filtros["repetidos"])
-        seqs.append(filtros["seq_max"])
-        linhas.append(max(estrutura["linhas"]))
-
     limites = {
-
-        "soma_min": int(np.percentile(somas, 10)),
-        "soma_max": int(np.percentile(somas, 90)),
-
-        "pares_min": min(pares),
-        "pares_max": max(pares),
-
-        "primos_min": min(primos),
-        "primos_max": max(primos),
-
-        "moldura_min": min(molduras),
-        "moldura_max": max(molduras),
-
-        "repetidos_min": min(repetidos),
-        "repetidos_max": max(repetidos),
-
-        "seq_max_limite": max(seqs),
-        "max_linha_limite": max(linhas)
+        "soma_min": 160,
+        "soma_max": 230,
+        "pares_min": 5,
+        "pares_max": 10,
+        "primos_min": 3,
+        "primos_max": 8,
+        "moldura_min": 8,
+        "moldura_max": 14,
+        "repetidos_min": 6,
+        "repetidos_max": 12,
+        "seq_max_limite": 5,
+        "max_linha_limite": 5
     }
 
 
@@ -693,22 +487,32 @@ def main():
         ):
             continue
 
-        s = score(
+
+        # ======================================
+        # ENSEMBLE ADAPTATIVO
+        # ======================================
+        s1, s2, s3 = score_base(
             jogo,
             base_scores
         )
 
-        s *= fator_global
-        s *= fator_feedback_loop
-        s *= bonus_regime(tipo_regime)
-        s *= bonus_moldura(estrutura, mem)
-        s *= bonus_estrutura(mem)
-        s *= bonus_fadiga(mem)
-        s *= bonus_recencia(mem)
+        score_final = (
+
+            s1 * peso_unitario
+            +
+            s2 * peso_duplas
+            +
+            s3 * peso_ternos
+
+        )
+
+        score_final *= fator_global
+        score_final *= bonus_estrutura(mem)
 
         candidatos.append({
+
             "nums": jogo,
-            "score": s,
+            "score": score_final,
             "filtros": filtros
         })
 
@@ -717,7 +521,6 @@ def main():
         key=lambda x: x["score"],
         reverse=True
     )
-
 
     finais = []
 
@@ -734,7 +537,9 @@ def main():
             finais
         ):
 
-            finais.append(c)
+            finais.append(
+                c
+            )
 
 
     payload = []
@@ -787,6 +592,7 @@ def main():
                 VERSAO
         })
 
+
     (
         supabase
         .table(
@@ -798,6 +604,14 @@ def main():
         )
         .execute()
     )
+
+
+    # salva snapshot do ensemble usado
+    registrar_execucao_ensemble(
+        concurso_ref=concurso_ref,
+        pesos=pesos
+    )
+
 
     print(
         "\n📲 TELEGRAM_PAYLOAD_START"
