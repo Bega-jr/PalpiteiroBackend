@@ -15,9 +15,7 @@ from app.services.supabase_service import get_supabase
 from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
 
-from app.services.meta_learning_service import (
-    obter_pesos_ensemble,
-    registrar_execucao_ensemble
+from app.services.meta_learning_service import obter_pesos_ensemble
 )
 
 from scripts.processamento_diario_lotofacil import (
