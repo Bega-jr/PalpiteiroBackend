@@ -9,7 +9,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "v14.5-conferencia-smart-audit"
+VERSAO = "v14.6-conferencia-telegram-ready"
 
 
 # ======================================================
@@ -33,10 +33,66 @@ def parse_numeros(valor):
     return []
 
 
+def montar_bloco_auditoria(
+    concurso,
+    resultado,
+    ranking,
+    concurso_atual=None
+):
+
+    linhas = []
+
+    linhas.append("=" * 50)
+
+    linhas.append(
+        f"📊 Concurso {concurso} — Auditoria de Performance"
+    )
+
+    linhas.append("")
+
+    linhas.append(
+        f"🎯 Resultado oficial: {sorted(resultado)}"
+    )
+
+    linhas.append("")
+
+    linhas.append(
+        "📌 Resultado IA:"
+    )
+
+    linhas.append("")
+
+    for r in ranking:
+
+        linhas.append(
+            f"🔹 Palpite #{r['idx']} → {r['acertos']} acertos"
+        )
+
+    if concurso_atual:
+
+        linhas.append("")
+
+        linhas.append(
+            f"⏳ Concurso {concurso_atual} ainda sem resultado oficial"
+        )
+
+    linhas.append(
+        "=" * 50
+    )
+
+    return "\n".join(
+        linhas
+    )
+
+
 # ======================================================
 # AUDITORIA HISTÓRICA
 # ======================================================
-def exibir_ultima_auditoria(supabase, mapa, concurso_atual):
+def exibir_ultima_auditoria(
+    supabase,
+    mapa,
+    concurso_atual
+):
 
     ultimo = supabase.table(
         "palpites_validos"
@@ -51,7 +107,11 @@ def exibir_ultima_auditoria(supabase, mapa, concurso_atual):
     ).limit(50).execute().data
 
     if not ultimo:
-        print(f"⏳ Concurso {concurso_atual} ainda sem resultado oficial")
+
+        print(
+            f"⏳ Concurso {concurso_atual} ainda sem resultado oficial"
+        )
+
         return
 
     ultimo_concurso = int(
@@ -59,51 +119,64 @@ def exibir_ultima_auditoria(supabase, mapa, concurso_atual):
     )
 
     registros = [
+
         x for x in ultimo
-        if int(x["concurso_referencia"]) == ultimo_concurso
+
+        if int(
+            x["concurso_referencia"]
+        ) == ultimo_concurso
     ]
 
     if ultimo_concurso not in mapa:
-        print(f"⏳ Concurso {concurso_atual} ainda sem resultado oficial")
+
+        print(
+            f"⏳ Concurso {concurso_atual} ainda sem resultado oficial"
+        )
+
         return
 
-    resultado = mapa[ultimo_concurso]
-
-    print("\n" + "=" * 50)
-    print(
-        f"📊 Concurso {ultimo_concurso} — Auditoria de Performance\n"
-    )
-
-    print("🎯 Resultado oficial:")
-    print(sorted(resultado))
-
-    print("\n📌 Resultado IA:\n")
+    resultado = mapa[
+        ultimo_concurso
+    ]
 
     ranking = []
 
     for r in registros:
 
         ranking.append({
-            "idx": r["indice_palpite"],
-            "acertos": r["acertos"]
+
+            "idx":
+                r[
+                    "indice_palpite"
+                ],
+
+            "acertos":
+                r[
+                    "acertos"
+                ]
         })
 
     ranking.sort(
-        key=lambda x: x["acertos"],
+
+        key=lambda x:
+            x["acertos"],
+
         reverse=True
     )
 
-    for r in ranking:
-
-        print(
-            f"🔹 Palpite #{r['idx']} → {r['acertos']} acertos"
-        )
-
     print(
-        f"\n⏳ Concurso {concurso_atual} ainda sem resultado oficial"
-    )
 
-    print("=" * 50)
+        montar_bloco_auditoria(
+
+            ultimo_concurso,
+
+            resultado,
+
+            ranking,
+
+            concurso_atual
+        )
+    )
 
 
 # ======================================================
@@ -127,22 +200,26 @@ def main():
     ).limit(100).execute().data
 
     mapa = {
-        int(r["concurso"]): set(
+
+        int(
+            r["concurso"]
+        ):
+
+        set(
             parse_numeros(
                 r["dezenas"]
             )
         )
+
         for r in oficiais
     }
 
     pendentes = supabase.table(
         "palpites_validos"
-    ).select("*") \
-     .eq(
-         "conferido",
-         False
-     ) \
-     .execute().data
+    ).select("*").eq(
+        "conferido",
+        False
+    ).execute().data
 
     print(
         f"📌 {len(pendentes)} palpites pendentes"
@@ -150,9 +227,6 @@ def main():
 
     processados = 0
 
-    # ======================================================
-    # AGRUPA POR CONCURSO
-    # ======================================================
     por_concurso = {}
 
     for p in pendentes:
@@ -162,18 +236,19 @@ def main():
         )
 
         if concurso not in por_concurso:
-            por_concurso[concurso] = []
 
-        por_concurso[concurso].append(
+            por_concurso[
+                concurso
+            ] = []
+
+        por_concurso[
+            concurso
+        ].append(
             p
         )
 
-    # ======================================================
-    # PROCESSAMENTO
-    # ======================================================
     for concurso, lista in por_concurso.items():
 
-        # Ainda não saiu resultado
         if concurso not in mapa:
 
             exibir_ultima_auditoria(
@@ -184,17 +259,9 @@ def main():
 
             continue
 
-        resultado = mapa[concurso]
-
-        print("\n" + "=" * 50)
-        print(
-            f"📊 Concurso {concurso} — Auditoria de Performance\n"
-        )
-
-        print("🎯 Resultado oficial:")
-        print(sorted(resultado))
-
-        print("\n📌 Resultado IA:\n")
+        resultado = mapa[
+            concurso
+        ]
 
         ranking = []
 
@@ -205,48 +272,72 @@ def main():
             )
 
             acertos = len(
-                set(numeros) &
+
+                set(numeros)
+                &
                 resultado
             )
 
             ranking.append({
-                "id": p["id"],
-                "idx": p["indice_palpite"],
-                "acertos": acertos
+
+                "id":
+                    p["id"],
+
+                "idx":
+                    p["indice_palpite"],
+
+                "acertos":
+                    acertos
             })
 
-            # Atualiza banco
             supabase.table(
                 "palpites_validos"
             ).update({
 
-                "acertos": acertos,
-                "processado": True,
-                "conferido": True
+                "acertos":
+                    acertos,
+
+                "processado":
+                    True,
+
+                "conferido":
+                    True
 
             }).eq(
+
                 "id",
                 p["id"]
+
             ).execute()
 
             processados += 1
 
         ranking.sort(
-            key=lambda x: x["acertos"],
+
+            key=lambda x:
+                x["acertos"],
+
             reverse=True
         )
 
-        for r in ranking:
+        print(
 
-            print(
-                f"🔹 Palpite #{r['idx']} → {r['acertos']} acertos"
+            montar_bloco_auditoria(
+
+                concurso,
+
+                resultado,
+
+                ranking
             )
-
-        print("=" * 50)
+        )
 
     print(
-        f"\n====================\n"
-        f"✅ Processo concluído: {processados} palpites processados"
+
+        f"\n"
+        f"====================\n"
+        f"✅ Processo concluído\n"
+        f"📊 {processados} palpites processados"
     )
 
 
