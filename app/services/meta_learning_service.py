@@ -1,4 +1,5 @@
 from typing import Dict
+
 from app.services.supabase_service import get_supabase
 
 
@@ -61,9 +62,16 @@ def obter_pesos_ensemble() -> Dict[str, float]:
 def atualizar_meta_learning(
     media_acertos: float,
     concurso_ref: int,
+
     tipo_regime: str = "NEUTRO",
     fator_feedback: float = 1.0,
-    fator_global: float = 1.0
+    fator_global: float = 1.0,
+
+    melhor_acerto: int = 0,
+    pior_acerto: int = 0,
+    dispersao: int = 0,
+    qtd_palpites: int = 7,
+    score_estrutural: float = 0.0
 ):
 
     supabase = get_supabase()
@@ -73,7 +81,7 @@ def atualizar_meta_learning(
     try:
 
         # ==========================================
-        # AJUSTE ADAPTATIVO
+        # AJUSTE POR MÉDIA
         # ==========================================
         if media_acertos < 9:
 
@@ -93,7 +101,31 @@ def atualizar_meta_learning(
 
 
         # ==========================================
-        # LIMITES DE SEGURANÇA
+        # AJUSTE POR DISPERSÃO
+        # (quanto mais inconsistente, mais valor estrutural)
+        # ==========================================
+        if dispersao >= 4:
+
+            pesos["peso_estrutura"] += 0.01
+            pesos["peso_fadiga"] += 0.01
+
+            pesos["peso_base"] -= 0.01
+
+
+        # ==========================================
+        # AJUSTE POR REGIME
+        # ==========================================
+        if tipo_regime == "EXPANSAO_QUENTES":
+
+            pesos["peso_regime"] += 0.01
+
+        elif tipo_regime == "CONTRACAO_FRIAS":
+
+            pesos["peso_recencia"] += 0.01
+
+
+        # ==========================================
+        # LIMITES
         # ==========================================
         for k in pesos:
 
@@ -124,6 +156,7 @@ def atualizar_meta_learning(
                 4
             )
 
+
         diferenca = round(
             1.0 - sum(pesos.values()),
             4
@@ -131,19 +164,19 @@ def atualizar_meta_learning(
 
         if diferenca != 0:
 
-            ultimo = chaves[-1]
-
-            pesos[ultimo] = round(
-                pesos[ultimo] + diferenca,
+            pesos[chaves[-1]] = round(
+                pesos[chaves[-1]] + diferenca,
                 4
             )
 
 
         # ==========================================
-        # SALVA MEMÓRIA VIVA
+        # MEMÓRIA VIVA
         # ==========================================
         payload_memoria = {
+
             **pesos,
+
             "score_ultimo": round(
                 media_acertos,
                 4
@@ -158,7 +191,7 @@ def atualizar_meta_learning(
 
 
         # ==========================================
-        # SALVA AUDITORIA COMPLETA
+        # AUDITORIA HISTÓRICA
         # ==========================================
         payload_execucao = {
 
@@ -174,16 +207,28 @@ def atualizar_meta_learning(
             "peso_recencia": pesos["peso_recencia"],
 
             "tipo_regime": tipo_regime,
+
             "fator_feedback": round(
                 fator_feedback,
                 6
             ),
+
             "fator_global": round(
                 fator_global,
                 6
             ),
 
-            "qtd_candidatos": 7,
+            "melhor_acerto": melhor_acerto,
+            "pior_acerto": pior_acerto,
+            "dispersao": dispersao,
+
+            "qtd_candidatos": qtd_palpites,
+
+            "score_estrutural": round(
+                score_estrutural,
+                6
+            ),
+
             "score_medio": round(
                 media_acertos,
                 6
@@ -199,9 +244,11 @@ def atualizar_meta_learning(
 
 
         print(
-            f"🧠 Meta-Learning Atualizado | "
+            f"🧠 Meta-Learning Contextual | "
             f"Concurso {concurso_ref} | "
-            f"Média={media_acertos:.2f}"
+            f"Média={media_acertos:.2f} | "
+            f"Best={melhor_acerto} | "
+            f"Spread={dispersao}"
         )
 
     except Exception as e:
