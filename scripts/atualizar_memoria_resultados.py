@@ -31,7 +31,6 @@ def calcular_tendencia(historico, numero, janela=25):
 
 
 def calcular_ciclo_historico_completo(historico):
-
     todos_25 = set(range(1, 26))
     sorteados = set()
     ciclo = 1
@@ -52,7 +51,6 @@ def calcular_ciclo_historico_completo(historico):
 
 
 def extrair_estrutura(nums):
-
     linhas = [
         sum(1 for n in nums if 1 <= n <= 5),
         sum(1 for n in nums if 6 <= n <= 10),
@@ -74,215 +72,117 @@ def extrair_estrutura(nums):
 # MEMÓRIA
 # ======================================================
 
-def buscar_memoria_real(
-    supabase,
-    estrutura
-):
-
+def buscar_memoria_real(supabase, estrutura):
     resp = (
-
         supabase
         .table("memoria_cenarios")
         .select("*")
-        .eq(
-            "hash_estrutura",
-            estrutura["hash_estrutura"]
-        )
+        .eq("hash_estrutura", estrutura["hash_estrutura"])
         .limit(1)
         .execute()
     )
 
-    return (
-        resp.data[0]
-        if resp.data
-        else None
-    )
+    return resp.data[0] if resp.data else None
 
 
 buscar_cenario_similar = buscar_memoria_real
 
 
 def calcular_saturacao(memoria):
-
     if not memoria:
         return 0.0
 
-    vezes = int(
-        memoria.get(
-            "vezes_gerado",
-            0
-        )
-    )
+    vezes = int(memoria.get("vezes_gerado", 0))
 
     if vezes <= 2:
         return 0.0
 
-    return min(
-        vezes / 20,
-        1.0
-    )
+    return min(vezes / 20, 1.0)
 
 
 def calcular_tendencia_memoria(memoria):
-
     if not memoria:
         return 0.0
 
-    return float(
-        memoria.get(
-            "score_medio_real",
-            0
-        )
-    )
+    return float(memoria.get("score_medio_real", 0))
 
 
-def ajustar_por_memoria(
-    df,
-    memoria
-):
-
+def ajustar_por_memoria(df, memoria):
     if not memoria:
-
-        print(
-            "🧠 Novo cenário (sem histórico)"
-        )
-
+        print("🧠 Novo cenário estrutural detectado (Iniciando histórico)")
         return df
 
-    score_real = float(
-        memoria.get(
-            "score_medio_real",
-            0
-        )
-    )
+    score_real = float(memoria.get("score_medio_real", 0))
+    vezes = int(memoria.get("vezes_gerado", 0))
 
-    vezes = int(
-        memoria.get(
-            "vezes_gerado",
-            0
-        )
-    )
-
-    print(
-        f"🧠 Memória Ativa | "
-        f"Score Real: {score_real:.2f} | "
-        f"Testado: {vezes}x"
-    )
+    print(f"🧠 Memória Ativa | Score Real: {score_real:.2f} | Testado: {vezes}x")
 
     if score_real >= 5:
-
         df["score"] *= 1.15
-
-        print(
-            "🔥 Alta performance (+15%)"
-        )
+        print("🔥 Alta performance (+15%)")
 
     elif score_real >= 1:
-
         df["score"] *= 1.05
-
-        print(
-            "📈 Cenário consistente (+5%)"
-        )
+        print("📈 Cenário consistente (+5%)")
 
     elif vezes >= 5 and score_real == 0:
-
         df["score"] *= 0.85
-
-        print(
-            "❄️ Cenário saturado (-15%)"
-        )
+        print("❄️ Cenário saturado (-15%)")
 
     return df
 
 
 # ======================================================
-# REGIME DINÂMICO (META LEARNING)
+# REGIME DINÂMICO CONTEXTUAL
 # ======================================================
 
-def calcular_regime_dinamico(
-    supabase,
-    score_atual
-):
-
+def calcular_regime_dinamico(supabase, score_atual):
     try:
-
-        historico_regimes = (
-
+        # CONEXÃO REAL: Busca histórico de dispersão (Spread) gerado pela conferência v18.0
+        historico_execucoes = (
             supabase
-            .table("memoria_regimes")
-            .select("score_global")
-            .order(
-                "concurso",
-                desc=True
-            )
+            .table("meta_learning_execucoes")
+            .select("score_medio, dispersao")
+            .order("concurso_referencia", desc=True)
             .limit(30)
             .execute()
             .data
         )
 
-        if len(historico_regimes) < 5:
-
-            print(
-                "📊 Histórico insuficiente para regime adaptativo"
-            )
-
+        if len(historico_execucoes) < 2:
+            print("📊 Histórico zerado pós-reset. Mantendo regime NEUTRO.")
             return "NEUTRO"
 
+        # Se o spread foi muito alto, força proteção contra instabilidade
+        ultima_execucao = historico_execucoes[0]
+        if int(ultima_execucao.get("dispersao", 0)) >= 4:
+            print("⚠️ Instabilidade contextual detectada (Spread >= 4). Forçando CONTRACAO_FRIAS.")
+            return "CONTRACAO_FRIAS"
+
         scores = [
-
-            float(
-                x["score_global"]
-            )
-
-            for x in historico_regimes
-
-            if x.get(
-                "score_global"
-            ) is not None
+            float(x["score_medio"]) 
+            for x in historico_execucoes 
+            if x.get("score_medio") is not None
         ]
+        
+        media = float(np.mean(scores))
+        desvio = float(np.std(scores)) + 1e-6
 
-        media = float(
-            np.mean(scores)
-        )
+        limite_quente = media + (desvio * 0.50)
+        limite_frio = media - (desvio * 0.50)
 
-        desvio = float(
-            np.std(scores)
-        )
-
-        limite_quente = (
-            media + (desvio * 0.50)
-        )
-
-        limite_frio = (
-            media - (desvio * 0.50)
-        )
-
-        print(
-            f"📈 Regime adaptativo | "
-            f"Média={media:.4f} | "
-            f"DP={desvio:.4f}"
-        )
-
-        print(
-            f"🔥 Quente>{limite_quente:.4f} | "
-            f"❄️ Frio<{limite_frio:.4f}"
-        )
+        print(f"📈 Regime adaptativo | Média Histórica={media:.2f} | DP={desvio:.4f}")
+        print(f"🔥 Limite Quente>{limite_quente:.2f} | ❄️ Limite Frio<{limite_frio:.2f}")
 
         if score_atual >= limite_quente:
             return "EXPANSAO_QUENTES"
-
         elif score_atual <= limite_frio:
             return "CONTRACAO_FRIAS"
 
         return "NEUTRO"
 
     except Exception as e:
-
-        print(
-            f"⚠️ Erro regime adaptativo: {e}"
-        )
-
+        print(f"⚠️ Erro regime adaptativo: {e}")
         return "NEUTRO"
 
 
@@ -291,23 +191,15 @@ def calcular_regime_dinamico(
 # ======================================================
 
 def main():
-
     supabase = get_supabase()
 
-    print(
-        "🚀 [v4.8-META-LEARNING] Processamento Inteligente Ativo"
-    )
+    print("🚀 [v18.0-META-LEARNING] Processamento Inteligente Ativo")
 
     try:
-
         historico = carregar_historico()
 
         if not historico:
-
-            print(
-                "⚠️ Histórico vazio"
-            )
-
+            print("⚠️ Histórico vazio")
             return
 
         ultimo = historico[-1]
@@ -316,317 +208,127 @@ def main():
         data = ultimo["data"]
         dezenas = ultimo["numeros"]
 
-        print(
-            f"📌 Concurso {concurso} | Data {data}"
-        )
+        print(f"📌 Concurso {concurso} | Data {data}")
 
         df = obter_estatisticas_com_score()
 
-        df.loc[
-            df["numero"].isin(dezenas),
-            "atraso"
-        ] = 0
+        df.loc[df["numero"].isin(dezenas), "atraso"] = 0
 
         df["tendencia"] = df["numero"].apply(
-            lambda n: calcular_tendencia(
-                historico,
-                n
-            )
+            lambda n: calcular_tendencia(historico, n)
         )
 
-        df["freq_norm"] = normalizar(
-            df["frequencia"]
-        )
+        df["freq_norm"] = normalizar(df["frequencia"])
+        df["atraso_norm"] = (1 - normalizar(df["atraso"]))
+        df["tendencia_norm"] = normalizar(df["tendencia"])
+        df["score_norm"] = normalizar(df["score"])
 
-        df["atraso_norm"] = (
-            1 - normalizar(
-                df["atraso"]
-            )
-        )
-
-        df["tendencia_norm"] = normalizar(
-            df["tendencia"]
-        )
-
-        df["score_norm"] = normalizar(
-            df["score"]
-        )
-
+        # Lógica central de pontuação preservada intacta
         df["score"] = (
-
             df["freq_norm"] * 0.35 +
-
             df["tendencia_norm"] * 0.30 +
-
             df["atraso_norm"] * 0.20 +
-
             df["score_norm"] * 0.15
         )
 
         # ==================================================
         # MEMÓRIA
         # ==================================================
+        estrutura = extrair_estrutura(dezenas)
+        memoria = buscar_memoria_real(supabase, estrutura)
+        df = ajustar_por_memoria(df, memoria)
 
-        estrutura = extrair_estrutura(
-            dezenas
-        )
-
-        memoria = buscar_memoria_real(
-            supabase,
-            estrutura
-        )
-
-        df = ajustar_por_memoria(
-            df,
-            memoria
-        )
-
-        tendencia_memoria = (
-            calcular_tendencia_memoria(
-                memoria
-            )
-        )
-
-        saturacao = (
-            calcular_saturacao(
-                memoria
-            )
-        )
+        tendencia_memoria = calcular_tendencia_memoria(memoria)
+        saturacao = calcular_saturacao(memoria)
 
         payload = {
-
-            "hash_estrutura":
-                estrutura["hash_estrutura"],
-
-            "soma_faixa":
-                estrutura["soma_faixa"],
-
-            "pares":
-                estrutura["pares"],
-
-            "primos":
-                estrutura["primos"],
-
-            "linhas":
-                estrutura["linhas"],
-
-            "tendencia":
-                round(
-                    tendencia_memoria,
-                    4
-                ),
-
-            "saturacao":
-                round(
-                    saturacao,
-                    4
-                ),
-
-            "ultima_aparicao":
-                data,
-
-            "updated_at":
-                datetime.now().isoformat()
+            "hash_estrutura": estrutura["hash_estrutura"],
+            "soma_faixa": estrutura["soma_faixa"],
+            "pares": estrutura["pares"],
+            "primos": estrutura["primos"],
+            "linhas": estrutura["linhas"],
+            "tendencia": round(tendencia_memoria, 4),
+            "saturacao": round(saturacao, 4),
+            "ultima_aparicao": data,
+            "updated_at": datetime.now().isoformat()
         }
 
-        (
+        # Evita conflitos de restrição única com um upsert seguro
+        supabase.table("memoria_cenarios").upsert(
+            payload,
+            on_conflict="soma_faixa,pares,primos,hash_estrutura"
+        ).execute()
 
-            supabase
-            .table("memoria_cenarios")
-            .upsert(
-                payload,
-                on_conflict="soma_faixa,pares,primos,hash_estrutura"
-            )
-            .execute()
-        )
-
-        print(
-            "🔄 Memória atualizada via UPSERT seguro"
-        )
+        print("🔄 Memória estrutural atualizada via UPSERT seguro")
 
         # ==================================================
         # FEEDBACK LOOP
         # ==================================================
-
         try:
-
             palpites_passados = (
-
                 supabase
                 .table("palpites_validos")
                 .select("numeros")
-                .eq(
-                    "concurso_referencia",
-                    int(concurso)
-                )
+                .eq("concurso_referencia", int(concurso))
                 .execute()
                 .data
             )
 
             if palpites_passados:
-
                 acertos_do_dia = []
 
                 for p in palpites_passados:
+                    jogo_limpo = [int(x) for x in json.loads(p["numeros"])]
+                    acertos = len(set(jogo_limpo) & set(dezenas))
+                    acertos_do_dia.append(acertos)
 
-                    jogo_limpo = [
-
-                        int(x)
-
-                        for x in json.loads(
-                            p["numeros"]
-                        )
-                    ]
-
-                    acertos = len(
-                        set(jogo_limpo)
-                        &
-                        set(dezenas)
-                    )
-
-                    acertos_do_dia.append(
-                        acertos
-                    )
-
-                media_acertos = float(
-                    np.mean(
-                        acertos_do_dia
-                    )
-                )
-
-                if media_acertos < 9.0:
-
-                    fator_correcao = 0.92
-
-                elif media_acertos >= 11.0:
-
-                    fator_correcao = 1.05
-
-                else:
-
-                    fator_correcao = 1.00
+                media_acertos = float(np.mean(acertos_do_dia))
+                fator_correcao = 0.92 if media_acertos < 9.0 else (1.05 if media_acertos >= 11.0 else 1.00)
 
                 payload_feedback = {
-
-                    "concurso_referencia":
-                        int(concurso),
-
-                    "media_acertos_ia":
-                        round(
-                            media_acertos,
-                            2
-                        ),
-
-                    "fator_correcao":
-                        fator_correcao
+                    "concurso_referencia": int(concurso),
+                    "media_acertos_ia": round(media_acertos, 2),
+                    "fator_correcao": fator_correcao
                 }
 
-                (
+                supabase.table("memoria_feedback_loop").upsert(
+                    payload_feedback,
+                    on_conflict="concurso_referencia"
+                ).execute()
 
-                    supabase
-                    .table("memoria_feedback_loop")
-                    .upsert(
-                        payload_feedback,
-                        on_conflict="concurso_referencia"
-                    )
-                    .execute()
-                )
-
-                print(
-                    f"📡 Feedback Loop auditado | "
-                    f"Média={media_acertos:.2f}"
-                )
+                print(f"📡 Feedback Loop auditado | Média Real obtida={media_acertos:.2f}")
 
         except Exception as e_fb:
-
-            print(
-                f"⚠️ Feedback Loop erro: {e_fb}"
-            )
+            print(f"⚠️ Feedback Loop erro: {e_fb}")
 
         # ==================================================
         # REGIME DINÂMICO
         # ==================================================
+        _, ciclo = calcular_ciclo_historico_completo(historico)
+        media_score = float(df[df["numero"].isin(dezenas)]["score"].mean())
+        regime = calcular_regime_dinamico(supabase, media_score)
 
-        _, ciclo = calcular_ciclo_historico_completo(
-            historico
-        )
+        # Força UPSERT para atualizar os dados contextuais em vez de travar no IF/INSERT antigo
+        payload_regime = {
+            "data_referencia": data,
+            "concurso": int(concurso),
+            "numero_ciclo": int(ciclo),
+            "tipo_regime": regime,
+            "score_global": media_score,
+            "media_soma": float(sum(dezenas)),
+            "media_pares": int(estrutura["pares"]),
+            "updated_at": datetime.now().isoformat()
+        }
 
-        media_score = float(
+        supabase.table("memoria_regimes").upsert(
+            payload_regime,
+            on_conflict="concurso"
+        ).execute()
 
-            df[
-                df["numero"].isin(
-                    dezenas
-                )
-            ]["score"].mean()
-        )
-
-        regime = calcular_regime_dinamico(
-            supabase,
-            media_score
-        )
-
-        check_reg = (
-
-            supabase
-            .table("memoria_regimes")
-            .select("id")
-            .eq(
-                "concurso",
-                int(concurso)
-            )
-            .execute()
-        )
-
-        if not check_reg.data:
-
-            (
-
-                supabase
-                .table("memoria_regimes")
-                .insert({
-
-                    "data_referencia":
-                        data,
-
-                    "concurso":
-                        int(concurso),
-
-                    "numero_ciclo":
-                        int(ciclo),
-
-                    "tipo_regime":
-                        regime,
-
-                    "score_global":
-                        media_score,
-
-                    "media_soma":
-                        float(sum(dezenas)),
-
-                    "media_pares":
-                        int(
-                            estrutura["pares"]
-                        )
-                })
-                .execute()
-            )
-
-            print(
-                f"📡 Regime salvo: {regime}"
-            )
-
-        else:
-
-            print(
-                f"ℹ️ Concurso {concurso} já existe em memoria_regimes"
-            )
+        print(f"📡 Regime adaptativo consolidado: {regime} | Score Global: {media_score:.4f}")
 
     except Exception as e:
-
-        print(
-            f"❌ Erro crítico: {e}"
-        )
-
+        print(f"❌ Erro crítico: {e}")
         sys.exit(1)
 
 
