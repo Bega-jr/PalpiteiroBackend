@@ -20,10 +20,11 @@ from scripts.processamento_diario_lotofacil import (
     extrair_estrutura
 )
 
+
 # ======================================================
 # CONFIG
 # ======================================================
-VERSAO = "v16.3-idempotent-pipeline"
+VERSAO = "v17.0-meta-learning"
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
@@ -352,6 +353,75 @@ def bonus_estrutura(mem):
     return 1.0
 
 
+def bonus_regime(tipo_regime):
+
+    if not tipo_regime:
+        return 1.0
+
+    if tipo_regime == "EXPANSAO_QUENTES":
+        return 1.03
+
+    if tipo_regime == "CONTRACAO_FRIAS":
+        return 0.97
+
+    return 1.0
+
+
+def bonus_fadiga(mem):
+
+    if not mem:
+        return 1.0
+
+    fadiga = float(
+        mem.get(
+            "fadiga_estrutura",
+            0
+        )
+    )
+
+    if fadiga >= 0.80:
+        return 0.93
+
+    if fadiga >= 0.50:
+        return 0.97
+
+    return 1.02
+
+
+def bonus_recencia(mem):
+
+    if not mem:
+        return 1.0
+
+    taxa_7d = float(
+        mem.get(
+            "taxa_7d",
+            0
+        )
+    )
+
+    taxa_30d = float(
+        mem.get(
+            "taxa_30d",
+            0
+        )
+    )
+
+    media = (
+        taxa_7d * 0.6
+        +
+        taxa_30d * 0.4
+    )
+
+    if media >= 0.50:
+        return 1.05
+
+    if media <= 0.10:
+        return 0.95
+
+    return 1.0
+
+
 # ======================================================
 # DIVERSIDADE
 # ======================================================
@@ -398,9 +468,6 @@ def main():
     ) + 1
 
 
-    # ==========================================
-    # PROTEÇÃO CONTRA DUPLICIDADE
-    # ==========================================
     if concurso_ja_processado(
         supabase,
         concurso_ref
@@ -408,18 +475,6 @@ def main():
 
         print(
             f"ℹ️ Concurso {concurso_ref} já possui palpites gerados."
-        )
-
-        print(
-            "\n📲 TELEGRAM_PAYLOAD_START"
-        )
-
-        print(
-            f"ℹ️ Concurso {concurso_ref} já foi processado anteriormente."
-        )
-
-        print(
-            "📲 TELEGRAM_PAYLOAD_END"
         )
 
         return
@@ -433,14 +488,38 @@ def main():
         obter_fator_aprendizado_global()["fator"]
     )
 
+    tipo_regime = None
+
+    try:
+
+        reg = (
+
+            supabase
+            .table(
+                "memoria_regimes"
+            )
+            .select(
+                "tipo_regime"
+            )
+            .order(
+                "concurso",
+                desc=True
+            )
+            .limit(1)
+            .execute()
+            .data
+        )
+
+        if reg:
+            tipo_regime = reg[0]["tipo_regime"]
+
+    except:
+        pass
+
 
     fator_feedback_loop = 1.0
 
     try:
-
-        concurso_anterior = (
-            concurso_ref - 1
-        )
 
         rows = (
 
@@ -453,7 +532,7 @@ def main():
             )
             .eq(
                 "concurso_referencia",
-                concurso_anterior
+                concurso_ref - 1
             )
             .execute()
             .data
@@ -462,23 +541,47 @@ def main():
         if rows:
 
             fator_feedback_loop = float(
-                rows[0][
-                    "fator_correcao"
-                ]
+                rows[0]["fator_correcao"]
             )
 
-        fator_feedback_loop = max(
-            0.97,
-            min(
-                1.03,
-                fator_feedback_loop
+    except:
+        pass
+
+
+    memoria = {
+
+        m["hash_estrutura"]: m
+
+        for m in (
+
+            supabase
+            .table(
+                "memoria_cenarios"
+            )
+            .select("*")
+            .execute()
+            .data
+        )
+    }
+
+
+    usados = set(
+
+        tuple(
+            sorted(
+                h["numeros"]
             )
         )
 
-    except:
+        for h in hist
+    )
 
-        fator_feedback_loop = 1.0
 
+    candidatos = []
+
+    pool = list(
+        range(1, 26)
+    )
 
     janela = hist[-25:]
 
@@ -519,11 +622,8 @@ def main():
 
     limites = {
 
-        "soma_min":
-            int(np.percentile(somas, 10)),
-
-        "soma_max":
-            int(np.percentile(somas, 90)),
+        "soma_min": int(np.percentile(somas, 10)),
+        "soma_max": int(np.percentile(somas, 90)),
 
         "pares_min": min(pares),
         "pares_max": max(pares),
@@ -541,38 +641,6 @@ def main():
         "max_linha_limite": max(linhas)
     }
 
-    memoria = {
-
-        m["hash_estrutura"]: m
-
-        for m in (
-
-            supabase
-            .table(
-                "memoria_cenarios"
-            )
-            .select("*")
-            .execute()
-            .data
-        )
-    }
-
-    usados = set(
-
-        tuple(
-            sorted(
-                h["numeros"]
-            )
-        )
-
-        for h in hist
-    )
-
-    candidatos = []
-
-    pool = list(
-        range(1, 26)
-    )
 
     for _ in range(
         MAX_TENTATIVAS
@@ -597,17 +665,13 @@ def main():
 
             continue
 
-        filtros = (
-            calcular_filtros(
-                jogo,
-                ultimo
-            )
+        filtros = calcular_filtros(
+            jogo,
+            ultimo
         )
 
-        estrutura = (
-            extrair_estrutura(
-                jogo
-            )
+        estrutura = extrair_estrutura(
+            jogo
         )
 
         mem = memoria.get(
@@ -636,26 +700,24 @@ def main():
 
         s *= fator_global
         s *= fator_feedback_loop
-        s *= bonus_moldura(
-            estrutura,
-            mem
-        )
-
-        s *= bonus_estrutura(
-            mem
-        )
+        s *= bonus_regime(tipo_regime)
+        s *= bonus_moldura(estrutura, mem)
+        s *= bonus_estrutura(mem)
+        s *= bonus_fadiga(mem)
+        s *= bonus_recencia(mem)
 
         candidatos.append({
-
             "nums": jogo,
             "score": s,
             "filtros": filtros
         })
 
+
     candidatos.sort(
         key=lambda x: x["score"],
         reverse=True
     )
+
 
     finais = []
 
@@ -672,9 +734,8 @@ def main():
             finais
         ):
 
-            finais.append(
-                c
-            )
+            finais.append(c)
+
 
     payload = []
     telegram = []
@@ -723,22 +784,7 @@ def main():
             "conferido": False,
 
             "versao_gerador":
-                VERSAO,
-
-            "metricas": {
-
-                "score":
-                    round(
-                        c["score"],
-                        6
-                    ),
-
-                "primos":
-                    c["filtros"]["primos"],
-
-                "moldura":
-                    c["filtros"]["moldura"]
-            }
+                VERSAO
         })
 
     (
