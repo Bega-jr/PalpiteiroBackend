@@ -357,31 +357,16 @@ def main():
     )
 
 
-    # ======================================
-    # META LEARNING
+       # ======================================
+    # META LEARNING (Chaves atualizadas conforme o Service)
     # ======================================
     pesos = obter_pesos_ensemble()
 
-    peso_unitario = float(
-        pesos.get(
-            "peso_unitario",
-            0.25
-        )
-    )
-
-    peso_duplas = float(
-        pesos.get(
-            "peso_duplas",
-            0.35
-        )
-    )
-
-    peso_ternos = float(
-        pesos.get(
-            "peso_ternos",
-            0.40
-        )
-    )
+    peso_base = float(pesos.get("peso_base", 0.40))
+    peso_memoria = float(pesos.get("peso_memoria", 0.20))
+    peso_regime = float(pesos.get("peso_regime", 0.15))
+    peso_feedback = float(pesos.get("peso_feedback", 0.15))
+    peso_recencia = float(pesos.get("peso_recencia", 0.10))
 
 
     # ======================================
@@ -488,146 +473,84 @@ def main():
             continue
 
 
+               # ======================================
+        # ENSEMBLE ADAPTATIVO (Atualizado)
         # ======================================
-        # ENSEMBLE ADAPTATIVO
-        # ======================================
-        s1, s2, s3 = score_base(
-            jogo,
-            base_scores
-        )
+        s1, s2, s3 = score_base(jogo, base_scores)
 
+        # 1. Consolida o score estatístico base (unidade, dupla, terno com pesos fixos equilibrados)
+        score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
+
+        # 2. Mescla os múltiplos critérios usando os novos pesos do Meta-Learning
+        # peso_base dita a estatística pura, peso_memoria dita os cenários históricos e peso_regime dita a tendência global
         score_final = (
-
-            s1 * peso_unitario
-            +
-            s2 * peso_duplas
-            +
-            s3 * peso_ternos
-
+            (score_estatistico * peso_base) +
+            (bonus_estrutura(mem) * peso_memoria) +
+            (fator_global * peso_regime)
         )
 
-        score_final *= fator_global
-        score_final *= bonus_estrutura(mem)
+        # 3. Aplica os pesos de feedback e recência como multiplicadores finos de estabilidade
+        score_final *= (1.0 + (peso_feedback * 0.1))
+        score_final *= (1.0 + (peso_recencia * 0.1))
 
         candidatos.append({
-
             "nums": jogo,
-            "score": score_final,
+            "score": float(score_final),
             "filtros": filtros
         })
 
-
-    candidatos.sort(
-        key=lambda x: x["score"],
-        reverse=True
-    )
+    candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
-
     for c in candidatos:
-
-        if len(
-            finais
-        ) >= QTD_FINAL:
-
+        if len(finais) >= QTD_FINAL:
             break
-
-        if diversidade_ok(
-            c["nums"],
-            finais
-        ):
-
-            finais.append(
-                c
-            )
-
+        if diversidade_ok(c["nums"], finais):
+            finais.append(c)
 
     payload = []
     telegram = []
+    somas_score = 0.0
 
-    for i, c in enumerate(
-        finais,
-        1
-    ):
-
-        linha = (
-            f"{i}º | "
-            f"{c['score']:.6f} | "
-            f"{c['nums']}"
-        )
-
-        telegram.append(
-            linha
-        )
+    for i, c in enumerate(finais, 1):
+        somas_score += c['score']
+        linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
+        telegram.append(linha)
 
         payload.append({
-
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
-
-            "tipo":
-                "fixo"
-                if i == 1
-                else "estatistico",
-
-            "numeros":
-                json.dumps(
-                    c["nums"]
-                ),
-
-            "pares":
-                c["filtros"]["pares"],
-
-            "impares":
-                15 - c["filtros"]["pares"],
-
-            "soma_total":
-                c["filtros"]["soma"],
-
+            "tipo": "fixo" if i == 1 else "estatistico",
+            "numeros": json.dumps(c["nums"]),
+            "pares": c["filtros"]["pares"],
+            "impares": 15 - c["filtros"]["pares"],
+            "soma_total": c["filtros"]["soma"],
             "processado": False,
             "conferido": False,
-
-            "versao_gerador":
-                VERSAO
+            "versao_generator": VERSAO
         })
 
+    # Envia os palpites válidos para o banco
+    supabase.table("palpites_validos").upsert(
+        payload, on_conflict="concurso_referencia,indice_palpite"
+    ).execute()
 
-    (
-        supabase
-        .table(
-            "palpites_validos"
-        )
-        .upsert(
-            payload,
-            on_conflict="concurso_referencia,indice_palpite"
-        )
-        .execute()
-    )
-
-
-    # salva snapshot do ensemble usado
+    # ======================================
+    # REGISTRO DA EXECUÇÃO DO ENSEMBLE (Compatível com o novo Service)
+    # ======================================
+    media_score_geral = somas_score / len(finais) if finais else 0.0
+    
     registrar_execucao_ensemble(
         concurso_ref=concurso_ref,
-        pesos=pesos
+        media_score=media_score_geral,
+        qtd_palpites=len(finais),
+        versao=VERSAO
     )
 
-
-    print(
-        "\n📲 TELEGRAM_PAYLOAD_START"
-    )
-
-    print(
-        montar_msg_telegram(
-            concurso_ref,
-            telegram
-        )
-    )
-
-    print(
-        "📲 TELEGRAM_PAYLOAD_END"
-    )
-
+    print("\n📲 TELEGRAM_PAYLOAD_START")
+    print(montar_msg_telegram(concurso_ref, telegram))
+    print("📲 TELEGRAM_PAYLOAD_END")
 
 if __name__ == "__main__":
     main()
