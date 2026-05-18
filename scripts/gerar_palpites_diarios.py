@@ -22,7 +22,7 @@ from scripts.processamento_diario_lotofacil import (
 )
 
 
-VERSAO = "v17.2-full-auto-ensemble"
+VERSAO = "v18.0-contextual-ensemble"
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
@@ -78,13 +78,9 @@ def montar_msg_telegram(concurso_ref, linhas_palpites):
 def calcular_filtros(nums, ultimo):
 
     pares = sum(1 for n in nums if n % 2 == 0)
-
     primos = sum(1 for n in nums if n in PRIMOS)
-
     moldura = sum(1 for n in nums if n in MOLDURA)
-
     soma = sum(nums)
-
     repetidos = len(set(nums) & set(ultimo))
 
     seq_max = 1
@@ -105,6 +101,48 @@ def calcular_filtros(nums, ultimo):
         "soma": soma,
         "repetidos": repetidos,
         "seq_max": seq_max
+    }
+
+
+def detectar_contexto(hist):
+
+    janela = hist[-12:]
+
+    repetidos = []
+    somas = []
+    sequencias = []
+
+    for i, h in enumerate(janela):
+
+        nums = h["numeros"]
+
+        ant = (
+            janela[i - 1]["numeros"]
+            if i > 0
+            else nums
+        )
+
+        filtros = calcular_filtros(
+            nums,
+            ant
+        )
+
+        repetidos.append(
+            filtros["repetidos"]
+        )
+
+        somas.append(
+            filtros["soma"]
+        )
+
+        sequencias.append(
+            filtros["seq_max"]
+        )
+
+    return {
+        "media_repetidos": float(np.mean(repetidos)),
+        "media_soma": float(np.mean(somas)),
+        "media_seq": float(np.mean(sequencias))
     }
 
 
@@ -190,6 +228,19 @@ def bonus_recencia(mem):
     return 1 + (taxa * 0.05)
 
 
+def bonus_moldura(filtros):
+
+    qtd = filtros["moldura"]
+
+    if 10 <= qtd <= 13:
+        return 1.05
+
+    if qtd <= 7:
+        return 0.95
+
+    return 1.0
+
+
 def fator_regime(tipo):
 
     if tipo == "EXPANSAO_QUENTES":
@@ -221,6 +272,8 @@ def main():
 
     hist = carregar_historico()
 
+    contexto = detectar_contexto(hist)
+
     ultimo = hist[-1]["numeros"]
 
     concurso_ref = int(hist[-1]["concurso"]) + 1
@@ -238,7 +291,6 @@ def main():
 
     pesos = obter_pesos_ensemble()
 
-
     p_base = pesos["peso_base"]
     p_global = pesos["peso_global"]
     p_feedback = pesos["peso_feedback"]
@@ -247,6 +299,17 @@ def main():
     p_estrutura = pesos["peso_estrutura"]
     p_fadiga = pesos["peso_fadiga"]
     p_recencia = pesos["peso_recencia"]
+
+
+    if contexto["media_repetidos"] >= 9:
+        p_feedback *= 1.08
+        p_estrutura *= 1.10
+
+    if contexto["media_soma"] <= 185:
+        p_base *= 1.05
+
+    if contexto["media_seq"] >= 4:
+        p_regime *= 1.08
 
 
     tipo_regime = "NEUTRO"
@@ -392,7 +455,7 @@ def main():
 
             +
 
-            (1.0 * p_moldura)
+            (bonus_moldura(filtros) * p_moldura)
 
             +
 
@@ -414,6 +477,21 @@ def main():
             "score": float(score_final),
             "filtros": filtros
         })
+
+
+    try:
+
+        supabase.table(
+            "meta_learning_execucoes"
+        ).insert({
+            "concurso_referencia": concurso_ref,
+            "contexto_repetidos": contexto["media_repetidos"],
+            "contexto_soma": contexto["media_soma"],
+            "contexto_seq": contexto["media_seq"]
+        }).execute()
+
+    except:
+        pass
 
 
     candidatos.sort(
@@ -447,9 +525,7 @@ def main():
         payload.append({
 
             "data_referencia": hoje,
-
             "concurso_referencia": concurso_ref,
-
             "indice_palpite": i,
 
             "tipo": (
@@ -459,17 +535,11 @@ def main():
             ),
 
             "numeros": json.dumps(c["nums"]),
-
             "pares": c["filtros"]["pares"],
-
             "impares": 15 - c["filtros"]["pares"],
-
             "soma_total": c["filtros"]["soma"],
-
             "processado": False,
-
             "conferido": False,
-
             "versao_gerador": VERSAO
         })
 
