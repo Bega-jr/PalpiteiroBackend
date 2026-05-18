@@ -309,116 +309,50 @@ def diversidade_ok(
 # MAIN
 # ======================================================
 def main():
-
     supabase = get_supabase()
-
     print(f"🛡️ {VERSAO}")
 
-    fuso = pytz.timezone(
-        "America/Sao_Paulo"
-    )
-
-    hoje = datetime.now(
-        fuso
-    ).date().isoformat()
+    fuso = pytz.timezone("America/Sao_Paulo")
+    hoje = datetime.now(fuso).date().isoformat()
 
     hist = carregar_historico()
-
     ultimo = hist[-1]["numeros"]
+    concurso_ref = int(hist[-1]["concurso"]) + 1
 
-    concurso_ref = int(
-        hist[-1]["concurso"]
-    ) + 1
-
-
-    if concurso_ja_processado(
-        supabase,
-        concurso_ref
-    ):
-
-        print(
-            f"ℹ️ Concurso {concurso_ref} já possui palpites gerados."
-        )
-
+    if concurso_ja_processado(supabase, concurso_ref):
+        print(f"ℹ️ Concurso {concurso_ref} já possui palpites gerados.")
         return
-
 
     # ======================================
     # BASE
     # ======================================
-    base_scores, _ = (
-        calcular_score_combinacoes_reais()
-    )
-
-    fator_global = (
-        obter_fator_aprendizado_global()["fator"]
-    )
-
+    base_scores, _ = calcular_score_combinacoes_reais()
+    fator_global = obter_fator_aprendizado_global()["fator"]
 
     # ======================================
-    # ENSEMBLE ADAPTATIVO (Atualizado com as 8 Camadas)
+    # META LEARNING (As 8 colunas carregadas corretamente)
     # ======================================
-    s1, s2, s3 = score_base(jogo, base_scores)
-
-    # 1. Consolida o score estatístico base (unidade, dupla, terno)
-    score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
-
-    # 2. Mescla os múltiplos critérios usando os novos pesos do Meta-Learning (Variáveis p_...)
-    score_final = (
-        (score_estatistico * p_base) +
-        (bonus_estrutura(mem) * p_estrutura) +
-        (fator_global * p_regime)
-    )
-
-    # 3. Aplica os pesos de feedback, recência, moldura e fadiga como multiplicadores finos
-    score_final *= (1.0 + (p_feedback * 0.1))
-    score_final *= (1.0 + (p_recencia * 0.1))
-    score_final *= (1.0 + (p_moldura * 0.05))
-    score_final *= (1.0 + (p_global * 0.05))
-    score_final *= (1.0 - (p_fadiga * 0.02)) # Fadiga atua reduzindo ruído
-
-    candidatos.append({
-        "nums": jogo,
-        "score": float(score_final),
-        "filtros": filtros
-    })
-
+    pesos = obter_pesos_ensemble()
+    p_base = float(pesos.get("peso_base", 0.30))
+    p_global = float(pesos.get("peso_global", 0.15))
+    p_feedback = float(pesos.get("peso_feedback", 0.15))
+    p_regime = float(pesos.get("peso_regime", 0.10))
+    p_moldura = float(pesos.get("peso_moldura", 0.10))
+    p_estrutura = float(pesos.get("peso_estrutura", 0.10))
+    p_fadiga = float(pesos.get("peso_fadiga", 0.05))
+    p_recencia = float(pesos.get("peso_recencia", 0.05))
 
     # ======================================
-    # MEMÓRIA
+    # MEMÓRIA E PARÂMETROS
     # ======================================
     memoria = {
-
         m["hash_estrutura"]: m
-
-        for m in (
-
-            supabase
-            .table(
-                "memoria_cenarios"
-            )
-            .select("*")
-            .execute()
-            .data
-        )
+        for m in supabase.table("memoria_cenarios").select("*").execute().data
     }
 
-    usados = set(
-
-        tuple(
-            sorted(
-                h["numeros"]
-            )
-        )
-
-        for h in hist
-    )
-
+    usados = set(tuple(sorted(h["numeros"])) for h in hist)
     candidatos = []
-
-    pool = list(
-        range(1, 26)
-    )
+    pool = list(range(1, 26))
 
     limites = {
         "soma_min": 160,
@@ -435,77 +369,44 @@ def main():
         "max_linha_limite": 5
     }
 
-
-    for _ in range(
-        MAX_TENTATIVAS
-    ):
-
-        if len(
-            candidatos
-        ) >= 1500:
-
+    # Loop Principal de Geração
+    for _ in range(MAX_TENTATIVAS):
+        if len(candidatos) >= 1500:
             break
 
-        jogo = sorted(
-            random.sample(
-                pool,
-                15
-            )
-        )
-
-        if tuple(
-            jogo
-        ) in usados:
-
+        jogo = sorted(random.sample(pool, 15))
+        if tuple(jogo) in usados:
             continue
 
-        filtros = calcular_filtros(
-            jogo,
-            ultimo
-        )
+        filtros = calcular_filtros(jogo, ultimo)
+        estrutura = extrair_estrutura(jogo)
+        mem = memoria.get(estrutura["hash_estrutura"])
 
-        estrutura = extrair_estrutura(
-            jogo
-        )
-
-        mem = memoria.get(
-            estrutura[
-                "hash_estrutura"
-            ]
-        )
-
-        if not validar_autonomo(
-            filtros,
-            estrutura["linhas"],
-            limites
-        ):
+        if not validar_autonomo(filtros, estrutura["linhas"], limites):
             continue
 
-        if not diversidade_ok(
-            jogo,
-            candidatos[-25:]
-        ):
+        if not diversidade_ok(jogo, candidatos[-25:]):
             continue
-
 
         # ======================================
-        # ENSEMBLE ADAPTATIVO (Atualizado)
+        # ENSEMBLE ADAPTATIVO (8 Camadas Integradas no Escopo Correto)
         # ======================================
         s1, s2, s3 = score_base(jogo, base_scores)
-
-        # 1. Consolida o score estatístico base (unidade, dupla, terno)
         score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
 
-        # 2. Mescla os múltiplos critérios usando os novos pesos do Meta-Learning
+        # Mescla os múltiplos critérios usando os pesos reais do banco
         score_final = (
-            (score_estatistico * peso_base) +
-            (bonus_estrutura(mem) * peso_memoria) +
-            (fator_global * peso_regime)
+            (score_estatistico * p_base) +
+            (bonus_estrutura(mem) * p_estrutura) +
+            (fator_global * p_regime)
         )
 
-        # 3. Aplica os pesos de feedback e recência como multiplicadores finos de estabilidade
-        score_final *= (1.0 + (peso_feedback * 0.1))
-        score_final *= (1.0 + (peso_recencia * 0.1))
+        # Aplicando os multiplicadores e mitigadores finos de estabilidade
+        score_final *= (1.0 + (p_feedback * 0.1))
+        score_final *= (1.0 + (p_recencia * 0.1))
+        score_final *= (1.0 + (p_moldura * 0.05))
+        score_final *= (1.0 + (p_global * 0.05))
+        score_final *= (1.0 - (p_fadiga * 0.02))
 
         candidatos.append({
             "nums": jogo,
@@ -513,8 +414,8 @@ def main():
             "filtros": filtros
         })
 
+    # Seleção dos melhores palpites por diversidade
     candidatos.sort(key=lambda x: x["score"], reverse=True)
-
     finais = []
     for c in candidatos:
         if len(finais) >= QTD_FINAL:
@@ -524,10 +425,8 @@ def main():
 
     payload = []
     telegram = []
-    somas_score = 0.0
 
     for i, c in enumerate(finais, 1):
-        somas_score += c['score']
         linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
         telegram.append(linha)
 
@@ -542,27 +441,13 @@ def main():
             "soma_total": c["filtros"]["soma"],
             "processado": False,
             "conferido": False,
-            
-            # CORREÇÃO CRUCIAL: Ajustado para o nome real da sua coluna no banco
             "versao_gerador": VERSAO 
         })
 
-    # Envia os palpites válidos para o banco sem rejeição de esquema
+    # Envia os palpites válidos para a tabela palpites_validos
     supabase.table("palpites_validos").upsert(
         payload, on_conflict="concurso_referencia,indice_palpite"
     ).execute()
-
-    # ======================================
-    # REGISTRO DA EXECUÇÃO DO ENSEMBLE (Compatível com o novo Service)
-    # ======================================
-    media_score_geral = somas_score / len(finais) if finais else 0.0
-    
-    registrar_execucao_ensemble(
-        concurso_ref=concurso_ref,
-        media_score=media_score_geral,
-        qtd_palpites=len(finais),
-        versao=VERSAO
-    )
 
     print("\n📲 TELEGRAM_PAYLOAD_START")
     print(montar_msg_telegram(concurso_ref, telegram))
