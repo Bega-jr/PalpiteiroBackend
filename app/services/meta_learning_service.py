@@ -2,14 +2,17 @@ from typing import Dict
 from app.services.supabase_service import get_supabase
 
 # ==================================================
-# DEFAULTS
+# DEFAULTS (Alinhados com as suas colunas de memória)
 # ==================================================
 PESOS_DEFAULT = {
-    "peso_base": 0.40,
-    "peso_memoria": 0.20,
-    "peso_regime": 0.15,
+    "peso_base": 0.30,
+    "peso_global": 0.15,
     "peso_feedback": 0.15,
-    "peso_recencia": 0.10
+    "peso_regime": 0.10,
+    "peso_moldura": 0.10,
+    "peso_estrutura": 0.10, # Mapeia o que chamávamos de peso_memoria
+    "peso_fadiga": 0.05,
+    "peso_recencia": 0.05
 }
 
 # ==================================================
@@ -21,7 +24,7 @@ def obter_pesos_ensemble() -> Dict[str, float]:
         rows = (
             supabase
             .table("memoria_meta_learning")
-            .select("*")
+            .select("peso_base, peso_global, peso_feedback, peso_regime, peso_moldura, peso_estrutura, peso_fadiga, peso_recencia")
             .order("updated_at", desc=True)
             .limit(1)
             .execute()
@@ -29,83 +32,68 @@ def obter_pesos_ensemble() -> Dict[str, float]:
         )
 
         if not rows:
-            return PESOS_DEFAULT.copy() # .copy() evita mutação acidental
+            return PESOS_DEFAULT.copy()
 
         row = rows[0]
-        return {
-            "peso_base": float(row.get("peso_base", 0.40)),
-            "peso_memoria": float(row.get("peso_memoria", 0.20)),
-            "peso_regime": float(row.get("peso_regime", 0.15)),
-            "peso_feedback": float(row.get("peso_feedback", 0.15)),
-            "peso_recencia": float(row.get("peso_recencia", 0.10))
-        }
+        return {k: float(row.get(k, v)) for k, v in PESOS_DEFAULT.items()}
+        
     except Exception as e:
-        print(f"⚠️ Erro ao ler pesos (usando padrão): {e}") # Log adicionado
+        print(f"⚠️ Erro ao ler pesos da memória (usando padrão): {e}")
         return PESOS_DEFAULT.copy()
 
 # ==================================================
-# REGISTRO DAS EXECUÇÕES
+# FEEDBACK E ATUALIZAÇÃO DOS PESOS (PÓS-SORTEIO)
 # ==================================================
-def registrar_execucao_ensemble(
-    concurso_ref: int,
-    media_score: float,
-    qtd_palpites: int,
-    versao: str
-):
-    supabase = get_supabase()
-    try:
-        payload = {
-            "concurso_referencia": concurso_ref,
-            "media_score": round(media_score, 6),
-            "qtd_palpites": qtd_palpites,
-            "versao_modelo": versao
-        }
-        supabase.table("meta_learning_execucoes").upsert(
-            payload, on_conflict="concurso_referencia"
-        ).execute()
-        print(f"🧠 Ensemble registrado | Concurso {concurso_ref}")
-    except Exception as e:
-        print(f"⚠️ Erro registrar ensemble: {e}")
-
-# ==================================================
-# AJUSTE DOS PESOS
-# ==================================================
-def atualizar_meta_learning(media_acertos: float):
+def atualizar_meta_learning(media_acertos: float, concurso_ref: int):
     supabase = get_supabase()
     pesos = obter_pesos_ensemble()
 
     try:
-        # Aplica a lógica de recompensa/penalidade
+        # Aplica lógica adaptativa nas variáveis principais
         if media_acertos < 9:
-            pesos["peso_memoria"] += 0.02
-            pesos["peso_feedback"] += 0.02
-            pesos["peso_base"] -= 0.02
+            pesos["peso_estrutura"] += 0.02  # Valoriza padrões estruturais históricos
+            pesos["peso_feedback"] += 0.02   # Aumenta peso do feedback
+            pesos["peso_base"] -= 0.03
             pesos["peso_regime"] -= 0.01
         elif media_acertos >= 11:
             pesos["peso_base"] += 0.02
             pesos["peso_regime"] += 0.01
-            pesos["peso_memoria"] -= 0.01
+            pesos["peso_estrutura"] -= 0.01
             pesos["peso_feedback"] -= 0.01
 
-        # Restringe limites (bounds)
+        # Restringe limites de segurança para os 8 pesos
         for k in pesos:
-            pesos[k] = max(0.05, min(0.60, pesos[k]))
+            pesos[k] = max(0.02, min(0.60, pesos[k]))
 
-        # Normalização matemática rigorosa
+        # Normalização rigorosa (Soma = 1.0)
         soma = sum(pesos.values())
         chaves = list(pesos.keys())
-        
         for k in chaves:
             pesos[k] = round(pesos[k] / soma, 4)
             
-        # Força a soma exata corrigindo resíduos de arredondamento no último item
         diferenca = round(1.0 - sum(pesos.values()), 4)
         if diferenca != 0.0:
             pesos[chaves[-1]] = round(pesos[chaves[-1]] + diferenca, 4)
 
-        # Salva no banco de dados
-        supabase.table("memoria_meta_learning").insert(pesos).execute()
-        print(f"🧠 Meta-learning atualizado | Média={media_acertos:.2f} | Soma={sum(pesos.values())}")
+        # 1. Salva o novo estado dos pesos na tabela 'memoria_meta_learning'
+        payload_memoria = {**pesos, "score_ultimo": round(media_acertos, 4)}
+        supabase.table("memoria_meta_learning").insert(payload_memoria).execute()
+
+        # 2. Grava o log de auditoria na tabela 'meta_learning_execucoes'
+        payload_execucao = {
+            "concurso_referencia": concurso_ref,
+            "peso_base": pesos["peso_base"],
+            "peso_memoria": pesos["peso_estrutura"], # Guarda estrutura na coluna memoria do log
+            "peso_regime": pesos["peso_regime"],
+            "peso_feedback": pesos["peso_feedback"],
+            "peso_recencia": pesos["peso_recencia"],
+            "qtd_candidatos": 7, # QTD_FINAL padrão
+            "score_medio": round(media_acertos, 6)
+        }
+        supabase.table("meta_learning_execucoes").upsert(payload_execucao, on_conflict="concurso_referencia").execute()
+
+        print(f"🧠 Meta-Learning Atualizado | Concurso {concurso_ref} | Média Acertos={media_acertos:.2f}")
 
     except Exception as e:
-        print(f"⚠️ Erro meta-learning: {e}")
+        print(f"⚠️ Erro ao atualizar meta-learning: {e}")
+
