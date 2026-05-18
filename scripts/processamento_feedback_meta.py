@@ -1,84 +1,128 @@
 import sys
 import json
 from pathlib import Path
+from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
 from app.services.meta_learning_service import atualizar_meta_learning
-from scripts.processamento_diario_lotofacil import carregar_historico
+from scripts.processamento_diario_lotofacil import carregar_historico, extrair_estrutura
 
 def avaliar_desempenho_concurso():
     supabase = get_supabase()
     
-    # 1. Carrega o histórico atualizado para pegar o resultado real mais recente
     hist = carregar_historico()
     ultimo_concurso = hist[-1]
     
     concurso_real = int(ultimo_concurso["concurso"])
-    numeros_sorteados = set(ultimo_concurso["numeros"]) # Set para busca O(1)
+    numeros_sorteados = set(ultimo_concurso["numeros"])
     
-    print(f"🎲 Sorteio Real: Concurso {concurso_real} -> {sorted(list(numeros_sorteados))}")
+    print(f"🎲 [Modo Manual] Reprocessando Concurso {concurso_real} -> {sorted(list(numeros_sorteados))}")
     
-    # 2. Busca os palpites que você gerou para este concurso específico
     rows = (
         supabase
         .table("palpites_validos")
-        .select("indice_palpite, numeros, conferido")
+        .select("indice_palpite, numeros, score")
         .eq("concurso_referencia", concurso_real)
         .execute()
         .data
     )
     
     if not rows:
-        print(f"ℹ️ Nenhum palpite encontrado no banco para o concurso {concurso_real}. Ignorando feedback.")
-        return
-
-    # Evita reprocessar e aplicar viés duplo nos pesos se já foi conferido
-    if all(row.get("conferido") for row in rows):
-        print(f"⚠️ O concurso {concurso_real} já teve o meta-learning atualizado anteriormente.")
+        print(f"ℹ️ Nenhum palpite encontrado para o concurso {concurso_real}.")
         return
 
     acertos_totais = []
     palpites_atualizados = []
+    scores_estruturais = []
 
-    # 3. Calcula os acertos de cada palpite
     for row in rows:
-        # Decodifica os números (salvos como JSON String no seu gerador)
         nums_palpite = set(json.loads(row["numeros"]))
-        
-        # Interseção matemática para ver quantos números bateram
         qtd_acertos = len(nums_palpite & numeros_sorteados)
         acertos_totais.append(qtd_acertos)
         
-        # Prepara o payload para atualizar o status do palpite individual no banco
+        if row.get("score"):
+            try:
+                scores_estruturais.append(float(row["score"]))
+            except:
+                pass
+        
         palpites_atualizados.append({
             "concurso_referencia": concurso_real,
             "indice_palpite": row["indice_palpite"],
             "acertos": qtd_acertos,
-            "conferido": True
+            "conferido": True,
+            "processado": True
         })
-        
-        print(f"📊 Palpite {row['indice_palpite']}º teve {qtd_acertos} acertos.")
 
-    # 4. Calcula a média matemática de acertos do grupo (Ensemble)
     media_acertos_ensemble = sum(acertos_totais) / len(acertos_totais)
-    print(f"📈 Média de acertos do Ensemble: {media_acertos_ensemble:.2f}")
+    melhor_acerto = max(acertos_totais)
+    pior_acerto = min(acertos_totais)
+    dispersao = melhor_acerto - pior_acerto
+    score_estrutural = sum(scores_estruturais) / len(scores_estruturais) if scores_estruturais else 0.0
 
-    # 5. ATUALIZA O META-LEARNING (Ajusta os pesos com base nas suas faixas < 9 ou >= 11)
-    atualizar_meta_learning(media_acertos_ensemble)
+    # Busca contexto de regime anterior para não quebrar a assinatura da v18.1
+    tipo_regime = "NEUTRO"
+    try:
+        reg = supabase.table("memoria_regimes").select("tipo_regime").eq("concurso", concurso_real - 1).limit(1).execute().data
+        if reg:
+            tipo_regime = reg[0]["tipo_regime"]
+    except:
+        pass
 
-    # 6. Salva o resultado da conferência de cada palpite para auditoria e gráficos futuros
-    # (Adicione a coluna 'acertos' do tipo integer na sua tabela 'palpites_validos' se ainda não tiver)
+    print(f"📈 Média: {media_acertos_ensemble:.2f} | Spread: {dispersao}")
+
+    # 1. Atualiza o Meta-Learning com a assinatura correta (2 parâmetros obrigatórios)
+    atualizar_meta_learning(
+        media_acertos=media_acertos_ensemble,
+        concurso_ref=concurso_real,
+        melhor_acerto=melhor_acerto,
+        pior_acerto=pior_acerto,
+        dispersao=dispersao,
+        qtd_palpites=len(acertos_totais),
+        tipo_regime=tipo_regime,
+        score_estrutural=score_estrutural
+    )
+
+    # 2. Atualiza a Memória de Cenários estruturais
+    try:
+        estrutura_real = extrair_estrutura(list(numeros_sorteados))
+        hash_est = estrutura_real["hash_estrutura"]
+        cenario_banco = supabase.table("memoria_cenarios").select("*").eq("hash_estrutura", hash_est).execute().data
+        
+        vezes_gerado = 1
+        score_acumulado = media_acertos_ensemble
+        if cenario_banco:
+            v_antigo = int(cenario_banco[0].get("vezes_gerado", 0))
+            s_antigo = float(cenario_banco[0].get("score_medio_real", 0.0))
+            vezes_gerado = v_antigo + 1
+            score_acumulado = ((s_antigo * v_antigo) + media_acertos_ensemble) / vezes_gerado
+
+        supabase.table("memoria_cenarios").upsert({
+            "hash_estrutura": hash_est,
+            "soma_faixa": estrutura_real["soma_faixa"],
+            "pares": estrutura_real["pares"],
+            "primos": estrutura_real["primos"],
+            "linhas": estrutura_real["linhas"],
+            "vezes_gerado": vezes_gerado,
+            "score_medio_real": round(score_acumulado, 4),
+            "updated_at": datetime.now().isoformat()
+        }, on_conflict="soma_faixa,pares,primos,hash_estrutura").execute()
+    except Exception as e_cen:
+        print(f"⚠️ Erro ao recalibrar cenário: {e_cen}")
+
+    # 3. Força a atualização dos palpites
     try:
         supabase.table("palpites_validos").upsert(
             palpites_atualizados,
             on_conflict="concurso_referencia,indice_palpite"
         ).execute()
-        print(f"✅ Status dos palpites do concurso {concurso_real} atualizados com sucesso.")
+        print("✅ Banco de dados sincronizado manualmente.")
     except Exception as e:
-        print(f"⚠️ Erro ao atualizar status dos palpites no banco: {e}")
+        print(f"⚠️ Erro ao salvar palpites: {e}")
 
 if __name__ == "__main__":
     avaliar_desempenho_concurso()
+
