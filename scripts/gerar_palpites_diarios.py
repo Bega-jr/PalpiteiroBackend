@@ -14,9 +14,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
-
 from app.services.meta_learning_service import obter_pesos_ensemble
-
 
 from scripts.processamento_diario_lotofacil import (
     carregar_historico,
@@ -24,10 +22,7 @@ from scripts.processamento_diario_lotofacil import (
 )
 
 
-# ======================================================
-# CONFIG
-# ======================================================
-VERSAO = "v17.1-adaptive-ensemble"
+VERSAO = "v17.2-full-auto-ensemble"
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
@@ -41,9 +36,6 @@ MOLDURA = {
 }
 
 
-# ======================================================
-# UTIL
-# ======================================================
 def media_segura(v, fallback=0.5):
 
     validos = [x for x in v if x is not None]
@@ -54,20 +46,13 @@ def media_segura(v, fallback=0.5):
     return float(np.mean(validos))
 
 
-def concurso_ja_processado(
-    supabase,
-    concurso_ref
-):
+def concurso_ja_processado(supabase, concurso_ref):
 
     rows = (
-
         supabase
         .table("palpites_validos")
         .select("indice_palpite")
-        .eq(
-            "concurso_referencia",
-            concurso_ref
-        )
+        .eq("concurso_referencia", concurso_ref)
         .limit(1)
         .execute()
         .data
@@ -76,56 +61,31 @@ def concurso_ja_processado(
     return len(rows) > 0
 
 
-def montar_msg_telegram(
-    concurso_ref,
-    linhas_palpites
-):
+def montar_msg_telegram(concurso_ref, linhas_palpites):
 
-    linhas = []
+    linhas = [
+        "🟢 Pipeline Lotofácil concluído!",
+        "",
+        f"🎯 Palpites gerados para o concurso {concurso_ref}",
+        ""
+    ]
 
-    linhas.append(
-        "🟢 Pipeline Lotofácil concluído!"
-    )
+    linhas.extend(linhas_palpites)
 
-    linhas.append("")
-
-    linhas.append(
-        f"🎯 Palpites gerados para o concurso {concurso_ref}"
-    )
-
-    linhas.append("")
-
-    linhas.extend(
-        linhas_palpites
-    )
-
-    return "\n".join(
-        linhas
-    )
+    return "\n".join(linhas)
 
 
 def calcular_filtros(nums, ultimo):
 
-    pares = sum(
-        1 for n in nums
-        if n % 2 == 0
-    )
+    pares = sum(1 for n in nums if n % 2 == 0)
 
-    primos = sum(
-        1 for n in nums
-        if n in PRIMOS
-    )
+    primos = sum(1 for n in nums if n in PRIMOS)
 
-    moldura = sum(
-        1 for n in nums
-        if n in MOLDURA
-    )
+    moldura = sum(1 for n in nums if n in MOLDURA)
 
     soma = sum(nums)
 
-    repetidos = len(
-        set(nums) & set(ultimo)
-    )
+    repetidos = len(set(nums) & set(ultimo))
 
     seq_max = 1
     atual = 1
@@ -133,16 +93,9 @@ def calcular_filtros(nums, ultimo):
     for i in range(len(nums) - 1):
 
         if nums[i + 1] == nums[i] + 1:
-
             atual += 1
-
-            seq_max = max(
-                seq_max,
-                atual
-            )
-
+            seq_max = max(seq_max, atual)
         else:
-
             atual = 1
 
     return {
@@ -155,60 +108,20 @@ def calcular_filtros(nums, ultimo):
     }
 
 
-# ======================================================
-# VALIDAÇÃO
-# ======================================================
-def validar_autonomo(
-    filtros,
-    linhas,
-    limites
-):
+def validar_autonomo(filtros, linhas, limites):
 
     return (
 
-        limites["soma_min"]
-        <= filtros["soma"]
-        <= limites["soma_max"]
-
-        and
-
-        limites["pares_min"]
-        <= filtros["pares"]
-        <= limites["pares_max"]
-
-        and
-
-        limites["primos_min"]
-        <= filtros["primos"]
-        <= limites["primos_max"]
-
-        and
-
-        limites["moldura_min"]
-        <= filtros["moldura"]
-        <= limites["moldura_max"]
-
-        and
-
-        limites["repetidos_min"]
-        <= filtros["repetidos"]
-        <= limites["repetidos_max"]
-
-        and
-
-        filtros["seq_max"]
-        <= limites["seq_max_limite"]
-
-        and
-
-        max(linhas)
-        <= limites["max_linha_limite"]
+        limites["soma_min"] <= filtros["soma"] <= limites["soma_max"]
+        and limites["pares_min"] <= filtros["pares"] <= limites["pares_max"]
+        and limites["primos_min"] <= filtros["primos"] <= limites["primos_max"]
+        and limites["moldura_min"] <= filtros["moldura"] <= limites["moldura_max"]
+        and limites["repetidos_min"] <= filtros["repetidos"] <= limites["repetidos_max"]
+        and filtros["seq_max"] <= limites["seq_max_limite"]
+        and max(linhas) <= limites["max_linha_limite"]
     )
 
 
-# ======================================================
-# SCORE BASE
-# ======================================================
 def score_base(jogo, base):
 
     s1 = media_segura([
@@ -217,142 +130,181 @@ def score_base(jogo, base):
     ])
 
     s2 = media_segura([
-
-        base.get(
-            tuple(sorted(p)),
-            0.5
-        )
-
-        for p in itertools.combinations(
-            jogo,
-            2
-        )
+        base.get(tuple(sorted(p)), 0.5)
+        for p in itertools.combinations(jogo, 2)
     ])
 
-    ternos = list(
-        itertools.combinations(
-            jogo,
-            3
-        )
-    )
+    ternos = list(itertools.combinations(jogo, 3))
 
     random.shuffle(ternos)
 
-    ternos_amostrados = ternos[:120]
-
     scores_ternos = [
 
-        base.get(
-            tuple(sorted(t)),
-            0.5
-        )
+        base.get(tuple(sorted(t)), 0.5)
 
-        for t in ternos_amostrados
+        for t in ternos[:120]
     ]
 
     s3 = (
-
-        media_segura(
-            scores_ternos
-        ) * 0.70
-
+        media_segura(scores_ternos) * 0.70
         +
-
         max(scores_ternos) * 0.30
     )
 
     return s1, s2, s3
 
 
-# ======================================================
-# BONUS
-# ======================================================
 def bonus_estrutura(mem):
 
     if not mem:
         return 1.0
 
-    vezes = int(
-        mem.get(
-            "vezes_gerado",
-            0
-        )
-    )
+    vezes = int(mem.get("vezes_gerado", 0))
 
     if vezes >= 40:
-        return 0.97
+        return 0.95
 
     if vezes <= 5:
-        return 1.03
+        return 1.05
 
     return 1.0
 
 
-def diversidade_ok(
-    novo,
-    lista
-):
+def bonus_fadiga(mem):
+
+    if not mem:
+        return 1.0
+
+    fadiga = float(mem.get("fadiga_estrutura", 0))
+
+    return max(0.90, 1 - (fadiga * 0.10))
+
+
+def bonus_recencia(mem):
+
+    if not mem:
+        return 1.0
+
+    taxa = float(mem.get("taxa_7d", 0))
+
+    return 1 + (taxa * 0.05)
+
+
+def fator_regime(tipo):
+
+    if tipo == "EXPANSAO_QUENTES":
+        return 1.05
+
+    if tipo == "CONTRACAO_FRIAS":
+        return 0.95
+
+    return 1.0
+
+
+def diversidade_ok(novo, lista):
 
     return all(
-
-        len(
-            set(novo)
-            ^
-            set(x["nums"])
-        ) >= 8
-
+        len(set(novo) ^ set(x["nums"])) >= 8
         for x in lista
     )
 
 
-# ======================================================
-# MAIN
-# ======================================================
 def main():
+
     supabase = get_supabase()
+
     print(f"🛡️ {VERSAO}")
 
     fuso = pytz.timezone("America/Sao_Paulo")
+
     hoje = datetime.now(fuso).date().isoformat()
 
     hist = carregar_historico()
+
     ultimo = hist[-1]["numeros"]
+
     concurso_ref = int(hist[-1]["concurso"]) + 1
 
     if concurso_ja_processado(supabase, concurso_ref):
+
         print(f"ℹ️ Concurso {concurso_ref} já possui palpites gerados.")
+
         return
 
-    # ======================================
-    # BASE
-    # ======================================
+
     base_scores, _ = calcular_score_combinacoes_reais()
+
     fator_global = obter_fator_aprendizado_global()["fator"]
 
-    # ======================================
-    # META LEARNING (As 8 colunas carregadas corretamente)
-    # ======================================
     pesos = obter_pesos_ensemble()
-    p_base = float(pesos.get("peso_base", 0.30))
-    p_global = float(pesos.get("peso_global", 0.15))
-    p_feedback = float(pesos.get("peso_feedback", 0.15))
-    p_regime = float(pesos.get("peso_regime", 0.10))
-    p_moldura = float(pesos.get("peso_moldura", 0.10))
-    p_estrutura = float(pesos.get("peso_estrutura", 0.10))
-    p_fadiga = float(pesos.get("peso_fadiga", 0.05))
-    p_recencia = float(pesos.get("peso_recencia", 0.05))
 
-    # ======================================
-    # MEMÓRIA E PARÂMETROS
-    # ======================================
+
+    p_base = pesos["peso_base"]
+    p_global = pesos["peso_global"]
+    p_feedback = pesos["peso_feedback"]
+    p_regime = pesos["peso_regime"]
+    p_moldura = pesos["peso_moldura"]
+    p_estrutura = pesos["peso_estrutura"]
+    p_fadiga = pesos["peso_fadiga"]
+    p_recencia = pesos["peso_recencia"]
+
+
+    tipo_regime = "NEUTRO"
+
+    try:
+
+        reg = (
+            supabase
+            .table("memoria_regimes")
+            .select("tipo_regime")
+            .order("concurso", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+
+        if reg:
+            tipo_regime = reg[0]["tipo_regime"]
+
+    except:
+        pass
+
+
+    fator_feedback = 1.0
+
+    try:
+
+        fb = (
+            supabase
+            .table("memoria_feedback_loop")
+            .select("fator_correcao")
+            .eq("concurso_referencia", concurso_ref - 1)
+            .execute()
+            .data
+        )
+
+        if fb:
+            fator_feedback = float(fb[0]["fator_correcao"])
+
+    except:
+        pass
+
+
     memoria = {
         m["hash_estrutura"]: m
         for m in supabase.table("memoria_cenarios").select("*").execute().data
     }
 
-    usados = set(tuple(sorted(h["numeros"])) for h in hist)
+
+    usados = set(
+        tuple(sorted(h["numeros"]))
+        for h in hist
+    )
+
     candidatos = []
+
     pool = list(range(1, 26))
+
 
     limites = {
         "soma_min": 160,
@@ -369,44 +321,93 @@ def main():
         "max_linha_limite": 5
     }
 
-    # Loop Principal de Geração
+
     for _ in range(MAX_TENTATIVAS):
+
         if len(candidatos) >= 1500:
             break
 
         jogo = sorted(random.sample(pool, 15))
+
         if tuple(jogo) in usados:
             continue
 
+
         filtros = calcular_filtros(jogo, ultimo)
+
         estrutura = extrair_estrutura(jogo)
+
         mem = memoria.get(estrutura["hash_estrutura"])
 
-        if not validar_autonomo(filtros, estrutura["linhas"], limites):
+
+        if not validar_autonomo(
+            filtros,
+            estrutura["linhas"],
+            limites
+        ):
             continue
 
-        if not diversidade_ok(jogo, candidatos[-25:]):
+
+        if not diversidade_ok(
+            jogo,
+            candidatos[-25:]
+        ):
             continue
 
-        # ======================================
-        # ENSEMBLE ADAPTATIVO (8 Camadas Integradas no Escopo Correto)
-        # ======================================
-        s1, s2, s3 = score_base(jogo, base_scores)
-        score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
 
-        # Mescla os múltiplos critérios usando os pesos reais do banco
-        score_final = (
-            (score_estatistico * p_base) +
-            (bonus_estrutura(mem) * p_estrutura) +
-            (fator_global * p_regime)
+        s1, s2, s3 = score_base(
+            jogo,
+            base_scores
         )
 
-        # Aplicando os multiplicadores e mitigadores finos de estabilidade
-        score_final *= (1.0 + (p_feedback * 0.1))
-        score_final *= (1.0 + (p_recencia * 0.1))
-        score_final *= (1.0 + (p_moldura * 0.05))
-        score_final *= (1.0 + (p_global * 0.05))
-        score_final *= (1.0 - (p_fadiga * 0.02))
+
+        score_estatistico = (
+            (s1 * 0.30)
+            +
+            (s2 * 0.35)
+            +
+            (s3 * 0.35)
+        )
+
+
+        score_final = (
+
+            (score_estatistico * p_base)
+
+            +
+
+            (fator_global * p_global)
+
+            +
+
+            (fator_feedback * p_feedback)
+
+            +
+
+            (fator_regime(tipo_regime) * p_regime)
+
+            +
+
+            (bonus_estrutura(mem) * p_estrutura)
+
+            +
+
+            (1.0 * p_moldura)
+
+            +
+
+            (bonus_fadiga(mem) * p_fadiga)
+
+            +
+
+            (bonus_recencia(mem) * p_recencia)
+
+        )
+
+
+        if random.random() < 0.08:
+            score_final *= random.uniform(0.95, 1.08)
+
 
         candidatos.append({
             "nums": jogo,
@@ -414,44 +415,84 @@ def main():
             "filtros": filtros
         })
 
-    # Seleção dos melhores palpites por diversidade
-    candidatos.sort(key=lambda x: x["score"], reverse=True)
+
+    candidatos.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+
     finais = []
+
     for c in candidatos:
+
         if len(finais) >= QTD_FINAL:
             break
+
         if diversidade_ok(c["nums"], finais):
             finais.append(c)
 
+
     payload = []
+
     telegram = []
 
+
     for i, c in enumerate(finais, 1):
-        linha = f"{i}º | {c['score']:.6f} | {c['nums']}"
-        telegram.append(linha)
+
+        telegram.append(
+            f"{i}º | {c['score']:.6f} | {c['nums']}"
+        )
 
         payload.append({
+
             "data_referencia": hoje,
+
             "concurso_referencia": concurso_ref,
+
             "indice_palpite": i,
-            "tipo": "fixo" if i == 1 else "estatistico",
+
+            "tipo": (
+                "exploratorio"
+                if i == QTD_FINAL
+                else "estatistico"
+            ),
+
             "numeros": json.dumps(c["nums"]),
+
             "pares": c["filtros"]["pares"],
+
             "impares": 15 - c["filtros"]["pares"],
+
             "soma_total": c["filtros"]["soma"],
+
             "processado": False,
+
             "conferido": False,
-            "versao_gerador": VERSAO 
+
+            "versao_gerador": VERSAO
         })
 
-    # Envia os palpites válidos para a tabela palpites_validos
-    supabase.table("palpites_validos").upsert(
-        payload, on_conflict="concurso_referencia,indice_palpite"
+
+    supabase.table(
+        "palpites_validos"
+    ).upsert(
+        payload,
+        on_conflict="concurso_referencia,indice_palpite"
     ).execute()
 
+
     print("\n📲 TELEGRAM_PAYLOAD_START")
-    print(montar_msg_telegram(concurso_ref, telegram))
+
+    print(
+        montar_msg_telegram(
+            concurso_ref,
+            telegram
+        )
+    )
+
     print("📲 TELEGRAM_PAYLOAD_END")
+
 
 if __name__ == "__main__":
     main()
