@@ -22,7 +22,7 @@ def obter_pesos_ensemble() -> Dict[str, float]:
             supabase
             .table("memoria_meta_learning")
             .select("*")
-            .order("created_at", desc=True)
+            .order("update_at", desc=True)
             .limit(1)
             .execute()
             .data
