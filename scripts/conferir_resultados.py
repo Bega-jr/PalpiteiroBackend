@@ -132,12 +132,13 @@ def main():
         # ======================================================
         if lista_acertos:
             media_concurso = sum(lista_acertos) / len(lista_acertos)
-            print(f"\n🧠 [Meta-Learning] Disparando retroalimentação para Concurso {concurso} | Média: {media_concurso:.2f}")
+            print(f"\n🧠 [Meta-Learning] Disparando retroalimentação...")
             try:
-                # Aplica as regras (< 9 ou >= 11) e salva a nova linha na memória_meta_learning
-                atualizar_meta_learning(media_concurso)
+                # CORREÇÃO: Adicione o segundo argumento 'concurso'
+                atualizar_meta_learning(media_concurso, concurso) 
             except Exception as e:
                 print(f"⚠️ Erro ao atualizar pesos adaptativos: {e}")
+
 
         ranking.sort(key=lambda x: x["acertos"], reverse=True)
         print(montar_bloco_auditoria(concurso, resultado, ranking))
