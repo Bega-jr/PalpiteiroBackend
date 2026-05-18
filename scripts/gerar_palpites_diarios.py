@@ -23,7 +23,7 @@ from scripts.processamento_diario_lotofacil import (
 # ======================================================
 # CONFIG
 # ======================================================
-VERSAO = "v16.2-adaptive-memory-structural"
+VERSAO = "v16.3-idempotent-pipeline"
 
 QTD_FINAL = 7
 MAX_TENTATIVAS = 120000
@@ -48,6 +48,56 @@ def media_segura(v, fallback=0.5):
         return fallback
 
     return float(np.mean(validos))
+
+
+def concurso_ja_processado(
+    supabase,
+    concurso_ref
+):
+
+    rows = (
+
+        supabase
+        .table("palpites_validos")
+        .select("indice_palpite")
+        .eq(
+            "concurso_referencia",
+            concurso_ref
+        )
+        .limit(1)
+        .execute()
+        .data
+    )
+
+    return len(rows) > 0
+
+
+def montar_msg_telegram(
+    concurso_ref,
+    linhas_palpites
+):
+
+    linhas = []
+
+    linhas.append(
+        "🟢 Pipeline Lotofácil concluído!"
+    )
+
+    linhas.append("")
+
+    linhas.append(
+        f"🎯 Palpites gerados para o concurso {concurso_ref}"
+    )
+
+    linhas.append("")
+
+    linhas.extend(
+        linhas_palpites
+    )
+
+    return "\n".join(
+        linhas
+    )
 
 
 def calcular_filtros(nums, ultimo):
@@ -268,9 +318,6 @@ def bonus_moldura(
     return 1.0
 
 
-# ======================================================
-# NOVO BONUS ESTRUTURAL
-# ======================================================
 def bonus_estrutura(mem):
 
     if not mem:
@@ -350,6 +397,34 @@ def main():
         hist[-1]["concurso"]
     ) + 1
 
+
+    # ==========================================
+    # PROTEÇÃO CONTRA DUPLICIDADE
+    # ==========================================
+    if concurso_ja_processado(
+        supabase,
+        concurso_ref
+    ):
+
+        print(
+            f"ℹ️ Concurso {concurso_ref} já possui palpites gerados."
+        )
+
+        print(
+            "\n📲 TELEGRAM_PAYLOAD_START"
+        )
+
+        print(
+            f"ℹ️ Concurso {concurso_ref} já foi processado anteriormente."
+        )
+
+        print(
+            "📲 TELEGRAM_PAYLOAD_END"
+        )
+
+        return
+
+
     base_scores, _ = (
         calcular_score_combinacoes_reais()
     )
@@ -358,9 +433,7 @@ def main():
         obter_fator_aprendizado_global()["fator"]
     )
 
-    # ==================================================
-    # FEEDBACK LOOP
-    # ==================================================
+
     fator_feedback_loop = 1.0
 
     try:
@@ -402,18 +475,11 @@ def main():
             )
         )
 
-        print(
-            f"🎛️ Feedback Médio: {fator_feedback_loop}"
-        )
-
     except:
 
         fator_feedback_loop = 1.0
 
 
-    # ==================================================
-    # LIMITES DINÂMICOS
-    # ==================================================
     janela = hist[-25:]
 
     somas = []
@@ -443,83 +509,36 @@ def main():
             nums
         )
 
-        somas.append(
-            filtros["soma"]
-        )
-
-        pares.append(
-            filtros["pares"]
-        )
-
-        primos.append(
-            filtros["primos"]
-        )
-
-        molduras.append(
-            filtros["moldura"]
-        )
-
-        repetidos.append(
-            filtros["repetidos"]
-        )
-
-        seqs.append(
-            filtros["seq_max"]
-        )
-
-        linhas.append(
-            max(
-                estrutura["linhas"]
-            )
-        )
+        somas.append(filtros["soma"])
+        pares.append(filtros["pares"])
+        primos.append(filtros["primos"])
+        molduras.append(filtros["moldura"])
+        repetidos.append(filtros["repetidos"])
+        seqs.append(filtros["seq_max"])
+        linhas.append(max(estrutura["linhas"]))
 
     limites = {
 
         "soma_min":
-            int(
-                np.percentile(
-                    somas,
-                    10
-                )
-            ),
+            int(np.percentile(somas, 10)),
 
         "soma_max":
-            int(
-                np.percentile(
-                    somas,
-                    90
-                )
-            ),
+            int(np.percentile(somas, 90)),
 
-        "pares_min":
-            min(pares),
+        "pares_min": min(pares),
+        "pares_max": max(pares),
 
-        "pares_max":
-            max(pares),
+        "primos_min": min(primos),
+        "primos_max": max(primos),
 
-        "primos_min":
-            min(primos),
+        "moldura_min": min(molduras),
+        "moldura_max": max(molduras),
 
-        "primos_max":
-            max(primos),
+        "repetidos_min": min(repetidos),
+        "repetidos_max": max(repetidos),
 
-        "moldura_min":
-            min(molduras),
-
-        "moldura_max":
-            max(molduras),
-
-        "repetidos_min":
-            min(repetidos),
-
-        "repetidos_max":
-            max(repetidos),
-
-        "seq_max_limite":
-            max(seqs),
-
-        "max_linha_limite":
-            max(linhas)
+        "seq_max_limite": max(seqs),
+        "max_linha_limite": max(linhas)
     }
 
     memoria = {
@@ -617,7 +636,6 @@ def main():
 
         s *= fator_global
         s *= fator_feedback_loop
-
         s *= bonus_moldura(
             estrutura,
             mem
@@ -630,16 +648,12 @@ def main():
         candidatos.append({
 
             "nums": jogo,
-
             "score": s,
-
             "filtros": filtros
         })
 
     candidatos.sort(
-
         key=lambda x: x["score"],
-
         reverse=True
     )
 
@@ -662,10 +676,7 @@ def main():
                 c
             )
 
-    print("\n🏆 TOP 7")
-
     payload = []
-
     telegram = []
 
     for i, c in enumerate(
@@ -679,24 +690,15 @@ def main():
             f"{c['nums']}"
         )
 
-        print(
-            linha
-        )
-
         telegram.append(
             linha
         )
 
         payload.append({
 
-            "data_referencia":
-                hoje,
-
-            "concurso_referencia":
-                concurso_ref,
-
-            "indice_palpite":
-                i,
+            "data_referencia": hoje,
+            "concurso_referencia": concurso_ref,
+            "indice_palpite": i,
 
             "tipo":
                 "fixo"
@@ -709,27 +711,16 @@ def main():
                 ),
 
             "pares":
-                c["filtros"][
-                    "pares"
-                ],
+                c["filtros"]["pares"],
 
             "impares":
-                15
-                -
-                c["filtros"][
-                    "pares"
-                ],
+                15 - c["filtros"]["pares"],
 
             "soma_total":
-                c["filtros"][
-                    "soma"
-                ],
+                c["filtros"]["soma"],
 
-            "processado":
-                False,
-
-            "conferido":
-                False,
+            "processado": False,
+            "conferido": False,
 
             "versao_gerador":
                 VERSAO,
@@ -743,29 +734,12 @@ def main():
                     ),
 
                 "primos":
-                    c["filtros"][
-                        "primos"
-                    ],
+                    c["filtros"]["primos"],
 
                 "moldura":
-                    c["filtros"][
-                        "moldura"
-                    ]
+                    c["filtros"]["moldura"]
             }
         })
-
-    (
-        supabase
-        .table(
-            "palpites_validos"
-        )
-        .delete()
-        .eq(
-            "concurso_referencia",
-            concurso_ref
-        )
-        .execute()
-    )
 
     (
         supabase
@@ -784,7 +758,8 @@ def main():
     )
 
     print(
-        "\n".join(
+        montar_msg_telegram(
+            concurso_ref,
             telegram
         )
     )
