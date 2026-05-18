@@ -355,19 +355,34 @@ def main():
     )
 
 
-    # ======================================
-    # META LEARNING (Alinhado com as 8 colunas da sua tabela)
-    # ======================================
-    pesos = obter_pesos_ensemble()
+         # ======================================
+        # ENSEMBLE ADAPTATIVO (Atualizado com as 8 Camadas)
+        # ======================================
+        s1, s2, s3 = score_base(jogo, base_scores)
 
-    p_base = float(pesos.get("peso_base", 0.30))
-    p_global = float(pesos.get("peso_global", 0.15))
-    p_feedback = float(pesos.get("peso_feedback", 0.15))
-    p_regime = float(pesos.get("peso_regime", 0.10))
-    p_moldura = float(pesos.get("peso_moldura", 0.10))
-    p_estrutura = float(pesos.get("peso_estrutura", 0.10))
-    p_fadiga = float(pesos.get("peso_fadiga", 0.05))
-    p_recencia = float(pesos.get("peso_recencia", 0.05))
+        # 1. Consolida o score estatístico base (unidade, dupla, terno)
+        score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
+
+        # 2. Mescla os múltiplos critérios usando os novos pesos do Meta-Learning (Variáveis p_...)
+        score_final = (
+            (score_estatistico * p_base) +
+            (bonus_estrutura(mem) * p_estrutura) +
+            (fator_global * p_regime)
+        )
+
+        # 3. Aplica os pesos de feedback, recência, moldura e fadiga como multiplicadores finos
+        score_final *= (1.0 + (p_feedback * 0.1))
+        score_final *= (1.0 + (p_recencia * 0.1))
+        score_final *= (1.0 + (p_moldura * 0.05))
+        score_final *= (1.0 + (p_global * 0.05))
+        score_final *= (1.0 - (p_fadiga * 0.02)) # Fadiga atua reduzindo ruído
+
+        candidatos.append({
+            "nums": jogo,
+            "score": float(score_final),
+            "filtros": filtros
+        })
+
 
     # ======================================
     # MEMÓRIA
