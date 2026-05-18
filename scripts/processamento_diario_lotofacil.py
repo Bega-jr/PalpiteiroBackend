@@ -31,7 +31,6 @@ def calcular_tendencia(historico, numero, janela=25):
 
 
 def calcular_ciclo_historico_completo(historico):
-
     todos_25 = set(range(1, 26))
     sorteados = set()
     ciclo = 1
@@ -48,7 +47,6 @@ def calcular_ciclo_historico_completo(historico):
 
 
 def extrair_estrutura(nums):
-
     linhas = [
         sum(1 for n in nums if 1 <= n <= 5),
         sum(1 for n in nums if 6 <= n <= 10),
@@ -71,7 +69,6 @@ def extrair_estrutura(nums):
 # ======================================================
 
 def buscar_memoria_real(supabase, estrutura):
-
     resp = supabase.table("memoria_cenarios") \
         .select("*") \
         .eq("hash_estrutura", estrutura["hash_estrutura"]) \
@@ -103,7 +100,6 @@ def calcular_tendencia_memoria(memoria):
 
 
 def ajustar_por_memoria(df, memoria):
-
     if not memoria:
         print("🧠 Novo cenário (sem histórico)")
         return df
@@ -133,13 +129,11 @@ def ajustar_por_memoria(df, memoria):
 # ======================================================
 
 def main():
-
     supabase = get_supabase()
 
-    print("🚀 [v4.7-FEEDBACK-LOOP] Processamento Inteligente Ativo")
+    print("🚀 [v18.0-FEEDBACK-LOOP] Processamento Inteligente Ativo")
 
     try:
-
         historico = carregar_historico()
 
         if not historico:
@@ -177,7 +171,6 @@ def main():
         # ==================================================
         # MEMÓRIA (UPSERT SAFE - SEM DUPLICAÇÃO)
         # ==================================================
-
         estrutura = extrair_estrutura(dezenas)
         memoria = buscar_memoria_real(supabase, estrutura)
 
@@ -198,7 +191,6 @@ def main():
             "updated_at": datetime.now().isoformat()
         }
 
-        # 🔥 UPSERT DEFINITIVO (REMOVE 23505)
         supabase.table("memoria_cenarios") \
             .upsert(
                 payload,
@@ -211,28 +203,19 @@ def main():
         # 🧠 RETROALIMENTAÇÃO: DISPARO DO FEEDBACK LOOP
         # =====================================================
         try:
-            # Busca os palpites gerados anteriormente para o concurso que acabou de ocorrer
             palpites_passados = supabase.table("palpites_validos") \
                 .select("numeros") \
                 .eq("concurso_referencia", int(concurso)).execute().data
             
-            if palpites_passados:
+            if p_passados := palpites_passados:
                 acertos_do_dia = []
-                for p in palpites_passados:
-                    # Faz o parse da lista stringificada JSON salva no banco
+                for p in p_passados:
                     jogo_limpo = [int(x) for x in json.loads(p["numeros"])]
                     acertos = len(set(jogo_limpo) & set(dezenas))
                     acertos_do_dia.append(acertos)
                 
                 media_acertos = float(np.mean(acertos_do_dia))
-                
-                # Regra de Reforço Estocástico Baseada em Performance Real
-                if media_acertos < 9.0:
-                    fator_correcao = 0.92  # Erro alto: Força deflação de viés
-                elif media_acertos >= 11.0:
-                    fator_correcao = 1.05  # Sucesso alto: Força impulsionamento de convergência
-                else:
-                    fator_correcao = 1.00  # Desempenho esperado: Mantém estabilidade neutra
+                fator_correcao = 0.92 if media_acertos < 9.0 else (1.05 if media_acertos >= 11.0 else 1.00)
                 
                 payload_feedback = {
                     "concurso_referencia": int(concurso),
@@ -240,54 +223,60 @@ def main():
                     "fator_correcao": fator_correcao
                 }
                 
-                # Persiste de forma indestrutível via upsert indexado por concurso único
                 supabase.table("memoria_feedback_loop").upsert(
                     payload_feedback, on_conflict="concurso_referencia"
                 ).execute()
-                print(f"📡 Feedback Loop: Concurso {concurso} auditado automaticamente. Média acertos: {media_acertos:.2f} | Fator: {fator_correcao}")
+                print(f"📡 Feedback Loop: Concurso {concurso} auditado. Média acertos: {media_acertos:.2f} | Fator: {fator_correcao}")
             else:
                 print(f"ℹ️ Feedback Loop: Nenhum palpite prévio armazenado para auditar o concurso {concurso}.")
         except Exception as e_fb:
             print(f"⚠️ Erro operacional ao processar Feedback Loop: {e_fb}")
 
         # ==================================================
-        # REGIME
+        # REGIME (PRESERVANDO LOGICA ORIGINAL + PROTEÇÃO CONTEXTUAL)
         # ==================================================
-
         _, ciclo = calcular_ciclo_historico_completo(historico)
-
         media_score = df[df["numero"].isin(dezenas)]["score"].mean()
 
         regime = "NEUTRO"
 
+        # Mantém a sua regra estática base original intacta
         if media_score > 0.55:
             regime = "EXPANSAO_QUENTES"
-
         elif media_score < 0.45:
             regime = "CONTRACAO_FRIAS"
 
-        check_reg = supabase.table("memoria_regimes") \
-            .select("id") \
-            .eq("concurso", int(concurso)) \
-            .execute()
+        # Camada extra de segurança v18.0: Se houver alto ruído (Spread >= 4), força proteção
+        try:
+            ultima_execucao = supabase.table("meta_learning_execucoes") \
+                .select("dispersao") \
+                .order("concurso_referencia", desc=True) \
+                .limit(1).execute().data
+            
+            if ultima_execucao and int(ultima_execucao[0].get("dispersao", 0)) >= 4:
+                regime = "CONTRACAO_FRIAS"
+                print("🧠 Meta-Learning sobrescreveu regime para CONTRACAO_FRIAS devido à alta dispersão.")
+        except:
+            pass
 
-        if not check_reg.data:
+        # Payload consolidado para inserção/atualização estável
+        payload_regime = {
+            "data_referencia": data,
+            "concurso": int(concurso),
+            "numero_ciclo": int(ciclo),
+            "tipo_regime": regime,
+            "score_global": float(media_score),
+            "media_soma": float(sum(dezenas)),
+            "media_pares": int(estrutura["pares"])
+        }
 
-            supabase.table("memoria_regimes") \
-                .insert({
-                    "data_referencia": data,
-                    "concurso": int(concurso),
-                    "numero_ciclo": int(ciclo),
-                    "tipo_regime": regime,
-                    "score_global": float(media_score),
-                    "media_soma": float(sum(dezenas)),
-                    "media_pares": int(estrutura["pares"])
-                }).execute()
+        # Força o UPSERT seguro indexado na coluna única concurso (evita o erro 'já existe')
+        supabase.table("memoria_regimes").upsert(
+            payload_regime,
+            on_conflict="concurso"
+        ).execute()
 
-            print(f"📡 Regime salvo: {regime}")
-
-        else:
-            print(f"ℹ️ Concurso {concurso} já existe em memoria_regimes")
+        print(f"📡 Regime adaptativo consolidado: {regime} | Média Score: {media_score:.4f}")
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
