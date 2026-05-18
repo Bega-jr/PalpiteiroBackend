@@ -1,11 +1,21 @@
-name: Pipeline Lotofácil 2026 - IA Evolutiva v15.2
+name: Pipeline Lotofácil 2026 - IA Evolutiva v16.3
 
 on:
   schedule:
-    # 📻 Disparo principal (21:45 BRT = 00:45 UTC)
-    - cron: "45 0 * * 0-6"
+    # Segunda a sábado
+    # 21:45 BRT = 00:45 UTC
+    - cron: "45 0 * * 1-6"
 
   workflow_dispatch:
+
+
+# ==================================================
+# PROTEÇÃO CONTRA EXECUÇÃO DUPLA
+# ==================================================
+concurrency:
+  group: lotofacil-production
+  cancel-in-progress: false
+
 
 jobs:
   pipeline-lotofacil:
@@ -20,6 +30,9 @@ jobs:
 
     steps:
 
+      # ==================================================
+      # CHECKOUT
+      # ==================================================
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -32,20 +45,23 @@ jobs:
         run: |
           pip install pandas numpy requests python-dotenv supabase pytz scikit-learn httpx
 
-      # =========================
+
+      # ==================================================
       # ETAPA 1
-      # =========================
+      # ==================================================
       - name: Atualizar resultados
         run: python scripts/atualizar_lotofacil.py
 
-      # =========================
+
+      # ==================================================
       # ETAPA 2 (CONFERÊNCIA)
-      # =========================
+      # ==================================================
       - name: Conferência
         run: |
+
           python scripts/conferir_resultados.py | tee saida_conferencia.txt
 
-          # Extrai exatamente o mesmo bloco exibido no log
+          # Extrai bloco completo da auditoria
           sed -n '/==================================================/,/====================/p' \
             saida_conferencia.txt > auditoria.txt || true
 
@@ -53,78 +69,86 @@ jobs:
           cat auditoria.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-            # =========================
+
+      # ==================================================
       # TELEGRAM AUDITORIA
-      # =========================
+      # ==================================================
       - name: Telegram auditoria acertos
         if: "success() && contains(env.AUDITORIA, 'Palpite #')"
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+
           TEXT_AUDITORIA="${{ env.AUDITORIA }}"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo \"$TEXT_AUDITORIA\" | jq -Rs .)}"
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT_AUDITORIA" | jq -Rs .)}"
 
 
-      # =========================
+      # ==================================================
       # ETAPA 2.1
-      # =========================
+      # ==================================================
       - name: Memória estrutural
         run: python scripts/atualizar_memoria_resultados.py
 
-      # =========================
+
+      # ==================================================
       # ETAPA 3
-      # =========================
+      # ==================================================
       - name: Processamento
         run: python scripts/processamento_diario_lotofacil.py
 
-      # =========================
+
+      # ==================================================
       # ETAPA 4
-      # =========================
+      # ==================================================
       - name: Gerar palpites
         run: |
+
           python scripts/gerar_palpites_diarios.py | tee saida.txt
 
-          # Extrai payload Telegram
+          # Extrai payload completo do telegram
           sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
             saida.txt > bloco.txt || true
 
-          grep "º" bloco.txt > palpites.txt || true
+          # Remove apenas os marcadores START/END
+          sed '1d;$d' bloco.txt > palpites.txt || true
 
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # =========================
+
+      # ==================================================
       # TELEGRAM PALPITES
-      # =========================
+      # ==================================================
       - name: Telegram sucesso
         if: success()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXT="🟢 *Pipeline Lotofácil concluído! Novos Palpites:*
 
-          ${{ env.PALPITES }}"
+          TEXT="${{ env.PALPITES }}"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .),\"parse_mode\":\"Markdown\"}"
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
 
-      # =========================
+
+      # ==================================================
       # TELEGRAM ERRO
-      # =========================
+      # ==================================================
       - name: Telegram erro
         if: failure()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TEXT="🔴 Erro no pipeline Lotofácil v15.2"
+
+          TEXT="🔴 Erro no pipeline Lotofácil v16.3"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
