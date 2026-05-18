@@ -355,33 +355,33 @@ def main():
     )
 
 
-         # ======================================
-        # ENSEMBLE ADAPTATIVO (Atualizado com as 8 Camadas)
-        # ======================================
-        s1, s2, s3 = score_base(jogo, base_scores)
+    # ======================================
+    # ENSEMBLE ADAPTATIVO (Atualizado com as 8 Camadas)
+    # ======================================
+    s1, s2, s3 = score_base(jogo, base_scores)
 
-        # 1. Consolida o score estatístico base (unidade, dupla, terno)
-        score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
+    # 1. Consolida o score estatístico base (unidade, dupla, terno)
+    score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
 
-        # 2. Mescla os múltiplos critérios usando os novos pesos do Meta-Learning (Variáveis p_...)
-        score_final = (
-            (score_estatistico * p_base) +
-            (bonus_estrutura(mem) * p_estrutura) +
-            (fator_global * p_regime)
-        )
+    # 2. Mescla os múltiplos critérios usando os novos pesos do Meta-Learning (Variáveis p_...)
+    score_final = (
+        (score_estatistico * p_base) +
+        (bonus_estrutura(mem) * p_estrutura) +
+        (fator_global * p_regime)
+    )
 
-        # 3. Aplica os pesos de feedback, recência, moldura e fadiga como multiplicadores finos
-        score_final *= (1.0 + (p_feedback * 0.1))
-        score_final *= (1.0 + (p_recencia * 0.1))
-        score_final *= (1.0 + (p_moldura * 0.05))
-        score_final *= (1.0 + (p_global * 0.05))
-        score_final *= (1.0 - (p_fadiga * 0.02)) # Fadiga atua reduzindo ruído
+    # 3. Aplica os pesos de feedback, recência, moldura e fadiga como multiplicadores finos
+    score_final *= (1.0 + (p_feedback * 0.1))
+    score_final *= (1.0 + (p_recencia * 0.1))
+    score_final *= (1.0 + (p_moldura * 0.05))
+    score_final *= (1.0 + (p_global * 0.05))
+    score_final *= (1.0 - (p_fadiga * 0.02)) # Fadiga atua reduzindo ruído
 
-        candidatos.append({
-            "nums": jogo,
-            "score": float(score_final),
-            "filtros": filtros
-        })
+    candidatos.append({
+        "nums": jogo,
+        "score": float(score_final),
+        "filtros": filtros
+    })
 
 
     # ======================================
