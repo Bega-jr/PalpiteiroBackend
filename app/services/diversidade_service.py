@@ -1,143 +1,198 @@
-import itertools
 import numpy as np
 
 
 # =========================================================
-# DISTÂNCIA ENTRE JOGOS
+# DISTÂNCIA
 # =========================================================
 def distancia_jaccard(a, b):
 
-    sa = set(a)
-    sb = set(b)
+    a = set(a)
+    b = set(b)
 
-    inter = len(sa & sb)
-    uniao = len(sa | sb)
+    inter = len(a & b)
+    uniao = len(a | b)
+
+    if uniao == 0:
+        return 0.0
 
     return 1 - (inter / uniao)
 
 
 def distancia_hamming(a, b):
 
-    return len(
-        set(a) ^ set(b)
+    a = sorted(a)
+    b = sorted(b)
+
+    return sum(
+
+        1
+
+        for x, y in zip(a, b)
+
+        if x != y
     )
-
-
-def similaridade_pares(a, b):
-
-    pa = set(
-        itertools.combinations(
-            sorted(a),
-            2
-        )
-    )
-
-    pb = set(
-        itertools.combinations(
-            sorted(b),
-            2
-        )
-    )
-
-    return len(pa & pb)
-
-
-def similaridade_ternos(a, b):
-
-    ta = set(
-        itertools.combinations(
-            sorted(a),
-            3
-        )
-    )
-
-    tb = set(
-        itertools.combinations(
-            sorted(b),
-            3
-        )
-    )
-
-    return len(ta & tb)
 
 
 # =========================================================
-# SCORE GLOBAL DE DIVERSIDADE
+# DIVERSIDADE
 # =========================================================
-def score_diversidade(jogo, jogos_existentes):
-
-    if not jogos_existentes:
-        return 1.0
-
-    jaccards = []
-    hammings = []
-    pares = []
-    ternos = []
-
-    for j in jogos_existentes:
-
-        nums = j["nums"]
-
-        jaccards.append(
-            distancia_jaccard(
-                jogo,
-                nums
-            )
-        )
-
-        hammings.append(
-            distancia_hamming(
-                jogo,
-                nums
-            )
-        )
-
-        pares.append(
-            similaridade_pares(
-                jogo,
-                nums
-            )
-        )
-
-        ternos.append(
-            similaridade_ternos(
-                jogo,
-                nums
-            )
-        )
-
-    score = (
-
-        np.mean(jaccards) * 0.35
-
-        +
-
-        (np.mean(hammings) / 15) * 0.35
-
-        +
-
-        (1 - (np.mean(pares) / 105)) * 0.15
-
-        +
-
-        (1 - (np.mean(ternos) / 455)) * 0.15
-    )
-
-    return round(float(score), 6)
-
-
-# =========================================================
-# FILTRO FINAL
-# =========================================================
-def diversidade_ok_v2(
-    jogo,
-    jogos,
-    score_minimo=0.58
+def diversidade_basica_ok(
+    novo,
+    lista,
+    minimo=9
 ):
 
-    score = score_diversidade(
-        jogo,
-        jogos
+    return all(
+
+        len(
+            set(novo)
+            ^
+            set(x["nums"])
+        ) >= minimo
+
+        for x in lista
     )
 
-    return score >= score_minimo
+
+def diversidade_estrutural_ok(
+    estrutura_nova,
+    estruturas_existentes
+):
+
+    estrutura_id = tuple(
+        estrutura_nova["linhas"]
+    )
+
+    return (
+        estrutura_id
+        not in estruturas_existentes
+    )
+
+
+def diversidade_estatistica_ok(
+    features,
+    lista_features,
+    tolerancia_soma=12,
+    tolerancia_pares=2
+):
+
+    for f in lista_features:
+
+        if (
+
+            abs(
+                features["soma"]
+                - f["soma"]
+            ) <= tolerancia_soma
+
+            and
+
+            abs(
+                features["pares"]
+                - f["pares"]
+            ) <= tolerancia_pares
+        ):
+
+            return False
+
+    return True
+
+
+# =========================================================
+# DIVERSIDADE AVANÇADA
+# =========================================================
+def diversidade_avancada_ok(
+    novo_jogo,
+    candidatos,
+    estrutura=None,
+    minimo_jaccard=0.60,
+    minimo_hamming=9
+):
+
+    if not candidatos:
+        return True
+
+    for candidato in candidatos:
+
+        jogo_ref = candidato["nums"]
+
+        dist_jaccard = distancia_jaccard(
+            novo_jogo,
+            jogo_ref
+        )
+
+        dist_hamming = distancia_hamming(
+            novo_jogo,
+            jogo_ref
+        )
+
+        # =====================================
+        # MUITO PARECIDO
+        # =====================================
+        if dist_jaccard < minimo_jaccard:
+            return False
+
+        if dist_hamming < minimo_hamming:
+            return False
+
+        # =====================================
+        # ESTRUTURA IGUAL
+        # =====================================
+        if estrutura:
+
+            estrutura_ref = candidato.get(
+                "estrutura",
+                {}
+            )
+
+            if estrutura_ref:
+
+                if (
+
+                    estrutura["linhas"]
+
+                    ==
+
+                    estrutura_ref.get(
+                        "linhas",
+                        []
+                    )
+                ):
+
+                    return False
+
+    return True
+
+
+# =========================================================
+# SCORE DE DIVERSIDADE
+# =========================================================
+def score_diversidade(
+    jogo,
+    candidatos
+):
+
+    if not candidatos:
+        return 1.0
+
+    distancias = []
+
+    for c in candidatos:
+
+        dist = distancia_jaccard(
+            jogo,
+            c["nums"]
+        )
+
+        distancias.append(dist)
+
+    media = float(
+        np.mean(distancias)
+    )
+
+    return round(
+
+        1.0 + (media * 0.08),
+
+        6
+    )
