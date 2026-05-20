@@ -14,9 +14,45 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
-from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
-from app.services.meta_learning_service import obter_pesos_ensemble
+
+from app.services.aprendizado_service_v3 import (
+    obter_fator_aprendizado_global
+)
+
+from app.services.estatisticas_combinacao_v3 import (
+    calcular_score_combinacoes_reais
+)
+
+from app.services.meta_learning_service import (
+    obter_pesos_ensemble
+)
+
+# ======================================================
+# NOVOS MÓDULOS V19.0
+# ======================================================
+from app.services.feature_store_service import (
+    gerar_features_jogo
+)
+
+from app.services.clusterizacao_service import (
+    identificar_cluster_jogo
+)
+
+from app.services.diversidade_service import (
+    diversidade_avancada_ok
+)
+
+from app.services.montecarlo_service import (
+    simular_probabilidade_jogo
+)
+
+from app.services.motores_ensemble_service import (
+    calcular_score_ensemble
+)
+
+from app.services.selecao_genetica_service import (
+    selecionar_populacao_final
+)
 
 from scripts.processamento_diario_lotofacil import (
     carregar_historico,
@@ -24,9 +60,10 @@ from scripts.processamento_diario_lotofacil import (
 )
 
 
-VERSAO = "v18.2-evolutionary-contextual-ensemble"
+VERSAO = "v19.0-genetic-context-engine"
 
 QTD_FINAL = 7
+
 MAX_TENTATIVAS = 120000
 
 PRIMOS = {
@@ -146,11 +183,17 @@ def calcular_filtros(
             atual = 1
 
     return {
+
         "pares": pares,
+
         "primos": primos,
+
         "moldura": moldura,
+
         "soma": soma,
+
         "repetidos": repetidos,
+
         "seq_max": seq_max
     }
 
@@ -403,27 +446,6 @@ def fator_regime(tipo):
 
 
 # ======================================================
-# DIVERSIDADE
-# ======================================================
-def diversidade_ok(
-    novo,
-    lista,
-    minimo=9
-):
-
-    return all(
-
-        len(
-            set(novo)
-            ^
-            set(x["nums"])
-        ) >= minimo
-
-        for x in lista
-    )
-
-
-# ======================================================
 # MAIN
 # ======================================================
 def main():
@@ -506,7 +528,6 @@ def main():
         p_regime *= 1.04
 
 
-    # LIMITES
     p_feedback = min(
         p_feedback,
         0.22
@@ -603,8 +624,6 @@ def main():
 
     contador_dezenas = Counter()
 
-    estruturas_usadas = set()
-
 
     limites = {
 
@@ -634,7 +653,7 @@ def main():
     # ==================================================
     for _ in range(MAX_TENTATIVAS):
 
-        if len(candidatos) >= 1800:
+        if len(candidatos) >= 2200:
             break
 
         jogo = sorted(
@@ -670,10 +689,50 @@ def main():
             continue
 
 
-        if not diversidade_ok(
+        # ==================================================
+        # FEATURES
+        # ==================================================
+        features = gerar_features_jogo(
+
+            jogo=jogo,
+
+            filtros=filtros,
+
+            estrutura=estrutura,
+
+            contexto=contexto
+        )
+
+
+        # ==================================================
+        # MONTE CARLO
+        # ==================================================
+        score_mc = simular_probabilidade_jogo(
             jogo,
-            candidatos[-40:],
-            minimo=10
+            historico=hist
+        )
+
+
+        # ==================================================
+        # CLUSTER
+        # ==================================================
+        cluster_id = identificar_cluster_jogo(
+            features
+        )
+
+
+        # ==================================================
+        # DIVERSIDADE AVANÇADA
+        # ==================================================
+        if not diversidade_avancada_ok(
+
+            jogo= jogo,
+
+            candidatos=candidatos[-50:],
+
+            estrutura=estrutura,
+
+            cluster_id=cluster_id
         ):
             continue
 
@@ -698,61 +757,36 @@ def main():
         )
 
 
-        # ==============================================
-        # SCORE ENSEMBLE
-        # ==============================================
-        score_final = (
+        # ==================================================
+        # ENSEMBLE CENTRALIZADO
+        # ==================================================
+        score_final = calcular_score_ensemble(
 
-            (score_estatistico * p_base)
+            score_estatistico=score_estatistico,
 
-            +
+            score_montecarlo=score_mc,
 
-            (fator_global * p_global)
+            fator_global=fator_global,
 
-            +
+            fator_feedback=fator_feedback,
 
-            (fator_feedback * p_feedback)
+            fator_regime=fator_regime(tipo_regime),
 
-            +
+            bonus_estrutura=bonus_estrutura(mem),
 
-            (
-                fator_regime(tipo_regime)
-                * p_regime
-            )
+            bonus_fadiga=bonus_fadiga(mem),
 
-            +
+            bonus_recencia=bonus_recencia(mem),
 
-            (
-                bonus_estrutura(mem)
-                * p_estrutura
-            )
+            bonus_moldura=bonus_moldura(filtros),
 
-            +
-
-            (
-                bonus_moldura(filtros)
-                * p_moldura
-            )
-
-            +
-
-            (
-                bonus_fadiga(mem)
-                * p_fadiga
-            )
-
-            +
-
-            (
-                bonus_recencia(mem)
-                * p_recencia
-            )
+            pesos=pesos
         )
 
 
-        # ==============================================
+        # ==================================================
         # PENALIDADE GLOBAL
-        # ==============================================
+        # ==================================================
         penalidade_repeticao = sum(
 
             contador_dezenas[n] * 0.015
@@ -763,18 +797,18 @@ def main():
         score_final -= penalidade_repeticao
 
 
-        # ==============================================
+        # ==================================================
         # ENTROPIA CONTROLADA
-        # ==============================================
+        # ==================================================
         score_final *= random.uniform(
             0.985,
             1.015
         )
 
 
-        # ==============================================
+        # ==================================================
         # EXPLORAÇÃO EVOLUTIVA
-        # ==============================================
+        # ==================================================
         if random.random() < 0.18:
 
             score_final *= random.uniform(
@@ -783,28 +817,21 @@ def main():
             )
 
 
-        # ==============================================
-        # BÔNUS DIVERSIDADE
-        # ==============================================
-        score_final *= (
-
-            1 +
-
-            (
-                len(set(jogo)) / 15
-            ) * 0.03
-        )
-
-
         candidatos.append({
 
             "nums": jogo,
 
             "score": float(score_final),
 
+            "score_mc": float(score_mc),
+
             "filtros": filtros,
 
-            "estrutura": estrutura
+            "estrutura": estrutura,
+
+            "features": features,
+
+            "cluster_id": cluster_id
         })
 
 
@@ -823,51 +850,14 @@ def main():
 
 
     # ==================================================
-    # SELEÇÃO EVOLUTIVA
+    # SELEÇÃO GENÉTICA
     # ==================================================
-    finais = []
+    finais = selecionar_populacao_final(
 
-    for i, c in enumerate(candidatos):
+        candidatos=candidatos,
 
-        if len(finais) >= QTD_FINAL:
-            break
-
-
-        estrutura_id = tuple(
-            c["estrutura"]["linhas"]
-        )
-
-        if estrutura_id in estruturas_usadas:
-            continue
-
-
-        minimo_diversidade = (
-            10
-            if len(finais) <= 3
-            else 8
-        )
-
-        if not diversidade_ok(
-            c["nums"],
-            finais,
-            minimo=minimo_diversidade
-        ):
-            continue
-
-
-        estruturas_usadas.add(
-            estrutura_id
-        )
-
-
-        for dezena in c["nums"]:
-
-            contador_dezenas[
-                dezena
-            ] += 1
-
-
-        finais.append(c)
+        qtd_final=QTD_FINAL
+    )
 
 
     # ==================================================
@@ -877,7 +867,7 @@ def main():
 
         supabase.table(
             "meta_learning_execucoes"
-        ).insert({
+        ).upsert({
 
             "concurso_referencia": concurso_ref,
 
@@ -885,8 +875,21 @@ def main():
 
             "contexto_soma": contexto["media_soma"],
 
-            "contexto_seq": contexto["media_seq"]
-        }).execute()
+            "contexto_seq": contexto["media_seq"],
+
+            "qtd_candidatos": len(candidatos),
+
+            "score_medio": round(
+                np.mean([
+                    x["score"]
+                    for x in finais
+                ]),
+                6
+            )
+
+        },
+        on_conflict="concurso_referencia"
+        ).execute()
 
     except:
         pass
@@ -911,7 +914,13 @@ def main():
         telegram.append(
 
             f"{i}º | "
+
             f"{c['score']:.6f} | "
+
+            f"MC={c['score_mc']:.4f} | "
+
+            f"C{c['cluster_id']} | "
+
             f"{c['nums']}"
         )
 
