@@ -1,27 +1,29 @@
 import random
+import numpy as np
 
 
 # =========================================================
 # CROSSOVER
 # =========================================================
-def crossover(a, b):
+def crossover(pai, mae):
 
-    pai = set(a)
-    mae = set(b)
+    filho = sorted(
 
-    filho = list(
+        list(
 
-        set(
-            random.sample(
-                list(pai),
-                8
-            )
+            set(
 
-            +
+                random.sample(
+                    pai,
+                    8
+                )
 
-            random.sample(
-                list(mae),
-                7
+                +
+
+                random.sample(
+                    mae,
+                    7
+                )
             )
         )
     )
@@ -39,7 +41,10 @@ def crossover(a, b):
 # =========================================================
 # MUTAÇÃO
 # =========================================================
-def mutacao(jogo, taxa=0.10):
+def mutacao(
+    jogo,
+    taxa=0.10
+):
 
     jogo = jogo.copy()
 
@@ -64,15 +69,28 @@ def mutacao(jogo, taxa=0.10):
 # =========================================================
 # EVOLUÇÃO
 # =========================================================
-def evoluir(populacao):
+def evoluir_populacao(
+    populacao,
+    elite_size=10
+):
 
-    nova = []
+    if not populacao:
+        return []
 
-    elite = populacao[:10]
+    populacao = sorted(
 
-    nova.extend(elite)
+        populacao,
 
-    while len(nova) < len(populacao):
+        key=lambda x: x["score"],
+
+        reverse=True
+    )
+
+    elite = populacao[:elite_size]
+
+    nova_populacao = elite.copy()
+
+    while len(nova_populacao) < len(populacao):
 
         p1 = random.choice(elite)
         p2 = random.choice(elite)
@@ -82,16 +100,140 @@ def evoluir(populacao):
             p2["nums"]
         )
 
-        filho = mutacao(filho)
+        filho = mutacao(
+            filho
+        )
 
-        nova.append({
+        score_filho = float(
 
-            "nums": filho,
-            "score": (
+            (
                 p1["score"]
                 +
                 p2["score"]
             ) / 2
+        )
+
+        nova_populacao.append({
+
+            "nums": filho,
+
+            "score": score_filho,
+
+            "origem": "genetico"
         })
 
-    return nova
+    return nova_populacao
+
+
+# =========================================================
+# SCORE POPULAÇÃO
+# =========================================================
+def score_populacao(populacao):
+
+    if not populacao:
+        return 0.0
+
+    scores = [
+
+        p["score"]
+
+        for p in populacao
+    ]
+
+    return {
+
+        "media": round(
+            float(np.mean(scores)),
+            6
+        ),
+
+        "maximo": round(
+            float(np.max(scores)),
+            6
+        ),
+
+        "minimo": round(
+            float(np.min(scores)),
+            6
+        ),
+
+        "desvio": round(
+            float(np.std(scores)),
+            6
+        )
+    }
+
+
+# =========================================================
+# SELEÇÃO FINAL
+# =========================================================
+def selecionar_populacao_final(
+    candidatos,
+    qtd=7,
+    diversidade_minima=8
+):
+
+    finais = []
+
+    estruturas = set()
+
+    for candidato in sorted(
+
+        candidatos,
+
+        key=lambda x: x["score"],
+
+        reverse=True
+    ):
+
+        if len(finais) >= qtd:
+            break
+
+        nums = candidato["nums"]
+
+        estrutura = tuple(
+
+            candidato.get(
+                "estrutura",
+                {}
+            ).get(
+                "linhas",
+                []
+            )
+        )
+
+        # =====================================
+        # EVITA ESTRUTURAS IGUAIS
+        # =====================================
+        if estrutura in estruturas:
+            continue
+
+        # =====================================
+        # DIVERSIDADE
+        # =====================================
+        valido = True
+
+        for existente in finais:
+
+            diferenca = len(
+
+                set(nums)
+                ^
+                set(existente["nums"])
+            )
+
+            if diferenca < diversidade_minima:
+
+                valido = False
+                break
+
+        if not valido:
+            continue
+
+        estruturas.add(
+            estrutura
+        )
+
+        finais.append(candidato)
+
+    return finais
