@@ -3,76 +3,232 @@ import numpy as np
 
 
 # =========================================================
-# MOTORES
+# HELPERS
 # =========================================================
-def motor_estatistico(score):
+def limitar(
+    valor,
+    minimo=0.0,
+    maximo=1.5
+):
 
-    return score
-
-
-def motor_exploratorio(score):
-
-    return score * random.uniform(
-        0.92,
-        1.08
+    return max(
+        minimo,
+        min(valor, maximo)
     )
 
 
-def motor_agressivo(score, features):
-
-    bonus = 1.0
-
-    if features["entropia"] > 3:
-        bonus += 0.04
-
-    if features["seq_max"] >= 4:
-        bonus += 0.03
-
-    return score * bonus
-
-
-def motor_conservador(score, features):
-
-    bonus = 1.0
-
-    if 180 <= features["soma"] <= 210:
-        bonus += 0.03
-
-    if 6 <= features["pares"] <= 9:
-        bonus += 0.03
-
-    return score * bonus
-
-
 # =========================================================
-# ENSEMBLE
+# MOTORES
 # =========================================================
-def calcular_score_ensemble(
-    score,
-    features
+def motor_estatistico(
+    score_estatistico
 ):
 
-    motores = [
+    return score_estatistico
 
-        motor_estatistico(
-            score
-        ),
 
-        motor_exploratorio(
-            score
-        ),
+def motor_montecarlo(
+    score_montecarlo
+):
 
-        motor_agressivo(
-            score,
-            features
-        ),
+    return score_montecarlo
 
-        motor_conservador(
-            score,
-            features
+
+def motor_global(
+    fator_global
+):
+
+    return fator_global
+
+
+def motor_feedback(
+    fator_feedback
+):
+
+    return fator_feedback
+
+
+def motor_regime(
+    fator_regime
+):
+
+    return fator_regime
+
+
+# =========================================================
+# ENSEMBLE CENTRAL
+# =========================================================
+def calcular_score_ensemble(
+
+    score_estatistico,
+
+    score_montecarlo,
+
+    fator_global,
+
+    fator_feedback,
+
+    fator_regime,
+
+    bonus_estrutura=1.0,
+
+    bonus_fadiga=1.0,
+
+    bonus_recencia=1.0,
+
+    bonus_moldura=1.0,
+
+    pesos=None,
+
+    **kwargs
+):
+
+    # =====================================================
+    # PESOS DEFAULT
+    # =====================================================
+    if pesos is None:
+
+        pesos = {
+
+            "peso_base": 0.40,
+
+            "peso_global": 0.15,
+
+            "peso_feedback": 0.10,
+
+            "peso_regime": 0.10,
+
+            "peso_moldura": 0.08,
+
+            "peso_estrutura": 0.07,
+
+            "peso_fadiga": 0.05,
+
+            "peso_recencia": 0.05
+        }
+
+    # =====================================================
+    # NORMALIZA
+    # =====================================================
+    score_estatistico = limitar(
+        score_estatistico
+    )
+
+    score_montecarlo = limitar(
+        score_montecarlo
+    )
+
+    fator_global = limitar(
+        fator_global
+    )
+
+    fator_feedback = limitar(
+        fator_feedback
+    )
+
+    fator_regime = limitar(
+        fator_regime
+    )
+
+    bonus_estrutura = limitar(
+        bonus_estrutura
+    )
+
+    bonus_fadiga = limitar(
+        bonus_fadiga
+    )
+
+    bonus_recencia = limitar(
+        bonus_recencia
+    )
+
+    bonus_moldura = limitar(
+        bonus_moldura
+    )
+
+    # =====================================================
+    # BASE
+    # =====================================================
+    score = (
+
+        score_estatistico
+        * pesos["peso_base"]
+
+        +
+
+        score_montecarlo
+        * 0.15
+    )
+
+    # =====================================================
+    # FATORES
+    # =====================================================
+    score *= (
+
+        1
+
+        +
+
+        (
+            (fator_global - 1)
+            * pesos["peso_global"]
         )
-    ]
 
-    return float(
-        np.mean(motores)
+        +
+
+        (
+            (fator_feedback - 1)
+            * pesos["peso_feedback"]
+        )
+
+        +
+
+        (
+            (fator_regime - 1)
+            * pesos["peso_regime"]
+        )
+    )
+
+    # =====================================================
+    # BÔNUS
+    # =====================================================
+    score *= (
+
+        bonus_moldura
+        ** pesos["peso_moldura"]
+
+    )
+
+    score *= (
+
+        bonus_estrutura
+        ** pesos["peso_estrutura"]
+
+    )
+
+    score *= (
+
+        bonus_fadiga
+        ** pesos["peso_fadiga"]
+
+    )
+
+    score *= (
+
+        bonus_recencia
+        ** pesos["peso_recencia"]
+
+    )
+
+    # =====================================================
+    # ENTROPIA CONTROLADA
+    # =====================================================
+    score *= random.uniform(
+        0.995,
+        1.005
+    )
+
+    return round(
+        float(score),
+        8
     )
