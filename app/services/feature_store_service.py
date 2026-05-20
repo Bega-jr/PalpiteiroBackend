@@ -26,13 +26,18 @@ def calcular_entropia(nums):
     freq = Counter(nums)
 
     probs = [
+
         v / len(nums)
+
         for v in freq.values()
     ]
 
     return float(
+
         -sum(
+
             p * math.log2(p)
+
             for p in probs
         )
     )
@@ -50,9 +55,14 @@ def calcular_sequencias(nums):
         if nums[i + 1] == nums[i] + 1:
 
             atual += 1
-            seq = max(seq, atual)
+
+            seq = max(
+                seq,
+                atual
+            )
 
         else:
+
             atual = 1
 
     return seq
@@ -62,15 +72,30 @@ def calcular_linhas(nums):
 
     return [
 
-        sum(1 for n in nums if 1 <= n <= 5),
+        sum(
+            1 for n in nums
+            if 1 <= n <= 5
+        ),
 
-        sum(1 for n in nums if 6 <= n <= 10),
+        sum(
+            1 for n in nums
+            if 6 <= n <= 10
+        ),
 
-        sum(1 for n in nums if 11 <= n <= 15),
+        sum(
+            1 for n in nums
+            if 11 <= n <= 15
+        ),
 
-        sum(1 for n in nums if 16 <= n <= 20),
+        sum(
+            1 for n in nums
+            if 16 <= n <= 20
+        ),
 
-        sum(1 for n in nums if 21 <= n <= 25)
+        sum(
+            1 for n in nums
+            if 21 <= n <= 25
+        )
     ]
 
 
@@ -93,35 +118,67 @@ def calcular_colunas(nums):
 
 def calcular_quadrantes(nums):
 
-    q1 = sum(1 for n in nums if n <= 7)
-    q2 = sum(1 for n in nums if 8 <= n <= 13)
-    q3 = sum(1 for n in nums if 14 <= n <= 19)
-    q4 = sum(1 for n in nums if n >= 20)
+    q1 = sum(
+        1 for n in nums
+        if n <= 7
+    )
+
+    q2 = sum(
+        1 for n in nums
+        if 8 <= n <= 13
+    )
+
+    q3 = sum(
+        1 for n in nums
+        if 14 <= n <= 19
+    )
+
+    q4 = sum(
+        1 for n in nums
+        if n >= 20
+    )
 
     return [q1, q2, q3, q4]
 
 
+def calcular_finais(nums):
+
+    return sorted(list(set([
+        n % 10
+        for n in nums
+    ])))
+
+
 # =========================================================
-# FEATURE STORE
+# FEATURE STORE PRINCIPAL
 # =========================================================
-def extrair_features(jogo, ultimo=None):
+def extrair_features(
+    jogo,
+    ultimo=None
+):
 
     nums = sorted(jogo)
 
     pares = sum(
+
         1 for n in nums
+
         if n % 2 == 0
     )
 
     impares = 15 - pares
 
     primos = sum(
+
         1 for n in nums
+
         if n in PRIMOS
     )
 
     moldura = sum(
+
         1 for n in nums
+
         if n in MOLDURA
     )
 
@@ -132,7 +189,9 @@ def extrair_features(jogo, ultimo=None):
     if ultimo:
 
         repetidos = len(
-            set(nums) & set(ultimo)
+            set(nums)
+            &
+            set(ultimo)
         )
 
     linhas = calcular_linhas(nums)
@@ -145,34 +204,96 @@ def extrair_features(jogo, ultimo=None):
 
     entropia = calcular_entropia(nums)
 
-    dispersao = float(np.std(nums))
+    dispersao = float(
+        np.std(nums)
+    )
 
-    amplitude = max(nums) - min(nums)
+    amplitude = (
+        max(nums)
+        - min(nums)
+    )
 
     densidade = soma / 15
 
+    finais = calcular_finais(nums)
+
+    qtd_finais = len(finais)
+
     return {
 
+        # =====================================
+        # ESTRUTURA BASE
+        # =====================================
         "pares": pares,
+
         "impares": impares,
+
         "primos": primos,
+
         "moldura": moldura,
 
         "soma": soma,
 
         "repetidos": repetidos,
 
+
+        # =====================================
+        # DISTRIBUIÇÃO
+        # =====================================
         "linhas": linhas,
+
         "colunas": colunas,
+
         "quadrantes": quadrantes,
 
+
+        # =====================================
+        # PADRÕES
+        # =====================================
         "seq_max": seq_max,
 
-        "entropia": round(entropia, 6),
+        "sequencias": seq_max,
 
-        "dispersao": round(dispersao, 6),
+
+        # =====================================
+        # MÉTRICAS
+        # =====================================
+        "entropia": round(
+            entropia,
+            6
+        ),
+
+        "dispersao": round(
+            dispersao,
+            6
+        ),
 
         "amplitude": amplitude,
 
-        "densidade": round(densidade, 6)
+        "densidade": round(
+            densidade,
+            6
+        ),
+
+
+        # =====================================
+        # FINAIS
+        # =====================================
+        "finais": finais,
+
+        "qtd_finais": qtd_finais
     }
+
+
+# =========================================================
+# COMPATIBILIDADE LEGADA
+# =========================================================
+def gerar_features_jogo(
+    jogo,
+    ultimo_resultado=None
+):
+
+    return extrair_features(
+        jogo,
+        ultimo_resultado
+    )
