@@ -633,7 +633,7 @@ def main():
             "dispersao_media":
                 dispersao,
 
-            "estabilidade":
+            "estabilidade_media":
                 estabilidade,
 
             "ultima_aparicao":
