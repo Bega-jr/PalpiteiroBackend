@@ -2,197 +2,103 @@ import numpy as np
 
 
 # =========================================================
-# DISTÂNCIA
+# HELPERS
 # =========================================================
-def distancia_jaccard(a, b):
+def similaridade_jogos(a, b):
 
-    a = set(a)
-    b = set(b)
-
-    inter = len(a & b)
-    uniao = len(a | b)
-
-    if uniao == 0:
-        return 0.0
-
-    return 1 - (inter / uniao)
+    return len(
+        set(a) & set(b)
+    )
 
 
-def distancia_hamming(a, b):
-
-    a = sorted(a)
-    b = sorted(b)
+def distancia_linhas(l1, l2):
 
     return sum(
 
-        1
+        abs(a - b)
 
-        for x, y in zip(a, b)
-
-        if x != y
+        for a, b in zip(l1, l2)
     )
-
-
-# =========================================================
-# DIVERSIDADE
-# =========================================================
-def diversidade_basica_ok(
-    novo,
-    lista,
-    minimo=9
-):
-
-    return all(
-
-        len(
-            set(novo)
-            ^
-            set(x["nums"])
-        ) >= minimo
-
-        for x in lista
-    )
-
-
-def diversidade_estrutural_ok(
-    estrutura_nova,
-    estruturas_existentes
-):
-
-    estrutura_id = tuple(
-        estrutura_nova["linhas"]
-    )
-
-    return (
-        estrutura_id
-        not in estruturas_existentes
-    )
-
-
-def diversidade_estatistica_ok(
-    features,
-    lista_features,
-    tolerancia_soma=12,
-    tolerancia_pares=2
-):
-
-    for f in lista_features:
-
-        if (
-
-            abs(
-                features["soma"]
-                - f["soma"]
-            ) <= tolerancia_soma
-
-            and
-
-            abs(
-                features["pares"]
-                - f["pares"]
-            ) <= tolerancia_pares
-        ):
-
-            return False
-
-    return True
 
 
 # =========================================================
 # DIVERSIDADE AVANÇADA
 # =========================================================
 def diversidade_avancada_ok(
-    novo_jogo,
+    jogo,
     candidatos,
     estrutura=None,
-    minimo_jaccard=0.60,
-    minimo_hamming=9
+    cluster_id=None,
+    limite_similares=12,
+    limite_cluster=8,
+    **kwargs
 ):
 
+    # =====================================================
+    # SEM CANDIDATOS
+    # =====================================================
     if not candidatos:
         return True
 
-    for candidato in candidatos:
-
-        jogo_ref = candidato["nums"]
-
-        dist_jaccard = distancia_jaccard(
-            novo_jogo,
-            jogo_ref
-        )
-
-        dist_hamming = distancia_hamming(
-            novo_jogo,
-            jogo_ref
-        )
-
-        # =====================================
-        # MUITO PARECIDO
-        # =====================================
-        if dist_jaccard < minimo_jaccard:
-            return False
-
-        if dist_hamming < minimo_hamming:
-            return False
-
-        # =====================================
-        # ESTRUTURA IGUAL
-        # =====================================
-        if estrutura:
-
-            estrutura_ref = candidato.get(
-                "estrutura",
-                {}
-            )
-
-            if estrutura_ref:
-
-                if (
-
-                    estrutura["linhas"]
-
-                    ==
-
-                    estrutura_ref.get(
-                        "linhas",
-                        []
-                    )
-                ):
-
-                    return False
-
-    return True
-
-
-# =========================================================
-# SCORE DE DIVERSIDADE
-# =========================================================
-def score_diversidade(
-    jogo,
-    candidatos
-):
-
-    if not candidatos:
-        return 1.0
-
-    distancias = []
+    similares_cluster = 0
 
     for c in candidatos:
 
-        dist = distancia_jaccard(
-            jogo,
-            c["nums"]
+        nums_ref = c.get(
+            "nums",
+            []
         )
 
-        distancias.append(dist)
+        # =================================================
+        # OVERLAP
+        # =================================================
+        overlap = similaridade_jogos(
+            jogo,
+            nums_ref
+        )
 
-    media = float(
-        np.mean(distancias)
-    )
+        if overlap >= limite_similares:
+            return False
 
-    return round(
+        # =================================================
+        # CLUSTER
+        # =================================================
+        if (
 
-        1.0 + (media * 0.08),
+            cluster_id is not None
 
-        6
-    )
+            and
+
+            c.get("cluster_id") == cluster_id
+        ):
+
+            similares_cluster += 1
+
+        # =================================================
+        # LINHAS
+        # =================================================
+        if estrutura:
+
+            linhas_ref = (
+                c.get("estrutura", {})
+                .get("linhas", [])
+            )
+
+            if linhas_ref:
+
+                dist = distancia_linhas(
+
+                    estrutura["linhas"],
+                    linhas_ref
+                )
+
+                if dist <= 1:
+                    return False
+
+    # =====================================================
+    # SATURAÇÃO DE CLUSTER
+    # =====================================================
+    if similares_cluster >= limite_cluster:
+        return False
+
+    return True
