@@ -3,28 +3,15 @@ import numpy as np
 
 
 # =========================================================
-# SIMULAÇÃO
+# HELPERS
 # =========================================================
-def gerar_sorteio():
-
-    return sorted(
-
-        random.sample(
-            range(1, 26),
-            15
-        )
-    )
-
-
 def calcular_acertos(
     jogo,
     sorteio
 ):
 
     return len(
-        set(jogo)
-        &
-        set(sorteio)
+        set(jogo) & set(sorteio)
     )
 
 
@@ -33,135 +20,71 @@ def calcular_acertos(
 # =========================================================
 def simular_probabilidade_jogo(
     jogo,
-    simulacoes=5000
+    historico=None,
+    simulacoes=300,
+    **kwargs
 ):
 
-    resultados = {
+    # =====================================================
+    # FALLBACK
+    # =====================================================
+    if not historico:
 
-        11: 0,
-        12: 0,
-        13: 0,
-        14: 0,
-        15: 0
-    }
+        historico = []
 
-    acertos_lista = []
+        for _ in range(simulacoes):
 
+            historico.append({
 
-    for _ in range(simulacoes):
+                "numeros": sorted(
+                    random.sample(
+                        range(1, 26),
+                        15
+                    )
+                )
+            })
 
-        sorteio = gerar_sorteio()
+    resultados = []
+
+    # =====================================================
+    # SIMULAÇÃO HISTÓRICA
+    # =====================================================
+    for concurso in historico[-simulacoes:]:
+
+        dezenas = concurso.get(
+            "numeros",
+            []
+        )
 
         acertos = calcular_acertos(
             jogo,
-            sorteio
+            dezenas
         )
 
-        acertos_lista.append(
-            acertos
-        )
+        resultados.append(acertos)
 
-        if acertos >= 11:
-
-            resultados[acertos] += 1
-
-
-    probs = {
-
-        f"prob_{k}": round(
-            v / simulacoes,
-            8
-        )
-
-        for k, v in resultados.items()
-    }
-
+    if not resultados:
+        return 0.0
 
     media = float(
-        np.mean(acertos_lista)
+        np.mean(resultados)
     )
 
-    dp = float(
-        np.std(acertos_lista)
+    estabilidade = 1 - min(
+        np.std(resultados) / 5,
+        1
     )
 
+    score = (
 
-    score_probabilistico = (
-
-        (probs["prob_11"] * 0.35)
+        (media / 15) * 0.75
 
         +
 
-        (probs["prob_12"] * 0.30)
-
-        +
-
-        (probs["prob_13"] * 0.20)
-
-        +
-
-        (probs["prob_14"] * 0.10)
-
-        +
-
-        (probs["prob_15"] * 0.05)
-    )
-
-
-    return {
-
-        **probs,
-
-        "media_acertos": round(
-            media,
-            6
-        ),
-
-        "desvio_padrao": round(
-            dp,
-            6
-        ),
-
-        "score_probabilistico": round(
-            score_probabilistico,
-            10
-        )
-    }
-
-
-# =========================================================
-# SCORE FINAL
-# =========================================================
-def bonus_montecarlo(resultado):
-
-    score = float(
-        resultado.get(
-            "score_probabilistico",
-            0
-        )
-    )
-
-    media = float(
-        resultado.get(
-            "media_acertos",
-            0
-        )
-    )
-
-    bonus = 1.0
-
-    if media >= 9:
-        bonus += 0.04
-
-    elif media >= 8:
-        bonus += 0.02
-
-    bonus += min(
-        score * 100,
-        0.08
+        (estabilidade * 0.25)
     )
 
     return round(
-        bonus,
+        float(score),
         6
     )
