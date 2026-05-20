@@ -262,7 +262,7 @@ def ajustar_por_memoria(df, memoria):
 
     estabilidade = float(
         memoria.get(
-            "estabilidade",
+            "estabilidade_media",
             0
         )
     )
@@ -555,9 +555,9 @@ def main():
 
                     "fator_correcao": fator_correcao,
 
-                    "dispersao": dispersao,
+                    "dispersao_media": dispersao,
 
-                    "estabilidade": estabilidade
+                    "estabilidade_media": estabilidade
                 }
 
 
