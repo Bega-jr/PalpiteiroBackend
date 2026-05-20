@@ -94,69 +94,88 @@ def calcular_colunas(nums):
 def calcular_quadrantes(nums):
 
     q1 = sum(1 for n in nums if n <= 7)
-
     q2 = sum(1 for n in nums if 8 <= n <= 13)
-
     q3 = sum(1 for n in nums if 14 <= n <= 19)
-
     q4 = sum(1 for n in nums if n >= 20)
 
     return [q1, q2, q3, q4]
 
 
 # =========================================================
-# FEATURE STORE PRINCIPAL
+# FEATURE STORE
 # =========================================================
 def gerar_features_jogo(
     jogo,
+    ultimo=None,
     filtros=None,
+    estrutura=None,
     contexto=None,
-    ultimo=None
+    **kwargs
 ):
 
     nums = sorted(jogo)
 
-    pares = sum(
-        1 for n in nums
-        if n % 2 == 0
-    )
+    # =====================================================
+    # FALLBACKS
+    # =====================================================
+    if filtros is None:
 
-    impares = 15 - pares
-
-    primos = sum(
-        1 for n in nums
-        if n in PRIMOS
-    )
-
-    moldura = sum(
-        1 for n in nums
-        if n in MOLDURA
-    )
-
-    soma = sum(nums)
-
-    repetidos = 0
-
-    if ultimo:
-
-        repetidos = len(
-            set(nums) & set(ultimo)
+        pares = sum(
+            1 for n in nums
+            if n % 2 == 0
         )
 
-    elif filtros:
+        filtros = {
 
-        repetidos = filtros.get(
-            "repetidos",
-            0
-        )
+            "pares": pares,
 
-    linhas = calcular_linhas(nums)
+            "impares": 15 - pares,
 
+            "primos": sum(
+                1 for n in nums
+                if n in PRIMOS
+            ),
+
+            "moldura": sum(
+                1 for n in nums
+                if n in MOLDURA
+            ),
+
+            "soma": sum(nums),
+
+            "repetidos": (
+                len(set(nums) & set(ultimo))
+                if ultimo
+                else 0
+            ),
+
+            "seq_max": calcular_sequencias(nums)
+        }
+
+    if estrutura is None:
+
+        estrutura = {
+
+            "linhas": calcular_linhas(nums)
+        }
+
+    if contexto is None:
+
+        contexto = {
+
+            "media_repetidos": 0.0,
+
+            "media_soma": 0.0,
+
+            "media_seq": 0.0
+        }
+
+    # =====================================================
+    # FEATURES
+    # =====================================================
     colunas = calcular_colunas(nums)
 
     quadrantes = calcular_quadrantes(nums)
-
-    seq_max = calcular_sequencias(nums)
 
     entropia = calcular_entropia(nums)
 
@@ -164,54 +183,45 @@ def gerar_features_jogo(
 
     amplitude = max(nums) - min(nums)
 
-    densidade = soma / 15
+    densidade = filtros["soma"] / 15
 
 
-    # =====================================================
-    # CONTEXTO
-    # =====================================================
-    contexto = contexto or {}
+    features = {
 
-    media_repetidos = contexto.get(
-        "media_repetidos",
-        0
-    )
+        # =========================================
+        # BASE
+        # =========================================
+        "pares": filtros["pares"],
 
-    media_soma = contexto.get(
-        "media_soma",
-        0
-    )
+        "impares": filtros.get(
+            "impares",
+            15 - filtros["pares"]
+        ),
 
-    media_seq = contexto.get(
-        "media_seq",
-        0
-    )
+        "primos": filtros["primos"],
+
+        "moldura": filtros["moldura"],
+
+        "soma": filtros["soma"],
+
+        "repetidos": filtros["repetidos"],
+
+        "seq_max": filtros["seq_max"],
 
 
-    # =====================================================
-    # FEATURES FINAIS
-    # =====================================================
-    return {
-
-        "pares": pares,
-        "impares": impares,
-
-        "primos": primos,
-
-        "moldura": moldura,
-
-        "soma": soma,
-
-        "repetidos": repetidos,
-
-        "linhas": linhas,
+        # =========================================
+        # ESTRUTURA
+        # =========================================
+        "linhas": estrutura["linhas"],
 
         "colunas": colunas,
 
         "quadrantes": quadrantes,
 
-        "seq_max": seq_max,
 
+        # =========================================
+        # ESTATÍSTICAS
+        # =========================================
         "entropia": round(
             entropia,
             6
@@ -229,27 +239,33 @@ def gerar_features_jogo(
             6
         ),
 
-        # =========================================
-        # CONTEXTUAIS
-        # =========================================
-        "contexto_repetidos": round(
-            media_repetidos,
-            4
-        ),
 
-        "contexto_soma": round(
-            media_soma,
-            4
-        ),
+        # =========================================
+        # CONTEXTO
+        # =========================================
+        "contexto_media_repetidos":
+            contexto.get(
+                "media_repetidos",
+                0.0
+            ),
 
-        "contexto_seq": round(
-            media_seq,
-            4
-        )
+        "contexto_media_soma":
+            contexto.get(
+                "media_soma",
+                0.0
+            ),
+
+        "contexto_media_seq":
+            contexto.get(
+                "media_seq",
+                0.0
+            )
     }
+
+    return features
 
 
 # =========================================================
-# COMPATIBILIDADE LEGADA
+# COMPATIBILIDADE RETROATIVA
 # =========================================================
 extrair_features = gerar_features_jogo
