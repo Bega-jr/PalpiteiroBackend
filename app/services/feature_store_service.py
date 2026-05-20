@@ -45,10 +45,10 @@ def calcular_entropia(nums):
 
 def calcular_sequencias(nums):
 
+    nums = sorted(nums)
+
     seq = 1
     atual = 1
-
-    nums = sorted(nums)
 
     for i in range(len(nums) - 1):
 
@@ -56,10 +56,7 @@ def calcular_sequencias(nums):
 
             atual += 1
 
-            seq = max(
-                seq,
-                atual
-            )
+            seq = max(seq, atual)
 
         else:
 
@@ -72,30 +69,15 @@ def calcular_linhas(nums):
 
     return [
 
-        sum(
-            1 for n in nums
-            if 1 <= n <= 5
-        ),
+        sum(1 for n in nums if 1 <= n <= 5),
 
-        sum(
-            1 for n in nums
-            if 6 <= n <= 10
-        ),
+        sum(1 for n in nums if 6 <= n <= 10),
 
-        sum(
-            1 for n in nums
-            if 11 <= n <= 15
-        ),
+        sum(1 for n in nums if 11 <= n <= 15),
 
-        sum(
-            1 for n in nums
-            if 16 <= n <= 20
-        ),
+        sum(1 for n in nums if 16 <= n <= 20),
 
-        sum(
-            1 for n in nums
-            if 21 <= n <= 25
-        )
+        sum(1 for n in nums if 21 <= n <= 25)
     ]
 
 
@@ -108,7 +90,9 @@ def calcular_colunas(nums):
         colunas.append(
 
             sum(
+
                 1 for n in nums
+
                 if (n - c) % 5 == 0
             )
         )
@@ -116,49 +100,23 @@ def calcular_colunas(nums):
     return colunas
 
 
-def calcular_quadrantes(nums):
-
-    q1 = sum(
-        1 for n in nums
-        if n <= 7
-    )
-
-    q2 = sum(
-        1 for n in nums
-        if 8 <= n <= 13
-    )
-
-    q3 = sum(
-        1 for n in nums
-        if 14 <= n <= 19
-    )
-
-    q4 = sum(
-        1 for n in nums
-        if n >= 20
-    )
-
-    return [q1, q2, q3, q4]
-
-
-def calcular_finais(nums):
-
-    return sorted(list(set([
-        n % 10
-        for n in nums
-    ])))
-
-
 # =========================================================
-# FEATURE STORE PRINCIPAL
+# FEATURE ENGINE
 # =========================================================
-def extrair_features(
+def gerar_features_jogo(
     jogo,
+    filtros=None,
+    estrutura=None,
+    cluster=None,
+    montecarlo=None,
     ultimo=None
 ):
 
     nums = sorted(jogo)
 
+    # =====================================================
+    # FILTROS BASE
+    # =====================================================
     pares = sum(
 
         1 for n in nums
@@ -189,41 +147,92 @@ def extrair_features(
     if ultimo:
 
         repetidos = len(
-            set(nums)
-            &
-            set(ultimo)
+            set(nums) & set(ultimo)
         )
 
-    linhas = calcular_linhas(nums)
+
+    # =====================================================
+    # ESTRUTURA
+    # =====================================================
+    linhas = (
+
+        estrutura["linhas"]
+
+        if estrutura and "linhas" in estrutura
+
+        else calcular_linhas(nums)
+    )
 
     colunas = calcular_colunas(nums)
 
-    quadrantes = calcular_quadrantes(nums)
+    quadrantes = [
 
+        sum(1 for n in nums if n <= 7),
+
+        sum(1 for n in nums if 8 <= n <= 13),
+
+        sum(1 for n in nums if 14 <= n <= 19),
+
+        sum(1 for n in nums if n >= 20)
+    ]
+
+
+    # =====================================================
+    # FEATURES AVANÇADAS
+    # =====================================================
     seq_max = calcular_sequencias(nums)
 
     entropia = calcular_entropia(nums)
 
-    dispersao = float(
-        np.std(nums)
-    )
+    dispersao = float(np.std(nums))
 
-    amplitude = (
-        max(nums)
-        - min(nums)
-    )
+    amplitude = max(nums) - min(nums)
 
     densidade = soma / 15
 
-    finais = calcular_finais(nums)
 
-    qtd_finais = len(finais)
+    # =====================================================
+    # CLUSTER
+    # =====================================================
+    cluster_id = None
+    cluster_similaridade = 0.0
 
+    if cluster:
+
+        cluster_id = cluster.get(
+            "cluster_id"
+        )
+
+        cluster_similaridade = float(
+
+            cluster.get(
+                "similaridade_media",
+                0
+            )
+        )
+
+
+    # =====================================================
+    # MONTE CARLO
+    # =====================================================
+    score_probabilistico = 0.0
+
+    if montecarlo:
+
+        score_probabilistico = float(
+
+            montecarlo.get(
+                "score_probabilistico",
+                0
+            )
+        )
+
+
+    # =====================================================
+    # RESULTADO
+    # =====================================================
     return {
 
-        # =====================================
-        # ESTRUTURA BASE
-        # =====================================
         "pares": pares,
 
         "impares": impares,
@@ -236,28 +245,14 @@ def extrair_features(
 
         "repetidos": repetidos,
 
-
-        # =====================================
-        # DISTRIBUIÇÃO
-        # =====================================
         "linhas": linhas,
 
         "colunas": colunas,
 
         "quadrantes": quadrantes,
 
-
-        # =====================================
-        # PADRÕES
-        # =====================================
         "seq_max": seq_max,
 
-        "sequencias": seq_max,
-
-
-        # =====================================
-        # MÉTRICAS
-        # =====================================
         "entropia": round(
             entropia,
             6
@@ -275,25 +270,15 @@ def extrair_features(
             6
         ),
 
+        "cluster_id": cluster_id,
 
-        # =====================================
-        # FINAIS
-        # =====================================
-        "finais": finais,
+        "cluster_similaridade": round(
+            cluster_similaridade,
+            6
+        ),
 
-        "qtd_finais": qtd_finais
+        "score_probabilistico": round(
+            score_probabilistico,
+            10
+        )
     }
-
-
-# =========================================================
-# COMPATIBILIDADE LEGADA
-# =========================================================
-def gerar_features_jogo(
-    jogo,
-    ultimo_resultado=None
-):
-
-    return extrair_features(
-        jogo,
-        ultimo_resultado
-    )
