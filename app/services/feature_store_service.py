@@ -26,18 +26,13 @@ def calcular_entropia(nums):
     freq = Counter(nums)
 
     probs = [
-
         v / len(nums)
-
         for v in freq.values()
     ]
 
     return float(
-
         -sum(
-
             p * math.log2(p)
-
             for p in probs
         )
     )
@@ -45,21 +40,19 @@ def calcular_entropia(nums):
 
 def calcular_sequencias(nums):
 
-    nums = sorted(nums)
-
     seq = 1
     atual = 1
+
+    nums = sorted(nums)
 
     for i in range(len(nums) - 1):
 
         if nums[i + 1] == nums[i] + 1:
 
             atual += 1
-
             seq = max(seq, atual)
 
         else:
-
             atual = 1
 
     return seq
@@ -90,9 +83,7 @@ def calcular_colunas(nums):
         colunas.append(
 
             sum(
-
                 1 for n in nums
-
                 if (n - c) % 5 == 0
             )
         )
@@ -100,43 +91,45 @@ def calcular_colunas(nums):
     return colunas
 
 
+def calcular_quadrantes(nums):
+
+    q1 = sum(1 for n in nums if n <= 7)
+
+    q2 = sum(1 for n in nums if 8 <= n <= 13)
+
+    q3 = sum(1 for n in nums if 14 <= n <= 19)
+
+    q4 = sum(1 for n in nums if n >= 20)
+
+    return [q1, q2, q3, q4]
+
+
 # =========================================================
-# FEATURE ENGINE
+# FEATURE STORE PRINCIPAL
 # =========================================================
 def gerar_features_jogo(
     jogo,
     filtros=None,
-    estrutura=None,
-    cluster=None,
-    montecarlo=None,
+    contexto=None,
     ultimo=None
 ):
 
     nums = sorted(jogo)
 
-    # =====================================================
-    # FILTROS BASE
-    # =====================================================
     pares = sum(
-
         1 for n in nums
-
         if n % 2 == 0
     )
 
     impares = 15 - pares
 
     primos = sum(
-
         1 for n in nums
-
         if n in PRIMOS
     )
 
     moldura = sum(
-
         1 for n in nums
-
         if n in MOLDURA
     )
 
@@ -150,36 +143,19 @@ def gerar_features_jogo(
             set(nums) & set(ultimo)
         )
 
+    elif filtros:
 
-    # =====================================================
-    # ESTRUTURA
-    # =====================================================
-    linhas = (
+        repetidos = filtros.get(
+            "repetidos",
+            0
+        )
 
-        estrutura["linhas"]
-
-        if estrutura and "linhas" in estrutura
-
-        else calcular_linhas(nums)
-    )
+    linhas = calcular_linhas(nums)
 
     colunas = calcular_colunas(nums)
 
-    quadrantes = [
+    quadrantes = calcular_quadrantes(nums)
 
-        sum(1 for n in nums if n <= 7),
-
-        sum(1 for n in nums if 8 <= n <= 13),
-
-        sum(1 for n in nums if 14 <= n <= 19),
-
-        sum(1 for n in nums if n >= 20)
-    ]
-
-
-    # =====================================================
-    # FEATURES AVANÇADAS
-    # =====================================================
     seq_max = calcular_sequencias(nums)
 
     entropia = calcular_entropia(nums)
@@ -192,49 +168,32 @@ def gerar_features_jogo(
 
 
     # =====================================================
-    # CLUSTER
+    # CONTEXTO
     # =====================================================
-    cluster_id = None
-    cluster_similaridade = 0.0
+    contexto = contexto or {}
 
-    if cluster:
+    media_repetidos = contexto.get(
+        "media_repetidos",
+        0
+    )
 
-        cluster_id = cluster.get(
-            "cluster_id"
-        )
+    media_soma = contexto.get(
+        "media_soma",
+        0
+    )
 
-        cluster_similaridade = float(
-
-            cluster.get(
-                "similaridade_media",
-                0
-            )
-        )
-
-
-    # =====================================================
-    # MONTE CARLO
-    # =====================================================
-    score_probabilistico = 0.0
-
-    if montecarlo:
-
-        score_probabilistico = float(
-
-            montecarlo.get(
-                "score_probabilistico",
-                0
-            )
-        )
+    media_seq = contexto.get(
+        "media_seq",
+        0
+    )
 
 
     # =====================================================
-    # RESULTADO
+    # FEATURES FINAIS
     # =====================================================
     return {
 
         "pares": pares,
-
         "impares": impares,
 
         "primos": primos,
@@ -270,15 +229,27 @@ def gerar_features_jogo(
             6
         ),
 
-        "cluster_id": cluster_id,
-
-        "cluster_similaridade": round(
-            cluster_similaridade,
-            6
+        # =========================================
+        # CONTEXTUAIS
+        # =========================================
+        "contexto_repetidos": round(
+            media_repetidos,
+            4
         ),
 
-        "score_probabilistico": round(
-            score_probabilistico,
-            10
+        "contexto_soma": round(
+            media_soma,
+            4
+        ),
+
+        "contexto_seq": round(
+            media_seq,
+            4
         )
     }
+
+
+# =========================================================
+# COMPATIBILIDADE LEGADA
+# =========================================================
+extrair_features = gerar_features_jogo
