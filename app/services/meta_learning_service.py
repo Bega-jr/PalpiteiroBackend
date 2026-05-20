@@ -1,5 +1,7 @@
 from typing import Dict
 
+import numpy as np
+
 from app.services.supabase_service import get_supabase
 
 
@@ -16,6 +18,45 @@ PESOS_DEFAULT = {
     "peso_fadiga": 0.05,
     "peso_recencia": 0.05
 }
+
+
+# ==================================================
+# UTILS
+# ==================================================
+def limitar(valor, vmin=0.02, vmax=0.60):
+
+    return max(
+        vmin,
+        min(vmax, valor)
+    )
+
+
+def normalizar_pesos(pesos):
+
+    soma = sum(pesos.values())
+
+    chaves = list(pesos.keys())
+
+    for k in chaves:
+
+        pesos[k] = round(
+            pesos[k] / soma,
+            4
+        )
+
+    diferenca = round(
+        1.0 - sum(pesos.values()),
+        4
+    )
+
+    if diferenca != 0:
+
+        pesos[chaves[-1]] = round(
+            pesos[chaves[-1]] + diferenca,
+            4
+        )
+
+    return pesos
 
 
 # ==================================================
@@ -38,14 +79,17 @@ def obter_pesos_ensemble() -> Dict[str, float]:
         )
 
         if not rows:
+
             return PESOS_DEFAULT.copy()
 
         row = rows[0]
 
-        return {
+        pesos = {
             k: float(row.get(k, v))
             for k, v in PESOS_DEFAULT.items()
         }
+
+        return normalizar_pesos(pesos)
 
     except Exception as e:
 
@@ -54,6 +98,116 @@ def obter_pesos_ensemble() -> Dict[str, float]:
         )
 
         return PESOS_DEFAULT.copy()
+
+
+# ==================================================
+# CÁLCULO DE ENTROPIA
+# ==================================================
+def calcular_entropia(
+    media_acertos,
+    melhor_acerto,
+    dispersao
+):
+
+    score = (
+        (melhor_acerto * 0.45)
+        +
+        (media_acertos * 0.35)
+        +
+        (dispersao * 0.20)
+    )
+
+    return round(score / 15, 6)
+
+
+# ==================================================
+# ANTI OVERFITTING
+# ==================================================
+def aplicar_anti_overfitting(
+    pesos,
+    media_acertos,
+    dispersao,
+    melhor_acerto
+):
+
+    # ==========================================
+    # Cenário:
+    # Muito concentrado
+    # ==========================================
+    if dispersao <= 2 and media_acertos <= 9:
+
+        pesos["peso_base"] -= 0.015
+        pesos["peso_feedback"] -= 0.010
+
+        pesos["peso_estrutura"] += 0.015
+        pesos["peso_recencia"] += 0.010
+
+        print(
+            "🧠 Anti-Overfitting: "
+            "aumentando exploração estrutural"
+        )
+
+    # ==========================================
+    # Cenário:
+    # Pico isolado muito alto
+    # ==========================================
+    if melhor_acerto >= 12 and media_acertos < 9:
+
+        pesos["peso_base"] -= 0.010
+        pesos["peso_global"] -= 0.010
+
+        pesos["peso_estrutura"] += 0.015
+        pesos["peso_fadiga"] += 0.005
+
+        print(
+            "🎯 Pico isolado detectado: "
+            "reduzindo convergência"
+        )
+
+    return pesos
+
+
+# ==================================================
+# CONTROLE DE ENTROPIA
+# ==================================================
+def aplicar_entropia_dinamica(
+    pesos,
+    score_entropia
+):
+
+    # ==========================================
+    # Baixa entropia
+    # jogos muito parecidos
+    # ==========================================
+    if score_entropia < 0.55:
+
+        pesos["peso_estrutura"] += 0.02
+        pesos["peso_recencia"] += 0.01
+
+        pesos["peso_base"] -= 0.02
+
+        print(
+            "🌪️ Entropia baixa: "
+            "forçando diversidade"
+        )
+
+    # ==========================================
+    # Entropia muito alta
+    # sistema instável
+    # ==========================================
+    elif score_entropia > 0.80:
+
+        pesos["peso_base"] += 0.01
+        pesos["peso_feedback"] += 0.01
+
+        pesos["peso_estrutura"] -= 0.01
+
+        print(
+            "📊 Entropia alta: "
+            "reduzindo ruído estrutural"
+        )
+
+    return pesos
 
 
 # ==================================================
@@ -70,7 +224,9 @@ def atualizar_meta_learning(
     melhor_acerto: int = 0,
     pior_acerto: int = 0,
     dispersao: int = 0,
+
     qtd_palpites: int = 7,
+
     score_estrutural: float = 0.0
 ):
 
@@ -102,7 +258,6 @@ def atualizar_meta_learning(
 
         # ==========================================
         # AJUSTE POR DISPERSÃO
-        # (quanto mais inconsistente, mais valor estrutural)
         # ==========================================
         if dispersao >= 4:
 
@@ -110,6 +265,10 @@ def atualizar_meta_learning(
             pesos["peso_fadiga"] += 0.01
 
             pesos["peso_base"] -= 0.01
+
+            print(
+                "📉 Alta dispersão detectada"
+            )
 
 
         # ==========================================
@@ -125,49 +284,47 @@ def atualizar_meta_learning(
 
 
         # ==========================================
+        # ENTROPIA
+        # ==========================================
+        score_entropia = calcular_entropia(
+            media_acertos,
+            melhor_acerto,
+            dispersao
+        )
+
+        pesos = aplicar_entropia_dinamica(
+            pesos,
+            score_entropia
+        )
+
+
+        # ==========================================
+        # ANTI OVERFITTING
+        # ==========================================
+        pesos = aplicar_anti_overfitting(
+            pesos,
+            media_acertos,
+            dispersao,
+            melhor_acerto
+        )
+
+
+        # ==========================================
         # LIMITES
         # ==========================================
         for k in pesos:
 
-            pesos[k] = max(
-                0.02,
-                min(
-                    0.60,
-                    pesos[k]
-                )
+            pesos[k] = limitar(
+                pesos[k]
             )
 
 
         # ==========================================
         # NORMALIZAÇÃO
         # ==========================================
-        soma = sum(
-            pesos.values()
+        pesos = normalizar_pesos(
+            pesos
         )
-
-        chaves = list(
-            pesos.keys()
-        )
-
-        for k in chaves:
-
-            pesos[k] = round(
-                pesos[k] / soma,
-                4
-            )
-
-
-        diferenca = round(
-            1.0 - sum(pesos.values()),
-            4
-        )
-
-        if diferenca != 0:
-
-            pesos[chaves[-1]] = round(
-                pesos[chaves[-1]] + diferenca,
-                4
-            )
 
 
         # ==========================================
@@ -180,7 +337,9 @@ def atualizar_meta_learning(
             "score_ultimo": round(
                 media_acertos,
                 4
-            )
+            ),
+
+            "entropia_atual": score_entropia
         }
 
         supabase.table(
@@ -222,6 +381,8 @@ def atualizar_meta_learning(
             "pior_acerto": pior_acerto,
             "dispersao": dispersao,
 
+            "entropia": score_entropia,
+
             "qtd_candidatos": qtd_palpites,
 
             "score_estrutural": round(
@@ -244,11 +405,12 @@ def atualizar_meta_learning(
 
 
         print(
-            f"🧠 Meta-Learning Contextual | "
+            f"🧠 Meta-Learning v19 | "
             f"Concurso {concurso_ref} | "
             f"Média={media_acertos:.2f} | "
             f"Best={melhor_acerto} | "
-            f"Spread={dispersao}"
+            f"Spread={dispersao} | "
+            f"Entropia={score_entropia:.4f}"
         )
 
     except Exception as e:
