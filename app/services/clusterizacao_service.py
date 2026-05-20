@@ -1,80 +1,262 @@
-import random
+import math
 import numpy as np
 
-from collections import defaultdict
+from collections import Counter
 
 
 # =========================================================
-# KMEANS SIMPLES
+# HELPERS
 # =========================================================
-def distancia(a, b):
+def distancia_jaccard(a, b):
 
-    return np.linalg.norm(
-        np.array(a) - np.array(b)
+    a = set(a)
+    b = set(b)
+
+    inter = len(a & b)
+    uniao = len(a | b)
+
+    if uniao == 0:
+        return 0.0
+
+    return 1 - (inter / uniao)
+
+
+def calcular_centroide(jogos):
+
+    if not jogos:
+        return []
+
+    freq = Counter()
+
+    for jogo in jogos:
+        freq.update(jogo)
+
+    mais_comuns = [
+
+        n
+
+        for n, _ in freq.most_common(15)
+    ]
+
+    return sorted(mais_comuns)
+
+
+def calcular_similaridade_estrutura(j1, j2):
+
+    linhas1 = calcular_linhas(j1)
+    linhas2 = calcular_linhas(j2)
+
+    diferenca = sum(
+
+        abs(a - b)
+
+        for a, b in zip(linhas1, linhas2)
+    )
+
+    return max(
+        0.0,
+        1 - (diferenca / 15)
     )
 
 
-def clusterizar(candidatos, k=4):
+def calcular_linhas(nums):
 
-    if len(candidatos) < k:
-        return [candidatos]
+    return [
 
-    centroides = random.sample(
-        [
-            c["vetor"]
-            for c in candidatos
-        ],
-        k
+        sum(1 for n in nums if 1 <= n <= 5),
+
+        sum(1 for n in nums if 6 <= n <= 10),
+
+        sum(1 for n in nums if 11 <= n <= 15),
+
+        sum(1 for n in nums if 16 <= n <= 20),
+
+        sum(1 for n in nums if 21 <= n <= 25)
+    ]
+
+
+# =========================================================
+# CLUSTER
+# =========================================================
+def identificar_cluster_jogo(
+    jogo,
+    clusters_existentes=None
+):
+
+    nums = sorted(jogo)
+
+    linhas = calcular_linhas(nums)
+
+    pares = sum(
+        1 for n in nums
+        if n % 2 == 0
     )
 
-    for _ in range(15):
+    soma = sum(nums)
 
-        grupos = defaultdict(list)
+    assinatura = (
 
-        for c in candidatos:
+        f"L{'-'.join(map(str, linhas))}"
+        f"_P{pares}"
+        f"_S{int(round(soma / 10) * 10)}"
+    )
 
-            dists = [
+    if not clusters_existentes:
 
-                distancia(
-                    c["vetor"],
-                    centro
-                )
+        return {
 
-                for centro in centroides
-            ]
+            "cluster_id": assinatura,
 
-            idx = int(np.argmin(dists))
+            "similaridade_media": 0.0,
 
-            grupos[idx].append(c)
+            "densidade_cluster": 0.0,
 
-        novos_centros = []
+            "centroide": nums
+        }
 
-        for i in range(k):
 
-            grupo = grupos[i]
+    similares = []
 
-            if not grupo:
+    for cluster in clusters_existentes:
 
-                novos_centros.append(
-                    random.choice(
-                        candidatos
-                    )["vetor"]
-                )
+        jogo_ref = cluster.get(
+            "centroide",
+            []
+        )
 
-                continue
+        if not jogo_ref:
+            continue
 
-            media = np.mean(
+        dist = distancia_jaccard(
+            nums,
+            jogo_ref
+        )
 
-                [
-                    g["vetor"]
-                    for g in grupo
-                ],
+        similaridade = 1 - dist
 
-                axis=0
+        similares.append(
+            similaridade
+        )
+
+
+    similaridade_media = (
+
+        float(np.mean(similares))
+        if similares
+        else 0.0
+    )
+
+    densidade = min(
+        1.0,
+        similaridade_media * 1.25
+    )
+
+    return {
+
+        "cluster_id": assinatura,
+
+        "similaridade_media": round(
+            similaridade_media,
+            6
+        ),
+
+        "densidade_cluster": round(
+            densidade,
+            6
+        ),
+
+        "centroide": nums
+    }
+
+
+# =========================================================
+# AGRUPAMENTO
+# =========================================================
+def gerar_clusters(jogos):
+
+    clusters = {}
+
+    for jogo in jogos:
+
+        cluster = identificar_cluster_jogo(
+            jogo
+        )
+
+        cid = cluster["cluster_id"]
+
+        if cid not in clusters:
+
+            clusters[cid] = []
+
+        clusters[cid].append(jogo)
+
+
+    resultado = []
+
+    for cid, jogos_cluster in clusters.items():
+
+        centroide = calcular_centroide(
+            jogos_cluster
+        )
+
+        resultado.append({
+
+            "cluster_id": cid,
+
+            "qtd_jogos": len(jogos_cluster),
+
+            "centroide": centroide,
+
+            "densidade": round(
+
+                min(
+                    1.0,
+                    len(jogos_cluster) / 50
+                ),
+
+                6
             )
+        })
 
-            novos_centros.append(media)
+    return resultado
 
-        centroides = novos_centros
 
-    return list(grupos.values())
+# =========================================================
+# SCORE CLUSTER
+# =========================================================
+def score_clusterizacao(cluster_info):
+
+    if not cluster_info:
+        return 1.0
+
+    similaridade = float(
+        cluster_info.get(
+            "similaridade_media",
+            0
+        )
+    )
+
+    densidade = float(
+        cluster_info.get(
+            "densidade_cluster",
+            0
+        )
+    )
+
+    score = (
+
+        1.0
+
+        +
+
+        (similaridade * 0.08)
+
+        -
+
+        (densidade * 0.05)
+    )
+
+    return round(
+        max(0.85, min(1.15, score)),
+        6
+    )
