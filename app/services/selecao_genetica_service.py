@@ -3,237 +3,133 @@ import numpy as np
 
 
 # =========================================================
-# CROSSOVER
+# HELPERS
 # =========================================================
-def crossover(pai, mae):
+def similaridade(a, b):
 
-    filho = sorted(
-
-        list(
-
-            set(
-
-                random.sample(
-                    pai,
-                    8
-                )
-
-                +
-
-                random.sample(
-                    mae,
-                    7
-                )
-            )
-        )
+    return len(
+        set(a) & set(b)
     )
 
-    while len(filho) < 15:
 
-        n = random.randint(1, 25)
-
-        if n not in filho:
-            filho.append(n)
-
-    return sorted(filho[:15])
-
-
-# =========================================================
-# MUTAÇÃO
-# =========================================================
-def mutacao(
+def distancia_media(
     jogo,
-    taxa=0.10
+    selecionados
 ):
 
-    jogo = jogo.copy()
+    if not selecionados:
+        return 15.0
 
-    if random.random() > taxa:
-        return sorted(jogo)
+    distancias = []
 
-    idx = random.randint(0, 14)
+    for s in selecionados:
 
-    disponiveis = [
+        overlap = similaridade(
+            jogo,
+            s["nums"]
+        )
 
-        n for n in range(1, 26)
-        if n not in jogo
-    ]
+        distancias.append(
+            15 - overlap
+        )
 
-    jogo[idx] = random.choice(
-        disponiveis
+    return float(
+        np.mean(distancias)
     )
 
-    return sorted(jogo)
-
 
 # =========================================================
-# EVOLUÇÃO
-# =========================================================
-def evoluir_populacao(
-    populacao,
-    elite_size=10
-):
-
-    if not populacao:
-        return []
-
-    populacao = sorted(
-
-        populacao,
-
-        key=lambda x: x["score"],
-
-        reverse=True
-    )
-
-    elite = populacao[:elite_size]
-
-    nova_populacao = elite.copy()
-
-    while len(nova_populacao) < len(populacao):
-
-        p1 = random.choice(elite)
-        p2 = random.choice(elite)
-
-        filho = crossover(
-            p1["nums"],
-            p2["nums"]
-        )
-
-        filho = mutacao(
-            filho
-        )
-
-        score_filho = float(
-
-            (
-                p1["score"]
-                +
-                p2["score"]
-            ) / 2
-        )
-
-        nova_populacao.append({
-
-            "nums": filho,
-
-            "score": score_filho,
-
-            "origem": "genetico"
-        })
-
-    return nova_populacao
-
-
-# =========================================================
-# SCORE POPULAÇÃO
-# =========================================================
-def score_populacao(populacao):
-
-    if not populacao:
-        return 0.0
-
-    scores = [
-
-        p["score"]
-
-        for p in populacao
-    ]
-
-    return {
-
-        "media": round(
-            float(np.mean(scores)),
-            6
-        ),
-
-        "maximo": round(
-            float(np.max(scores)),
-            6
-        ),
-
-        "minimo": round(
-            float(np.min(scores)),
-            6
-        ),
-
-        "desvio": round(
-            float(np.std(scores)),
-            6
-        )
-    }
-
-
-# =========================================================
-# SELEÇÃO FINAL
+# SELEÇÃO GENÉTICA
 # =========================================================
 def selecionar_populacao_final(
+
     candidatos,
-    qtd=7,
-    diversidade_minima=8
+
+    qtd_final=7,
+
+    diversidade_minima=4,
+
+    elite_inicial=80,
+
+    **kwargs
 ):
+
+    if not candidatos:
+        return []
+
+    # =====================================================
+    # ELITE
+    # =====================================================
+    elite = candidatos[:elite_inicial]
 
     finais = []
 
-    estruturas = set()
+    clusters_usados = set()
 
-    for candidato in sorted(
+    # =====================================================
+    # PRIMEIRA PASSAGEM
+    # =====================================================
+    for c in elite:
 
-        candidatos,
-
-        key=lambda x: x["score"],
-
-        reverse=True
-    ):
-
-        if len(finais) >= qtd:
+        if len(finais) >= qtd_final:
             break
 
-        nums = candidato["nums"]
-
-        estrutura = tuple(
-
-            candidato.get(
-                "estrutura",
-                {}
-            ).get(
-                "linhas",
-                []
-            )
+        cluster = c.get(
+            "cluster_id",
+            -1
         )
 
-        # =====================================
-        # EVITA ESTRUTURAS IGUAIS
-        # =====================================
-        if estrutura in estruturas:
+        jogo = c["nums"]
+
+        # =================================================
+        # DIVERSIDADE
+        # =================================================
+        dist = distancia_media(
+            jogo,
+            finais
+        )
+
+        if dist < diversidade_minima:
             continue
 
-        # =====================================
-        # DIVERSIDADE
-        # =====================================
-        valido = True
+        # =================================================
+        # SATURAÇÃO DE CLUSTER
+        # =================================================
+        if cluster in clusters_usados:
 
-        for existente in finais:
+            if random.random() < 0.65:
+                continue
 
-            diferenca = len(
+        finais.append(c)
 
-                set(nums)
-                ^
-                set(existente["nums"])
-            )
+        clusters_usados.add(cluster)
 
-            if diferenca < diversidade_minima:
+    # =====================================================
+    # FALLBACK
+    # =====================================================
+    if len(finais) < qtd_final:
 
-                valido = False
+        restantes = [
+
+            c for c in elite
+            if c not in finais
+        ]
+
+        random.shuffle(restantes)
+
+        for c in restantes:
+
+            if len(finais) >= qtd_final:
                 break
 
-        if not valido:
-            continue
+            finais.append(c)
 
-        estruturas.add(
-            estrutura
-        )
+    # =====================================================
+    # ORDENA FINAL
+    # =====================================================
+    finais.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
 
-        finais.append(candidato)
-
-    return finais
+    return finais[:qtd_final]
