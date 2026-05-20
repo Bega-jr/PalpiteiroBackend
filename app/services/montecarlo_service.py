@@ -5,9 +5,9 @@ import numpy as np
 # =========================================================
 # SIMULAÇÃO
 # =========================================================
-def simular_concurso():
+def gerar_sorteio():
 
-    return set(
+    return sorted(
 
         random.sample(
             range(1, 26),
@@ -16,61 +16,152 @@ def simular_concurso():
     )
 
 
-def avaliar_jogo(
+def calcular_acertos(
+    jogo,
+    sorteio
+):
+
+    return len(
+        set(jogo)
+        &
+        set(sorteio)
+    )
+
+
+# =========================================================
+# MONTE CARLO
+# =========================================================
+def simular_probabilidade_jogo(
     jogo,
     simulacoes=5000
 ):
 
-    resultados = []
+    resultados = {
 
-    jogo = set(jogo)
+        11: 0,
+        12: 0,
+        13: 0,
+        14: 0,
+        15: 0
+    }
+
+    acertos_lista = []
+
 
     for _ in range(simulacoes):
 
-        concurso = simular_concurso()
+        sorteio = gerar_sorteio()
 
-        acertos = len(
-            jogo & concurso
+        acertos = calcular_acertos(
+            jogo,
+            sorteio
         )
 
-        resultados.append(acertos)
+        acertos_lista.append(
+            acertos
+        )
+
+        if acertos >= 11:
+
+            resultados[acertos] += 1
+
+
+    probs = {
+
+        f"prob_{k}": round(
+            v / simulacoes,
+            8
+        )
+
+        for k, v in resultados.items()
+    }
+
+
+    media = float(
+        np.mean(acertos_lista)
+    )
+
+    dp = float(
+        np.std(acertos_lista)
+    )
+
+
+    score_probabilistico = (
+
+        (probs["prob_11"] * 0.35)
+
+        +
+
+        (probs["prob_12"] * 0.30)
+
+        +
+
+        (probs["prob_13"] * 0.20)
+
+        +
+
+        (probs["prob_14"] * 0.10)
+
+        +
+
+        (probs["prob_15"] * 0.05)
+    )
+
 
     return {
 
-        "media": round(
-            float(np.mean(resultados)),
+        **probs,
+
+        "media_acertos": round(
+            media,
             6
         ),
 
-        "desvio": round(
-            float(np.std(resultados)),
+        "desvio_padrao": round(
+            dp,
             6
         ),
 
-        "max": max(resultados),
-
-        "min": min(resultados)
+        "score_probabilistico": round(
+            score_probabilistico,
+            10
+        )
     }
 
 
 # =========================================================
-# SCORE MONTE CARLO
+# SCORE FINAL
 # =========================================================
-def score_montecarlo(jogo):
+def bonus_montecarlo(resultado):
 
-    stats = avaliar_jogo(jogo)
-
-    score = (
-
-        stats["media"] * 0.60
-
-        +
-
-        stats["max"] * 0.25
-
-        -
-
-        stats["desvio"] * 0.15
+    score = float(
+        resultado.get(
+            "score_probabilistico",
+            0
+        )
     )
 
-    return round(float(score), 6)
+    media = float(
+        resultado.get(
+            "media_acertos",
+            0
+        )
+    )
+
+    bonus = 1.0
+
+    if media >= 9:
+        bonus += 0.04
+
+    elif media >= 8:
+        bonus += 0.02
+
+    bonus += min(
+        score * 100,
+        0.08
+    )
+
+    return round(
+        bonus,
+        6
+    )
