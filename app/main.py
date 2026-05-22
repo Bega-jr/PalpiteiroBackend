@@ -20,26 +20,45 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# ======================================================
 # CORS
+# ======================================================
+
 origins = [
+    # Frontend produção
     "https://palpiteiro-ia.netlify.app",
-    "https://palpiteiro-backend.vercel.app",
-    "https://lovable.dev",
-    "https://gpt-engineer.lovable.app",
-    "http://localhost:5173",
-    "http://localhost:3000",
     "https://palpiteiro-frontend.vercel.app",
     "https://palpiteiro.vercel.app",
+
+    # Backend
+    "https://palpiteiro-backend.vercel.app",
+
+    # Desenvolvimento local
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+
+    # GitHub Codespaces
+    "https://glowing-xylophone-7495ww5x9wvfpg75-8080.app.github.dev",
+
+    # Lovable
+    "https://lovable.dev",
+    "https://gpt-engineer.lovable.app",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex="https://.*\\.lovable\\.app",
+    allow_origin_regex=r"https://.*\.app\.github\.dev",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ======================================================
+# ROOT
+# ======================================================
 
 @app.get("/", tags=["Root"])
 def root():
@@ -49,7 +68,10 @@ def root():
         "message": "API rodando com sucesso!"
     }
 
-# Inclusão dos routers
+# ======================================================
+# ROUTERS
+# ======================================================
+
 app.include_router(health_router, tags=["Health"])
 app.include_router(home_router, tags=["Home"])
 app.include_router(ultimos_router, tags=["Últimos Resultados"])
@@ -60,6 +82,10 @@ app.include_router(historico_router, tags=["Histórico"])
 app.include_router(resultados_router, tags=["Resultados"])
 app.include_router(home_desempenho_router, tags=["Home Desempenho"])
 
+# ======================================================
+# STARTUP
+# ======================================================
+
 @app.on_event("startup")
 def startup_event():
-    print("Palpiteiro Backend iniciado com sucesso!")
+    print("✅ Palpiteiro Backend iniciado com sucesso!")
