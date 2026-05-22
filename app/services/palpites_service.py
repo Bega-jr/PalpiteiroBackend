@@ -1,15 +1,14 @@
 from app.services.supabase_service import get_supabase
 import json
 
-VERSAO_GERADOR_ATUAL = "v4-memoria-estrategica"
+# Atualizado para bater com o seu novo motor genético v19.0
+VERSAO_GERADOR_ATUAL = "v19.0-genetic-context-engine"
 
 
 # ==========================================================
-# BACKTEST (NÃO BLOQUEANTE)
+# BACKTEST (NÃO BLOQUEANTE) - PRESERVADO
 # ==========================================================
 def calcular_score_backtest(reg):
-    # Ajustado de qtd_palpites para total_palpites_avaliados caso mude na view, 
-    # mantendo fallbacks seguros para evitar divisão por zero
     total = int(reg.get("total_concursos", 1)) * int(reg.get("qtd_palpites", 1) or 1)
 
     if total == 0:
@@ -45,7 +44,7 @@ def obter_score_backtest(supabase, tipo):
 
 
 # ==========================================================
-# UTIL JSON SAFE
+# UTIL JSON SAFE - PRESERVADO
 # ==========================================================
 def _safe_json(valor):
     if isinstance(valor, str):
@@ -57,17 +56,33 @@ def _safe_json(valor):
 
 
 # ==========================================================
-# PALPITE FIXO
+# PALPITE FIXO (REVISADO: Extrai dinamicamente o Índice 1 do dia)
 # ==========================================================
 def obter_palpite_fixo_publico():
     supabase = get_supabase()
 
+    # Busca a data mais recente independente do marcador de tipo string
+    ultima_data_res = (
+        supabase
+        .table("palpites_validos")
+        .select("data_referencia")
+        .order("data_referencia", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if not ultima_data_res.data:
+        return None
+
+    data_recente = ultima_data_res.data[0]["data_referencia"]
+
+    # CORREÇÃO: Puxa o palpite de índice_palpite = 1 para assumir o papel de Fixo
     res = (
         supabase
         .table("palpites_validos")
         .select("*")
-        .eq("tipo", "fixo")
-        .order("data_referencia", desc=True)
+        .eq("data_referencia", data_recente)
+        .eq("indice_palpite", 1)
         .limit(1)
         .execute()
     )
@@ -80,7 +95,6 @@ def obter_palpite_fixo_publico():
     numeros = _safe_json(r.get("numeros"))
     metricas = _safe_json(r.get("metricas"))
 
-    # Estrutura unificada injetando o nó 'metricas' exigido pelo roteador da API
     return {
         "data_referencia": r.get("data_referencia"),
         "numeros": numeros,
@@ -88,8 +102,8 @@ def obter_palpite_fixo_publico():
         "pares": r.get("pares") or 0,
         "impares": r.get("impares") or 0,
         "metricas": {
-            "score": metricas.get("score_final") or metricas.get("score", 0),
-            "metodo": metricas.get("versao", VERSAO_GERADOR_ATUAL),
+            "score": r.get("score") or metricas.get("score_final") or metricas.get("score", 0),
+            "metodo": r.get("versao_gerador") or metricas.get("versao", VERSAO_GERADOR_ATUAL),
             "ranking": metricas.get("ranking"),
             "score_backtest": obter_score_backtest(supabase, "fixo"),
             "memoria_aplicada": metricas.get("memoria_aplicada", False)
@@ -98,17 +112,16 @@ def obter_palpite_fixo_publico():
 
 
 # ==========================================================
-# PALPITES ESTATÍSTICOS
+# PALPITES ESTATÍSTICOS (REVISADO: Traz a lista do concurso do índice 1 ao 7)
 # ==========================================================
 def obter_palpites_estatisticos_publico():
     supabase = get_supabase()
 
-    # 1. Busca primeiro qual é a data de referência mais recente disponível
+    # 1. Busca a data de referência mais recente disponível
     ultima_data_res = (
         supabase
         .table("palpites_validos")
         .select("data_referencia")
-        .eq("tipo", "estatistico")
         .order("data_referencia", desc=True)
         .limit(1)
         .execute()
@@ -119,13 +132,13 @@ def obter_palpites_estatisticos_publico():
 
     data_recente = ultima_data_res.data[0]["data_referencia"]
 
-    # 2. Busca apenas os palpites estatísticos daquela data específica
+    # 2. CORREÇÃO: Remove o filtro rígido .eq("tipo", "estatistico")
+    # Traz TODOS os registros gerados para a data, ordenados do 1º ao 7º
     res = (
         supabase
         .table("palpites_validos")
         .select("*")
-        .eq("tipo", "estatistico")
-        .eq("data_referencia", data_recente) # Filtro essencial para não misturar histórico
+        .eq("data_referencia", data_recente) 
         .order("indice_palpite")
         .execute()
     )
@@ -137,7 +150,6 @@ def obter_palpites_estatisticos_publico():
         numeros = _safe_json(r.get("numeros"))
         metricas = _safe_json(r.get("metricas"))
 
-        # Estrutura unificada injetando o nó 'metricas' exigido pelo roteador da API
         palpites.append({
             "data_referencia": r.get("data_referencia"),
             "indice_palpite": r.get("indice_palpite") or 0,
@@ -146,8 +158,8 @@ def obter_palpites_estatisticos_publico():
             "pares": r.get("pares") or 0,
             "impares": r.get("impares") or 0,
             "metricas": {
-                "score": metricas.get("score_final") or metricas.get("score", 0),
-                "metodo": metricas.get("versao", VERSAO_GERADOR_ATUAL),
+                "score": r.get("score") or metricas.get("score_final") or metricas.get("score", 0),
+                "metodo": r.get("versao_gerador") or metricas.get("versao", VERSAO_GERADOR_ATUAL),
                 "ranking": metricas.get("ranking"),
                 "score_backtest": score_backtest,
                 "memoria_aplicada": metricas.get("memoria_aplicada", False)
