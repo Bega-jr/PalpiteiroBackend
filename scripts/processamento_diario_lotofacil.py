@@ -376,9 +376,9 @@ def main():
             )
         )
 
-        # ==================================================
+        # ======================================================
         # FEEDBACK LOOP
-        # ==================================================
+        # ======================================================
         media_acertos = 0.0
         fator_correcao = 1.0
         dispersao = 0
@@ -429,7 +429,9 @@ def main():
                     "media_acertos_ia": round(media_acertos, 2),
                     "fator_correcao": fator_correcao,
                     "dispersao_media": dispersao,
-                    "estabilidade_media":稳定性
+                    
+                    # CORREÇÃO 1: Substituído o caractere residual pela variável local correta
+                    "estabilidade_media": estabilidade
                 }
 
                 supabase.table(
@@ -479,7 +481,7 @@ def main():
             on_conflict="soma_faixa,pares,primos,hash_estrutura"
         ).execute()
 
-        print("🔄 Memória estrutural atualizada via UPSERT seguro")
+        print("🔄 Memória estrutural updated via UPSERT seguro")
 
         # ==================================================
         # REGIME CONTEXTUAL
@@ -512,7 +514,9 @@ def main():
                     for i in range(1, min(15, len(historico)))
                 ])
             ),
-            "contexto_seq": estrutura["linhas"]
+            
+            # CORREÇÃO 2: Extrai a média das linhas obtendo um número decimal puro aceito pela coluna numeric
+            "contexto_seq": float(np.mean(estrutura["linhas"]))
         }
 
         supabase.table(
@@ -543,10 +547,10 @@ def main():
             "media_pares": int(estrutura["pares"]),
             "media_impares": int(15 - estrutura["pares"]),
             "media_primos": int(estrutura["primos"]),
-            "numeros_atrasados": faltantes_ciclo,
-            "numeros_quentes": df_sorted_score.head(5)["numero"].tolist(),
-            "numeros_frios": df_sorted_score.tail(5)["numero"].tolist(),
-            "atrasados_ranking": df_sorted_atraso.head(5)["numero"].tolist()
+            "numeros_atrasados": [int(n) for n in faltantes_ciclo],
+            "numeros_quentes": [int(n) for n in df_sorted_score.head(5)["numero"].tolist()],
+            "numeros_frios": [int(n) for n in df_sorted_score.tail(5)["numero"].tolist()],
+            "atrasados_ranking": [int(n) for n in df_sorted_atraso.head(5)["numero"].tolist()]
         }
         supabase.table("estatisticas_diarias_v2").upsert(
             payload_diario_publico, on_conflict="data_referencia"
@@ -575,5 +579,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-        
