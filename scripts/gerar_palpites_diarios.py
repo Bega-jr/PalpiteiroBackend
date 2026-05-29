@@ -1096,8 +1096,7 @@ def main():
         "versao_gerador": VERSAO
     })
 
-
-    supabase.table(
+        supabase.table(
         "palpites_validos"
     ).upsert(
         payload,
@@ -1107,21 +1106,31 @@ def main():
         )
     ).execute()
 
+    # ==================================================
+    # TELEMETRIA FINAL
+    # ==================================================
+    try:
+        tempo_total = time.time() - inicio_execucao
+        
+        persistir_telemetria(
+            supabase=supabase,
+            concurso_ref=concurso_ref,
+            candidatos=finais,
+            tempo_execucao=tempo_total,
+            versao=VERSAO
+        )
+    except Exception as e:
+        print(f"⚠️ Falha telemetria final: {e}")
 
-    print(
-        "\n📲 TELEGRAM_PAYLOAD_START"
-    )
-
+    # Sempre executa o bloco do Telegram (independente do try/except acima)
+    print("\n📲 TELEGRAM_PAYLOAD_START")
     print(
         montar_msg_telegram(
             concurso_ref,
             telegram
         )
     )
-
-    print(
-        "📲 TELEGRAM_PAYLOAD_END"
-    )
+    print("📲 TELEGRAM_PAYLOAD_END")
 
 
 if __name__ == "__main__":
