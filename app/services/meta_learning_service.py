@@ -375,6 +375,8 @@ def atualizar_meta_learning(
             "peso_estrutura": pesos["peso_estrutura"],
             "peso_fadiga": pesos["peso_fadiga"],
             "peso_recencia": pesos["peso_recencia"],
+            "peso_montecarlo": pesos["peso_montecarlo"],
+            "peso_recompensa": pesos["peso_recompensa"],
 
             "tipo_regime": tipo_regime,
 
