@@ -78,6 +78,8 @@ def calcular_score_ensemble(
 
     bonus_moldura=1.0,
 
+    bonus_recompensa=1.0,
+
     pesos=None,
 
     **kwargs
@@ -103,6 +105,8 @@ def calcular_score_ensemble(
             "peso_estrutura": 0.07,
 
             "peso_fadiga": 0.05,
+
+            "peso_recompensa": 0.08
 
             "peso_recencia": 0.05
         }
@@ -144,6 +148,10 @@ def calcular_score_ensemble(
 
     bonus_moldura = limitar(
         bonus_moldura
+    )
+
+    bonus_recompensa = limitar(
+        bonus_recompensa
     )
 
     # =====================================================
@@ -218,6 +226,13 @@ def calcular_score_ensemble(
         bonus_recencia
         ** pesos["peso_recencia"]
 
+    )
+
+    score *= (
+
+        bonus_recompensa
+        ** pesos["peso_recompensa"]
+    
     )
 
     # =====================================================
