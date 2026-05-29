@@ -3,6 +3,7 @@ import time
 import numpy as np
 
 from datetime import datetime
+from app.services.supabase_service import get_supabase
 
 
 # =========================================================
