@@ -4,6 +4,8 @@ import random
 import itertools
 import numpy as np
 import pytz
+import time
+
 
 from collections import Counter
 
@@ -458,6 +460,8 @@ def fator_regime(tipo):
 # ======================================================
 def main():
 
+    inicio_execucao = time.time()
+    
     supabase = get_supabase()
 
     print(f"🛡️ {VERSAO}")
@@ -901,13 +905,12 @@ def main():
         })
 
 
-        # ==================================================
+       # ==================================================
         # CONTADOR DE DIVERSIDADE
         # ==================================================
         for dezena in jogo:
-        
             contador_dezenas[dezena] += 1
-
+        
         # ==================================================
         # FIM LOOP GERAÇÃO
         # ==================================================
@@ -915,6 +918,7 @@ def main():
         print(
             f"✅ Aprendizado concluído: {len(candidatos)} candidatos"
         )
+
         
     # ==================================================
     # MÉTRICAS GERAIS
