@@ -63,11 +63,14 @@ def avaliar_desempenho_concurso():
                 pass
         
         data_jogo = row.get("data_referencia") or datetime.now().date().isoformat()
+
+        numeros_originais = row.get("numeros")
         
         palpites_atualizados.append({
             "concurso_referencia": concurso_real,
             "indice_palpite": row["indice_palpite"],
             "data_referencia": data_jogo, # 🟢 Adicionado para satisfazer a restrição NOT NULL
+            "numeros": numeros_originais, # 🟢 Adicionado para satisfazer a restrição NOT NULL de números
             "acertos": qtd_acertos,
             "conferido": True,
             "processado": True
