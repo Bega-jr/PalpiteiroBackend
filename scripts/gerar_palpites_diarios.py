@@ -915,37 +915,7 @@ def main():
         print(
             f"✅ Aprendizado concluído: {len(candidatos)} candidatos"
         )
-
-
-        # ==================================================
-        # TELEMETRIA GLOBAL EXECUÇÃO
-        # ==================================================
-        try:
         
-            from app.services.persistencia_analytics_service import (
-                persistir_telemetria
-            )
-        
-            persistir_telemetria(
-        
-                supabase=supabase,
-        
-                concurso_ref=concurso_ref,
-        
-                candidatos=candidatos,
-        
-                tempo_execucao=0,
-        
-                versao=VERSAO
-            )
-        
-        except Exception as e:
-        
-            print(
-                f"⚠️ Falha telemetria: {e}"
-            )
-        
-
     # ==================================================
     # MÉTRICAS GERAIS
     # ==================================================
