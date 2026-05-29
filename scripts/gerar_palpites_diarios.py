@@ -31,6 +31,10 @@ from app.services.persistencia_analytics_service import (
     persistir_telemetria_geracao
 )
 
+from app.services.recompensa_evolutiva_service import (
+    calcular_recompensa_evolutiva
+)
+
 # ======================================================
 # NOVOS MÓDULOS V19.0
 # ======================================================
@@ -723,6 +727,17 @@ def main():
         cluster_id = identificar_cluster_jogo(
             features
         )
+        # ==================================================
+        # RECOMPENSA EVOLUTIVA
+        # ==================================================
+        recompensa = calcular_recompensa_evolutiva(
+        
+            estrutura=estrutura,
+        
+            filtros=filtros,
+        
+            cluster_id=cluster_id
+        )
 
 
         # ==================================================
@@ -784,7 +799,9 @@ def main():
 
             bonus_moldura=bonus_moldura(filtros),
 
-            pesos=pesos
+            pesos=pesos,
+
+            bonus_recompensa=recompensa
         )
 
 
