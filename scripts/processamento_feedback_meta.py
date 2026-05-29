@@ -24,7 +24,7 @@ def avaliar_desempenho_concurso():
     rows = (
         supabase
         .table("palpites_validos")
-        .select("indice_palpite, numeros, score")
+        .select("indice_palpite, numeros, score, data_referencia")
         .eq("concurso_referencia", concurso_real)
         .execute()
         .data
@@ -62,9 +62,12 @@ def avaliar_desempenho_concurso():
             except:
                 pass
         
+        data_jogo = row.get("data_referencia") or datetime.now().date().isoformat()
+        
         palpites_atualizados.append({
             "concurso_referencia": concurso_real,
             "indice_palpite": row["indice_palpite"],
+            "data_referencia": data_jogo, # 🟢 Adicionado para satisfazer a restrição NOT NULL
             "acertos": qtd_acertos,
             "conferido": True,
             "processado": True
