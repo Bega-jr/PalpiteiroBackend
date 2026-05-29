@@ -1,4 +1,5 @@
-name: Pipeline Lotofácil 2026 - IA Evolutiva v16.3
+```yaml
+name: Pipeline Lotofácil 2026 - IA Evolutiva v19.1
 
 on:
   schedule:
@@ -49,14 +50,16 @@ jobs:
       # ==================================================
       # ETAPA 1
       # ==================================================
-      - name: Atualizar resultados
-        run: python scripts/atualizar_lotofacil.py
+      - name: Atualizar resultados oficiais
+        run: |
+          python scripts/atualizar_lotofacil.py
 
 
       # ==================================================
-      # ETAPA 2 (CONFERÊNCIA)
+      # ETAPA 2
+      # CONFERÊNCIA REAL DOS PALPITES
       # ==================================================
-      - name: Conferência
+      - name: Conferir resultados reais
         run: |
 
           python scripts/conferir_resultados.py | tee saida_conferencia.txt
@@ -89,22 +92,46 @@ jobs:
 
       # ==================================================
       # ETAPA 2.1
+      # MEMÓRIA ESTRUTURAL
       # ==================================================
-      - name: Memória estrutural
-        run: python scripts/atualizar_memoria_resultados.py
+      - name: Atualizar memória estrutural
+        run: |
+          python scripts/atualizar_memoria_resultados.py
+
+
+      # ==================================================
+      # ETAPA 2.2
+      # FEEDBACK META LEARNING
+      # ==================================================
+      - name: Processamento feedback meta
+        run: |
+          python scripts/processamento_feedback_meta.py
+
+
+      # ==================================================
+      # ETAPA 2.3
+      # AUDITORIA TABELAS VAZIAS
+      # ==================================================
+      - name: Auditoria estrutural banco
+        run: |
+
+          python scripts/auditoria_estrutural.py || true
 
 
       # ==================================================
       # ETAPA 3
+      # PROCESSAMENTO CONTEXTUAL
       # ==================================================
-      - name: Processamento
-        run: python scripts/processamento_diario_lotofacil.py
+      - name: Processamento diário contextual
+        run: |
+          python scripts/processamento_diario_lotofacil.py
 
 
       # ==================================================
       # ETAPA 4
+      # GERAÇÃO DOS PALPITES
       # ==================================================
-      - name: Gerar palpites
+      - name: Gerar palpites IA
         run: |
 
           python scripts/gerar_palpites_diarios.py | tee saida.txt
@@ -119,6 +146,15 @@ jobs:
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
+
+
+      # ==================================================
+      # ETAPA 4.1
+      # SNAPSHOT TELEMETRIA
+      # ==================================================
+      - name: Snapshot telemetria
+        run: |
+          python scripts/snapshot_telemetria.py || true
 
 
       # ==================================================
@@ -148,9 +184,9 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
 
-          TEXT="🔴 Erro no pipeline Lotofácil v16.3"
+          TEXT="🔴 Erro no pipeline Lotofácil v19.1"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
-
+```
