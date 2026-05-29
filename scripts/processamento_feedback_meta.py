@@ -39,7 +39,20 @@ def avaliar_desempenho_concurso():
     scores_estruturais = []
 
     for row in rows:
-        nums_palpite = set(json.loads(row["numeros"]))
+        # ======================================================
+        # TRATAMENTO ROBUSTO DE TIPAGEM (STRING VS LISTA NATIVA)
+        # ======================================================
+        numeros_brutos = row["numeros"]
+        if isinstance(numeros_brutos, str):
+            try:
+                nums_palpite = set(json.loads(numeros_brutos))
+            except Exception:
+                nums_palpite = set()
+        elif isinstance(numeros_brutos, list):
+            nums_palpite = set(int(x) for x in numeros_brutos)
+        else:
+            nums_palpite = set()
+
         qtd_acertos = len(nums_palpite & numeros_sorteados)
         acertos_totais.append(qtd_acertos)
         
@@ -56,6 +69,10 @@ def avaliar_desempenho_concurso():
             "conferido": True,
             "processado": True
         })
+
+    if not acertos_totais:
+        print("⚠️ Nenhum palpite pôde ser processado devido a formato inválido.")
+        return
 
     media_acertos_ensemble = sum(acertos_totais) / len(acertos_totais)
     melhor_acerto = max(acertos_totais)
@@ -74,7 +91,7 @@ def avaliar_desempenho_concurso():
 
     print(f"📈 Média: {media_acertos_ensemble:.2f} | Spread: {dispersao}")
 
-    # 1. Atualiza o Meta-Learning com a assinatura correta (2 parâmetros obrigatórios)
+    # 1. Updates Meta-Learning com a assinatura correta
     atualizar_meta_learning(
         media_acertos=media_acertos_ensemble,
         concurso_ref=concurso_real,
@@ -113,22 +130,18 @@ def avaliar_desempenho_concurso():
     except Exception as e_cen:
         print(f"⚠️ Erro ao recalibrar cenário: {e_cen}")
 
-       # 3. Força a atualização dos palpites
-    try:
-        (
-            supabase.table("palpites_validos")
-            .update({
-                "acertos": qtd_acertos,
-                "conferido": True,
-                "processado": True
-            })
-            .eq("concurso_referencia", concurso_real)
-            .eq("indice_palpite", row["indice_palpite"])
-            .execute()
-        )
-        print("✅ Banco de dados sincronizado manualmente.")
-    except Exception as e:
-        print(f"⚠️ Erro ao salvar palpites: {e}")
+    # 3. Força a atualização de todos os palpites da rodada de forma segura (Bulk Upsert)
+    if palpites_atualizados:
+        try:
+            supabase.table("palpites_validos").upsert(
+                palpites_atualizados,
+                on_conflict="concurso_referencia,indice_palpite"
+            ).execute()
+            print(f"✅ Banco de dados sincronizado em lote ({len(palpites_atualizados)} jogos).")
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar palpites em lote: {e}")
+
 
 if __name__ == "__main__":
     avaliar_desempenho_concurso()
+
