@@ -11,12 +11,8 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 
-VERSAO = "v1.0-meta-validacao-final"
+VERSAO = "v2.0-meta-validacao-autoregenerativa"
 
-
-# ======================================================
-# CONFIG
-# ======================================================
 QTD_PALPITES = 7
 
 LIMITE_OVERLAP_MEDIO = 11.2
@@ -26,6 +22,8 @@ LIMITE_EXPOSICAO_DEZENA = 6
 LIMITE_ENTROPIA = 2.70
 
 LIMITE_DIVERSIDADE = 16
+
+MAX_REGENERACOES = 3
 
 
 # ======================================================
@@ -52,6 +50,7 @@ def calcular_entropia(contagem):
         p = v / total
 
         if p > 0:
+
             entropia -= p * math.log2(p)
 
     return entropia
@@ -62,14 +61,18 @@ def calcular_score_diversidade(jogos):
     dezenas = set()
 
     for j in jogos:
+
         dezenas.update(j)
 
     return len(dezenas)
 
 
 def calcular_risco_colapso(
+
     overlap_medio,
+
     entropia,
+
     diversidade
 ):
 
@@ -99,52 +102,14 @@ def interpretar_risco(risco):
 
 
 # ======================================================
-# MAIN
+# CARREGA PALPITES
 # ======================================================
-def main():
+def carregar_palpites(
+    supabase,
+    concurso
+):
 
-    print(
-        f"🧠 {VERSAO}"
-    )
-
-    supabase = get_supabase()
-
-    # ==================================================
-    # ÚLTIMO CONCURSO
-    # ==================================================
-    ultimo = (
-
-        supabase
-        .table("palpites_validos")
-        .select(
-            "concurso_referencia"
-        )
-        .order(
-            "concurso_referencia",
-            desc=True
-        )
-        .limit(1)
-        .execute()
-        .data
-    )
-
-    if not ultimo:
-
-        print(
-            "❌ Nenhum concurso encontrado."
-        )
-
-        return
-
-    concurso = ultimo[0][
-        "concurso_referencia"
-    ]
-
-
-    # ==================================================
-    # CARREGA PALPITES
-    # ==================================================
-    palpites = (
+    rows = (
 
         supabase
         .table("palpites_validos")
@@ -160,58 +125,80 @@ def main():
         .data
     )
 
-    if len(palpites) < QTD_PALPITES:
-
-        print(
-            "⚠️ Quantidade insuficiente de palpites."
-        )
-
-        return
-
-
     jogos = []
 
-    for p in palpites:
+    for r in rows:
 
-        nums = json.loads(
-            p["numeros"]
-        )
+        jogos.append({
 
-        jogos.append(nums)
+            "indice": r["indice_palpite"],
+
+            "numeros": json.loads(
+                r["numeros"]
+            )
+        })
+
+    return jogos
 
 
-    # ==================================================
-    # OVERLAP MÉDIO
-    # ==================================================
+# ======================================================
+# ANALISA PORTFÓLIO
+# ======================================================
+def analisar_portfolio(jogos):
+
     overlaps = []
+
+    contador = Counter()
+
+    matriz_overlap = []
 
     for i in range(len(jogos)):
 
+        jogo_i = jogos[i]["numeros"]
+
+        for dez in jogo_i:
+
+            contador[dez] += 1
+
         for j in range(i + 1, len(jogos)):
 
+            jogo_j = jogos[j]["numeros"]
+
             ov = calcular_overlap(
-                jogos[i],
-                jogos[j]
+                jogo_i,
+                jogo_j
             )
 
             overlaps.append(ov)
 
+            matriz_overlap.append({
+
+                "j1": i + 1,
+
+                "j2": j + 1,
+
+                "overlap": ov
+            })
+
+
     overlap_medio = round(
+
         statistics.mean(overlaps),
-        4
+
+        6
     )
 
+    entropia = round(
 
-    # ==================================================
-    # EXPOSIÇÃO DE DEZENAS
-    # ==================================================
-    contador = Counter()
+        calcular_entropia(contador),
 
-    for jogo in jogos:
+        6
+    )
 
-        for dezena in jogo:
-            contador[dezena] += 1
+    diversidade = calcular_score_diversidade(
 
+        [x["numeros"] for x in jogos]
+    )
 
     dezenas_superexpostas = [
 
@@ -223,30 +210,6 @@ def main():
     ]
 
 
-    # ==================================================
-    # ENTROPIA
-    # ==================================================
-    entropia = round(
-
-        calcular_entropia(
-            contador
-        ),
-
-        6
-    )
-
-
-    # ==================================================
-    # DIVERSIDADE
-    # ==================================================
-    diversidade = calcular_score_diversidade(
-        jogos
-    )
-
-
-    # ==================================================
-    # RISCO DE COLAPSO
-    # ==================================================
     risco_colapso = calcular_risco_colapso(
 
         overlap_medio,
@@ -261,9 +224,6 @@ def main():
     )
 
 
-    # ==================================================
-    # STATUS
-    # ==================================================
     status = "OK"
 
     alertas = []
@@ -301,22 +261,19 @@ def main():
         status = "ALERTA"
 
         alertas.append(
-            f"Dezenas superexpostas: {dezenas_superexpostas}"
+            f"Superexposição: {dezenas_superexpostas}"
         )
 
 
-    # ==================================================
-    # LOG
-    # ==================================================
-    payload = {
+    return {
 
-        "concurso_referencia": concurso,
+        "status": status,
 
         "overlap_medio": overlap_medio,
 
-        "entropia_global": entropia,
+        "entropia": entropia,
 
-        "diversidade_global": diversidade,
+        "diversidade": diversidade,
 
         "risco_colapso": risco_colapso,
 
@@ -324,84 +281,260 @@ def main():
 
         "dezenas_superexpostas": dezenas_superexpostas,
 
-        "status_validacao": status,
-
         "alertas": alertas,
 
-        "versao": VERSAO
+        "matriz_overlap": matriz_overlap
     }
 
 
+# ======================================================
+# REMOVE PALPITES
+# ======================================================
+def remover_palpites_ruins(
+
+    supabase,
+
+    concurso
+):
+
+    supabase.table(
+        "palpites_validos"
+    ).delete().eq(
+        "concurso_referencia",
+        concurso
+    ).execute()
+
+
+# ======================================================
+# MAIN
+# ======================================================
+def main():
+
+    print(
+        f"🧠 {VERSAO}"
+    )
+
+    supabase = get_supabase()
+
+
     # ==================================================
-    # UPSERT
+    # ÚLTIMO CONCURSO
     # ==================================================
-    try:
+    ultimo = (
 
-        supabase.table(
-            "meta_validacao_execucoes"
-        ).upsert(
+        supabase
+        .table("palpites_validos")
+        .select(
+            "concurso_referencia"
+        )
+        .order(
+            "concurso_referencia",
+            desc=True
+        )
+        .limit(1)
+        .execute()
+        .data
+    )
 
-            payload,
-
-            on_conflict="concurso_referencia"
-
-        ).execute()
-
-    except Exception as e:
+    if not ultimo:
 
         print(
-            f"⚠️ Erro ao salvar meta-validação: {e}"
+            "❌ Nenhum concurso encontrado."
+        )
+
+        return
+
+
+    concurso = ultimo[0][
+        "concurso_referencia"
+    ]
+
+
+    # ==================================================
+    # LOOP AUTO-REGENERAÇÃO
+    # ==================================================
+    tentativa = 1
+
+    while tentativa <= MAX_REGENERACOES:
+
+        print(
+            f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}"
         )
 
 
-    # ==================================================
-    # OUTPUT
-    # ==================================================
-    print("\n==============================")
-    print("🧠 META VALIDAÇÃO FINAL")
-    print("==============================\n")
+        jogos = carregar_palpites(
 
-    print(
-        f"🎯 Concurso: {concurso}"
-    )
+            supabase,
 
-    print(
-        f"📊 Overlap médio: {overlap_medio}"
-    )
-
-    print(
-        f"🧬 Entropia global: {entropia}"
-    )
-
-    print(
-        f"🌎 Diversidade global: {diversidade}"
-    )
-
-    print(
-        f"⚠️ Risco colapso: {nivel_risco}"
-    )
-
-    print(
-        f"📌 Status: {status}"
-    )
-
-    if dezenas_superexpostas:
-
-        print(
-            f"🔥 Superexpostas: {dezenas_superexpostas}"
+            concurso
         )
 
-    if alertas:
 
-        print("\n🚨 ALERTAS:")
-
-        for a in alertas:
+        if len(jogos) < QTD_PALPITES:
 
             print(
-                f"- {a}"
+                "⚠️ Menos de 7 palpites."
             )
 
-    print("\n==============================\n")
+            return
+
+
+        analise = analisar_portfolio(
+            jogos
+        )
+
+
+        status = analise["status"]
+
+
+        # ==================================================
+        # OUTPUT
+        # ==================================================
+        print("\n==============================")
+        print("🧠 META VALIDAÇÃO FINAL")
+        print("==============================\n")
+
+        print(
+            f"🎯 Concurso: {concurso}"
+        )
+
+        print(
+            f"📊 Overlap médio: {analise['overlap_medio']}"
+        )
+
+        print(
+            f"🧬 Entropia: {analise['entropia']}"
+        )
+
+        print(
+            f"🌎 Diversidade: {analise['diversidade']}"
+        )
+
+        print(
+            f"⚠️ Risco: {analise['nivel_risco']}"
+        )
+
+        print(
+            f"📌 Status: {status}"
+        )
+
+
+        if analise["alertas"]:
+
+            print("\n🚨 ALERTAS:")
+
+            for a in analise["alertas"]:
+
+                print(f"- {a}")
+
+
+        # ==================================================
+        # SALVA EXECUÇÃO
+        # ==================================================
+        payload = {
+
+            "concurso_referencia": concurso,
+
+            "overlap_medio": analise["overlap_medio"],
+
+            "entropia_global": analise["entropia"],
+
+            "diversidade_global": analise["diversidade"],
+
+            "risco_colapso": analise["risco_colapso"],
+
+            "nivel_risco": analise["nivel_risco"],
+
+            "dezenas_superexpostas": analise["dezenas_superexpostas"],
+
+            "status_validacao": status,
+
+            "alertas": analise["alertas"],
+
+            "tentativa": tentativa,
+
+            "versao": VERSAO
+        }
+
+
+        try:
+
+            supabase.table(
+                "meta_validacao_execucoes"
+            ).upsert(
+
+                payload,
+
+                on_conflict="concurso_referencia"
+
+            ).execute()
+
+        except Exception as e:
+
+            print(
+                f"⚠️ Erro ao salvar: {e}"
+            )
+
+
+        # ==================================================
+        # PORTFÓLIO SAUDÁVEL
+        # ==================================================
+        if status == "OK":
+
+            print(
+                "\n✅ Portfólio aprovado."
+            )
+
+            return
+
+
+        # ==================================================
+        # REMOVE E REGENERA
+        # ==================================================
+        print(
+            "\n🔥 Portfólio rejeitado."
+        )
+
+        print(
+            "♻️ Removendo palpites..."
+        )
+
+        remover_palpites_ruins(
+
+            supabase,
+
+            concurso
+        )
+
+
+        print(
+            "🚀 Regerando novos jogos..."
+        )
+
+
+        import subprocess
+
+        subprocess.run([
+
+            sys.executable,
+
+            "scripts/gerar_palpites_diarios.py"
+
+        ])
+
+
+        tentativa += 1
+
+
+    # ==================================================
+    # FALHA FINAL
+    # ==================================================
+    print("\n❌ FALHA CRÍTICA")
+
+    print(
+        "⚠️ Não foi possível gerar "
+        "portfólio saudável."
+    )
 
 
 if __name__ == "__main__":
