@@ -1023,95 +1023,55 @@ def main():
     # OUTPUT
     # ==================================================
     payload = []
-
     telegram = []
 
-
     for i, c in enumerate(finais, 1):
-
-        estrategia = (
-            "exploratorio"
-            if i >= 6
-            else "estatistico"
-        )
+        estrategia = "exploratorio" if i >= 6 else "estatistico"
 
         telegram.append(
-
             f"{i}º | "
-
             f"{c['score']:.6f} | "
-
             f"MC={c['score_mc']:.4f} | "
-
             f"C{c['cluster_id']} | "
-
             f"{c['nums']}"
         )
 
         payload.append({
+            "data_referencia": hoje,
+            "concurso_referencia": concurso_ref,
+            "indice_palpite": i,
+            "tipo": estrategia,
+            "numeros": json.dumps(c["nums"]),
+            "pares": c["filtros"]["pares"],
+            "impares": (15 - c["filtros"]["pares"]),
+            "soma_total": c["filtros"]["soma"],
+            "score": round(float(c["score"]), 8),
+            "score_montecarlo": round(float(c["score_mc"]), 8),
+            "score_estrutural": round(float(c["score_estatistico"]), 8),
+            "cluster_id": int(c["cluster_id"]),
+            "processado": False,
+            "conferido": False,
+            "versao_gerador": VERSAO
+        })
 
-        "data_referencia": hoje,
-    
-        "concurso_referencia": concurso_ref,
-    
-        "indice_palpite": i,
-    
-        "tipo": estrategia,
-    
-        "numeros": json.dumps(
-            c["nums"]
-        ),
-    
-        "pares": c["filtros"]["pares"],
-    
-        "impares": (
-            15 - c["filtros"]["pares"]
-        ),
-    
-        "soma_total": c["filtros"]["soma"],
-    
-        "score": round(
-            float(c["score"]),
-            8
-        ),
-    
-        "score_montecarlo": round(
-            float(c["score_mc"]),
-            8
-        ),
-    
-        "score_estrutural": round(
-            float(c["score_estatistico"]),
-            8
-        ),
-    
-        "cluster_id": int(
-            c["cluster_id"]
-        ),
-    
-        "processado": False,
-    
-        "conferido": False,
-    
-        "versao_gerador": VERSAO
-    })
-
-        supabase.table(
-        "palpites_validos"
-    ).upsert(
-        payload,
-        on_conflict=(
-            "concurso_referencia,"
-            "indice_palpite"
-        )
-    ).execute()
+    # ==================================================
+    # GRAVAÇÃO EM LOTE NO SUPABASE (CORRIGIDO: FORA DO LOOP)
+    # ==================================================
+    try:
+        if payload:
+            supabase.table("palpites_validos").upsert(
+                payload,
+                on_conflict="concurso_referencia,indice_palpite"
+            ).execute()
+            print(f"🚀 {len(payload)} palpites validados e gravados com sucesso em lote!")
+    except Exception as e:
+        print(f"❌ Falha crítica ao salvar palpites_validos em lote: {e}")
 
     # ==================================================
     # TELEMETRIA FINAL
     # ==================================================
     try:
         tempo_total = time.time() - inicio_execucao
-        
         persistir_telemetria(
             supabase=supabase,
             concurso_ref=concurso_ref,
@@ -1124,12 +1084,7 @@ def main():
 
     # Sempre executa o bloco do Telegram (independente do try/except acima)
     print("\n📲 TELEGRAM_PAYLOAD_START")
-    print(
-        montar_msg_telegram(
-            concurso_ref,
-            telegram
-        )
-    )
+    print(montar_msg_telegram(concurso_ref, telegram))
     print("📲 TELEGRAM_PAYLOAD_END")
 
 
