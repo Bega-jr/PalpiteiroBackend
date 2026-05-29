@@ -9,16 +9,27 @@ from app.services.supabase_service import get_supabase
 # DEFAULTS
 # ==================================================
 PESOS_DEFAULT = {
-    "peso_base": 0.30,
-    "peso_global": 0.15,
-    "peso_feedback": 0.15,
-    "peso_regime": 0.10,
-    "peso_moldura": 0.10,
-    "peso_estrutura": 0.10,
-    "peso_fadiga": 0.05,
-    "peso_recencia": 0.05
-}
 
+    "peso_base": 0.28,
+
+    "peso_global": 0.12,
+
+    "peso_feedback": 0.10,
+
+    "peso_regime": 0.07,
+
+    "peso_moldura": 0.08,
+
+    "peso_estrutura": 0.10,
+
+    "peso_fadiga": 0.06,
+
+    "peso_recencia": 0.06,
+
+    "peso_montecarlo": 0.15,
+
+    "peso_recompensa": 0.08
+}
 
 # ==================================================
 # UTILS
