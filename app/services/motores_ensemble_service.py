@@ -106,7 +106,7 @@ def calcular_score_ensemble(
 
             "peso_fadiga": 0.05,
 
-            "peso_recompensa": 0.08
+            "peso_recompensa": 0.08,
 
             "peso_recencia": 0.05
         }
