@@ -28,7 +28,7 @@ from app.services.meta_learning_service import (
 )
 
 from app.services.persistencia_analytics_service import (
-    persistir_telemetria_geracao
+    persistir_telemetria
 )
 
 from app.services.recompensa_evolutiva_service import (
@@ -827,7 +827,7 @@ def main():
         )
 
 
-               # ==================================================
+        # ==================================================
         # EXPLORAÇÃO EVOLUTIVA
         # ==================================================
         if random.random() < 0.18:
@@ -842,77 +842,61 @@ def main():
         # PERSISTÊNCIA ANALYTICS
         # ==================================================
         try:
-
+        
             from app.services.persistencia_analytics_service import (
+        
                 salvar_feature_store_jogo,
-                salvar_cluster_jogo,
-                salvar_telemetria_geracao
+        
+                salvar_cluster_jogo
             )
-
+        
             salvar_feature_store_jogo(
-
+        
                 concurso=concurso_ref,
-
+        
                 jogo=jogo,
-
+        
                 features=features,
-
+        
                 score=score_final,
-
+        
                 cluster_id=cluster_id
             )
-
+        
             salvar_cluster_jogo(
-
+        
                 concurso=concurso_ref,
-
+        
                 cluster_id=cluster_id,
-
+        
                 jogo=jogo,
-
+        
                 score=score_final
             )
-
-            salvar_telemetria_geracao(
-
-                concurso=concurso_ref,
-
-                jogo=jogo,
-
-                score_final=score_final,
-
-                score_estatistico=score_estatistico,
-
-                score_montecarlo=score_mc,
-
-                filtros=filtros,
-
-                cluster_id=cluster_id,
-
-                versao=VERSAO
-            )
-
+        
         except Exception as e:
-
+        
             print(
                 f"⚠️ Falha analytics: {e}"
             )
-
-
+        
+        
         candidatos.append({
-
+        
             "nums": jogo,
-
+        
             "score": float(score_final),
 
+            "score_estatistico": float(score_estatistico),
+        
             "score_mc": float(score_mc),
-
+        
             "filtros": filtros,
-
+        
             "estrutura": estrutura,
-
+        
             "features": features,
-
+        
             "cluster_id": cluster_id
         })
 
@@ -921,14 +905,46 @@ def main():
         # CONTADOR DE DIVERSIDADE
         # ==================================================
         for dezena in jogo:
-
+        
             contador_dezenas[dezena] += 1
 
+        # ==================================================
+        # FIM LOOP GERAÇÃO
+        # ==================================================
+        
+        print(
+            f"✅ Aprendizado concluído: {len(candidatos)} candidatos"
+        )
 
-    print(
-        f"✅ Aprendizado concluído: {len(candidatos)} candidatos"
-    )
 
+        # ==================================================
+        # TELEMETRIA GLOBAL EXECUÇÃO
+        # ==================================================
+        try:
+        
+            from app.services.persistencia_analytics_service import (
+                persistir_telemetria
+            )
+        
+            persistir_telemetria(
+        
+                supabase=supabase,
+        
+                concurso_ref=concurso_ref,
+        
+                candidatos=candidatos,
+        
+                tempo_execucao=0,
+        
+                versao=VERSAO
+            )
+        
+        except Exception as e:
+        
+            print(
+                f"⚠️ Falha telemetria: {e}"
+            )
+        
 
     # ==================================================
     # MÉTRICAS GERAIS
@@ -1060,32 +1076,51 @@ def main():
 
         payload.append({
 
-            "data_referencia": hoje,
-
-            "concurso_referencia": concurso_ref,
-
-            "indice_palpite": i,
-
-            "tipo": estrategia,
-
-            "numeros": json.dumps(
-                c["nums"]
-            ),
-
-            "pares": c["filtros"]["pares"],
-
-            "impares": (
-                15 - c["filtros"]["pares"]
-            ),
-
-            "soma_total": c["filtros"]["soma"],
-
-            "processado": False,
-
-            "conferido": False,
-
-            "versao_gerador": VERSAO
-        })
+        "data_referencia": hoje,
+    
+        "concurso_referencia": concurso_ref,
+    
+        "indice_palpite": i,
+    
+        "tipo": estrategia,
+    
+        "numeros": json.dumps(
+            c["nums"]
+        ),
+    
+        "pares": c["filtros"]["pares"],
+    
+        "impares": (
+            15 - c["filtros"]["pares"]
+        ),
+    
+        "soma_total": c["filtros"]["soma"],
+    
+        "score": round(
+            float(c["score"]),
+            8
+        ),
+    
+        "score_montecarlo": round(
+            float(c["score_mc"]),
+            8
+        ),
+    
+        "score_estrutural": round(
+            float(c["score_estatistico"]),
+            8
+        ),
+    
+        "cluster_id": int(
+            c["cluster_id"]
+        ),
+    
+        "processado": False,
+    
+        "conferido": False,
+    
+        "versao_gerador": VERSAO
+    })
 
 
     supabase.table(
