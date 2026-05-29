@@ -1,17 +1,17 @@
-```yaml
-name: Pipeline Lotofácil 2026 - IA Evolutiva v19.1
+
+
+name: Pipeline Lotofácil 2026 - IA Evolutiva v19.2
 
 on:
   schedule:
-    # Segunda a sábado
     # 21:45 BRT = 00:45 UTC
-    - cron: "0 0 * * 1-6"
+    - cron: "45 0 * * 1-6"
 
   workflow_dispatch:
 
 
 # ==================================================
-# PROTEÇÃO CONTRA EXECUÇÃO DUPLA
+# CONCORRÊNCIA
 # ==================================================
 concurrency:
   group: lotofacil-production
@@ -19,9 +19,13 @@ concurrency:
 
 
 jobs:
+
   pipeline-lotofacil:
 
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -37,18 +41,78 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # ==================================================
+      # PYTHON
+      # ==================================================
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+
+      # ==================================================
+      # CACHE PIP
+      # ==================================================
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+
+      # ==================================================
+      # DEPENDÊNCIAS SISTEMA
+      # ==================================================
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+
+      # ==================================================
+      # DEPENDÊNCIAS PYTHON
+      # ==================================================
       - name: Install deps
         run: |
-          pip install pandas numpy requests python-dotenv supabase pytz scikit-learn httpx
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+
+      # ==================================================
+      # HEALTHCHECK PIPELINE
+      # ==================================================
+      - name: Runtime analytics
+        run: |
+
+          echo "=========================="
+          echo "RUNTIME ANALYTICS"
+          echo "=========================="
+
+          date
+
+          echo ""
+          echo "MEMÓRIA:"
+          free -m
+
+          echo ""
+          echo "DISCO:"
+          df -h
+
+
+      # ==================================================
+      # VALIDAÇÃO INTEGRIDADE
+      # ==================================================
+      - name: Validar integridade pipeline
+        run: |
+          python scripts/validar_integridade_pipeline.py || true
 
 
       # ==================================================
       # ETAPA 1
+      # RESULTADOS OFICIAIS
       # ==================================================
       - name: Atualizar resultados oficiais
         run: |
@@ -57,14 +121,13 @@ jobs:
 
       # ==================================================
       # ETAPA 2
-      # CONFERÊNCIA REAL DOS PALPITES
+      # CONFERÊNCIA REAL
       # ==================================================
       - name: Conferir resultados reais
         run: |
 
           python scripts/conferir_resultados.py | tee saida_conferencia.txt
 
-          # Extrai bloco completo da auditoria
           sed -n '/==================================================/,/====================/p' \
             saida_conferencia.txt > auditoria.txt || true
 
@@ -84,6 +147,8 @@ jobs:
         run: |
 
           TEXT_AUDITORIA="${{ env.AUDITORIA }}"
+
+          TEXT_AUDITORIA=$(echo "$TEXT_AUDITORIA" | cut -c1-3900)
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
@@ -105,17 +170,16 @@ jobs:
       # ==================================================
       - name: Processamento feedback meta
         run: |
-          python scripts/processamento_feedback_meta.py
+          python scripts/processamento_feedback_meta.py || true
 
 
       # ==================================================
       # ETAPA 2.3
-      # AUDITORIA TABELAS VAZIAS
+      # HUB CENTRAL AUDITORIA
       # ==================================================
-      - name: Auditoria estrutural banco
+      - name: Hub central auditoria
         run: |
-
-          python scripts/auditoria_estrutural.py || true
+          python scripts/hub_analytics.py || true
 
 
       # ==================================================
@@ -129,18 +193,16 @@ jobs:
 
       # ==================================================
       # ETAPA 4
-      # GERAÇÃO DOS PALPITES
+      # GERAÇÃO IA
       # ==================================================
       - name: Gerar palpites IA
         run: |
 
           python scripts/gerar_palpites_diarios.py | tee saida.txt
 
-          # Extrai payload completo do telegram
           sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
             saida.txt > bloco.txt || true
 
-          # Remove apenas os marcadores START/END
           sed '1d;$d' bloco.txt > palpites.txt || true
 
           echo "PALPITES<<EOF" >> $GITHUB_ENV
@@ -150,11 +212,38 @@ jobs:
 
       # ==================================================
       # ETAPA 4.1
+      # META-VALIDAÇÃO FINAL
+      # ==================================================
+      - name: Meta validação final
+        run: |
+          python scripts/meta_validacao_final.py || true
+
+
+      # ==================================================
+      # ETAPA 4.2
       # SNAPSHOT TELEMETRIA
       # ==================================================
       - name: Snapshot telemetria
         run: |
           python scripts/snapshot_telemetria.py || true
+
+
+      # ==================================================
+      # ETAPA 4.3
+      # AUDITORIA ESTRUTURAL
+      # ==================================================
+      - name: Auditoria estrutural banco
+        run: |
+          python scripts/auditoria_estrutural.py || true
+
+
+      # ==================================================
+      # ETAPA 4.4
+      # BACKUP ANALYTICS
+      # ==================================================
+      - name: Backup analytics
+        run: |
+          python scripts/backup_analytics.py || true
 
 
       # ==================================================
@@ -168,6 +257,8 @@ jobs:
         run: |
 
           TEXT="${{ env.PALPITES }}"
+
+          TEXT=$(echo "$TEXT" | cut -c1-3900)
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
@@ -184,9 +275,9 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
 
-          TEXT="🔴 Erro no pipeline Lotofácil v19.1"
+          TEXT="🔴 Erro no pipeline Lotofácil v19.2"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
-```
+
