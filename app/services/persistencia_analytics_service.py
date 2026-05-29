@@ -411,3 +411,65 @@ def persistir_analytics_completo(
         f"🚀 Analytics persistido "
         f"em {fim - inicio:.2f}s"
     )
+
+# ======================================================
+# FEATURE STORE
+# ======================================================
+def salvar_feature_store_jogo(
+    concurso,
+    jogo,
+    features,
+    score,
+    cluster_id
+):
+
+    supabase = get_supabase()
+
+    payload = {
+
+        "concurso_referencia": concurso,
+
+        "numeros": jogo,
+
+        "features": features,
+
+        "score": round(float(score), 8),
+
+        "cluster_id": int(cluster_id)
+    }
+
+    supabase.table(
+        "feature_store_jogos"
+    ).insert(
+        payload
+    ).execute()
+
+
+# ======================================================
+# CLUSTERS
+# ======================================================
+def salvar_cluster_jogo(
+    concurso,
+    cluster_id,
+    jogo,
+    score
+):
+
+    supabase = get_supabase()
+
+    payload = {
+
+        "concurso_referencia": concurso,
+
+        "cluster_id": int(cluster_id),
+
+        "numeros": jogo,
+
+        "score": round(float(score), 8)
+    }
+
+    supabase.table(
+        "memoria_clusters"
+    ).insert(
+        payload
+    ).execute()
