@@ -113,20 +113,22 @@ def avaliar_desempenho_concurso():
     except Exception as e_cen:
         print(f"⚠️ Erro ao recalibrar cenário: {e_cen}")
 
-    # 3. Força a atualização dos palpites
+       # 3. Força a atualização dos palpites
     try:
-        supabase.table("palpites_validos").update({
-            "acertos": qtd_acertos,
-            "conferido": True,
-            "processado": True
-        })
-        .eq("concurso_referencia", concurso_real)
-        .eq("indice_palpite", row["indice_palpite"])
-        .execute()
+        (
+            supabase.table("palpites_validos")
+            .update({
+                "acertos": qtd_acertos,
+                "conferido": True,
+                "processado": True
+            })
+            .eq("concurso_referencia", concurso_real)
+            .eq("indice_palpite", row["indice_palpite"])
+            .execute()
+        )
         print("✅ Banco de dados sincronizado manualmente.")
     except Exception as e:
         print(f"⚠️ Erro ao salvar palpites: {e}")
 
 if __name__ == "__main__":
     avaliar_desempenho_concurso()
-
