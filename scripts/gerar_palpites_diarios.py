@@ -27,6 +27,10 @@ from app.services.meta_learning_service import (
     obter_pesos_ensemble
 )
 
+from app.services.persistencia_analytics_service import (
+    persistir_telemetria_geracao
+)
+
 # ======================================================
 # NOVOS MÓDULOS V19.0
 # ======================================================
@@ -806,7 +810,7 @@ def main():
         )
 
 
-        # ==================================================
+               # ==================================================
         # EXPLORAÇÃO EVOLUTIVA
         # ==================================================
         if random.random() < 0.18:
@@ -814,6 +818,67 @@ def main():
             score_final *= random.uniform(
                 0.92,
                 1.08
+            )
+
+
+        # ==================================================
+        # PERSISTÊNCIA ANALYTICS
+        # ==================================================
+        try:
+
+            from app.services.persistencia_analytics_service import (
+                salvar_feature_store_jogo,
+                salvar_cluster_jogo,
+                salvar_telemetria_geracao
+            )
+
+            salvar_feature_store_jogo(
+
+                concurso=concurso_ref,
+
+                jogo=jogo,
+
+                features=features,
+
+                score=score_final,
+
+                cluster_id=cluster_id
+            )
+
+            salvar_cluster_jogo(
+
+                concurso=concurso_ref,
+
+                cluster_id=cluster_id,
+
+                jogo=jogo,
+
+                score=score_final
+            )
+
+            salvar_telemetria_geracao(
+
+                concurso=concurso_ref,
+
+                jogo=jogo,
+
+                score_final=score_final,
+
+                score_estatistico=score_estatistico,
+
+                score_montecarlo=score_mc,
+
+                filtros=filtros,
+
+                cluster_id=cluster_id,
+
+                versao=VERSAO
+            )
+
+        except Exception as e:
+
+            print(
+                f"⚠️ Falha analytics: {e}"
             )
 
 
@@ -835,9 +900,61 @@ def main():
         })
 
 
+        # ==================================================
+        # CONTADOR DE DIVERSIDADE
+        # ==================================================
+        for dezena in jogo:
+
+            contador_dezenas[dezena] += 1
+
+
     print(
         f"✅ Aprendizado concluído: {len(candidatos)} candidatos"
     )
+
+
+    # ==================================================
+    # MÉTRICAS GERAIS
+    # ==================================================
+    if candidatos:
+
+        try:
+
+            media_score = np.mean([
+                x["score"]
+                for x in candidatos
+            ])
+
+            media_mc = np.mean([
+                x["score_mc"]
+                for x in candidatos
+            ])
+
+            clusters_unicos = len(set([
+                x["cluster_id"]
+                for x in candidatos
+            ]))
+
+            print(
+                f"📊 Score médio: "
+                f"{media_score:.6f}"
+            )
+
+            print(
+                f"🎲 Monte Carlo médio: "
+                f"{media_mc:.6f}"
+            )
+
+            print(
+                f"🧬 Clusters únicos: "
+                f"{clusters_unicos}"
+            )
+
+        except Exception as e:
+
+            print(
+                f"⚠️ Erro métricas finais: {e}"
+            )
 
 
     # ==================================================
