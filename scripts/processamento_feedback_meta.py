@@ -115,10 +115,14 @@ def avaliar_desempenho_concurso():
 
     # 3. Força a atualização dos palpites
     try:
-        supabase.table("palpites_validos").upsert(
-            palpites_atualizados,
-            on_conflict="concurso_referencia,indice_palpite"
-        ).execute()
+        supabase.table("palpites_validos").update({
+            "acertos": qtd_acertos,
+            "conferido": True,
+            "processado": True
+        })
+        .eq("concurso_referencia", concurso_real)
+        .eq("indice_palpite", row["indice_palpite"])
+        .execute()
         print("✅ Banco de dados sincronizado manualmente.")
     except Exception as e:
         print(f"⚠️ Erro ao salvar palpites: {e}")
