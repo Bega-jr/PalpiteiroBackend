@@ -91,7 +91,7 @@ def carregar_palpites(supabase, concurso):
 # ======================================================
 # ANALISA PORTFÓLIO
 # ======================================================
-def analisar_portfolio(jogos):
+def analisar_portfolio(jogos, limite_exposicao=6, limite_overlap=11.2):
     overlaps = []
     contador = Counter()
     matriz_overlap = []
