@@ -1,5 +1,11 @@
+import sys
 import traceback
+from pathlib import Path
 from datetime import datetime
+
+# 🟢 CORREÇÃO: Injeta a raiz do projeto no caminho de busca do Python
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
 
@@ -10,6 +16,7 @@ try:
     from scripts.auditar_padroes import identificar_padroes_elite
 except:
     identificar_padroes_elite = None
+
 
 # =========================================================
 # FEEDBACK ANALYTICS (Corrigido para apontar ao seu script real)
