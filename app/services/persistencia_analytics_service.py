@@ -278,7 +278,7 @@ def salvar_feature_store_jogo(
 
 
 # ======================================================
-# CLUSTERS (COMPLETO E ATUALIZADO)
+# CLUSTERS (COMPLETO, BLINDADO E ATUALIZADO v20)
 # ======================================================
 def salvar_cluster_jogo(
     concurso,
@@ -287,19 +287,21 @@ def salvar_cluster_jogo(
     score
 ):
     supabase = get_supabase()
-
     payload = {
         "concurso_referencia": concurso,
         "cluster_id": int(cluster_id),
         "numeros": jogo,
-        "score": round(float(score), 8)
+        "score": round(float(score), 8),
+        "updated_at": datetime.now().isoformat()
     }
-
+    # 🟢 CORREÇÃO: Altera de .insert() para .upsert() usando a restrição única do banco
     supabase.table(
         "memoria_clusters"
-    ).insert(
-        payload
+    ).upsert(
+        payload,
+        on_conflict="concurso_referencia,cluster_id"
     ).execute()
+
 
 # =========================================================
 # BRIDGE EXCLUSIVA COMPATÍVEL COM O HUB ANALYTICS v20
