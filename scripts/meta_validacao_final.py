@@ -263,7 +263,15 @@ def main():
             print("♻️ Removendo palpites inválidos...")
             remover_palpites_ruins(supabase, concurso)
 
-            print("🚀 Executando engine de regeneração de jogos...")
+            # 🟢 RELAXAMENTO DINÂMICO PARA EVITAR VOLTAR AO LOOP PESADO À TOA
+            # Conforme as tentativas avançam, damos mais tolerância para as dezenas de elite
+            if tentativa == 1:
+                LIMITE_EXPOSICAO_DEZENA = 7
+            elif tentativa == 2:
+                LIMITE_EXPOSICAO_DEZENA = 7
+                LIMITE_OVERLAP_MEDIO = 11.5
+
+            print(f"🚀 Executando engine de regeneração com limites calibrados (Exposição Máx: {LIMITE_EXPOSICAO_DEZENA})...")
             import subprocess
             subprocess.run([
                 sys.executable,
@@ -273,6 +281,7 @@ def main():
             tentativa += 1
         else:
             break
+
 
     # ==================================================
     # FALHA FINAL
