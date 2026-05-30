@@ -63,7 +63,7 @@ def buscar_memoria_real(supabase, estrutura):
         .limit(1)
         .execute()
     )
-    return resp.data if resp.data else None
+    return resp.data[0] if resp.data else None
 
 buscar_cenario_similar = buscar_memoria_real
 
