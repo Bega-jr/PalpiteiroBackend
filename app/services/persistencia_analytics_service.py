@@ -225,28 +225,58 @@ def persistir_analytics_completo(
 # ======================================================
 # FEATURE STORE (MÉTODOS INDIVIDUAIS)
 # ======================================================
-def salvar_feature_store_jogo(
-    concurso,
-    jogo,
-    features,
-    score,
-    cluster_id
+def persistir_feature_store(
+    supabase,
+    concurso_ref,
+    candidatos,
+    versao
 ):
-    supabase = get_supabase()
+    payload = []
 
-    payload = {
-        "concurso_referencia": concurso,
-        "numeros": jogo,
-        "features": features,
-        "score": round(float(score), 8),
-        "cluster_id": int(cluster_id)
-    }
+    for idx, c in enumerate(candidatos, 1):
+        # Captura o dicionário interno de features para extração limpa
+        feat_dict = c.get("features", {})
+        
+        # Captura o dicionário estrutural (se houver)
+        est_dict = c.get("estrutura", {})
+        hash_estrutura = est_dict.get("hash_estrutura") if isinstance(est_dict, dict) else c.get("estrutura_hash")
 
-    supabase.table(
-        "feature_store_jogos"
-    ).insert(
-        payload
-    ).execute()
+        payload.append({
+            "concurso_referencia": concurso_ref,
+            "indice_palpite": idx,
+            "numeros": json.dumps(c["nums"]),
+            "cluster_id": int(c.get("cluster_id", 0)),
+            
+            # 🟢 CORREÇÃO: Extração direta para colunas físicas indexadas
+            "soma": int(feat_dict.get("soma", 0)) if feat_dict.get("soma") is not None else None,
+            "pares": int(feat_dict.get("pares", 0)) if feat_dict.get("pares") is not None else None,
+            "primos": int(feat_dict.get("primos", 0)) if feat_dict.get("primos") is not None else None,
+            "moldura": int(feat_dict.get("moldura", 0)) if feat_dict.get("moldura") is not None else None,
+            "repetidos": int(feat_dict.get("repetidos", 0)) if feat_dict.get("repetidos") is not None else None,
+            "sequencias": int(feat_dict.get("seq_max", 0)) if feat_dict.get("seq_max") is not None else None,
+            
+            # Scores e contextos estruturais
+            "score_base": round(float(c.get("score_base", 0)), 8) if c.get("score_base") is not None else None,
+            "score_final": round(float(c.get("score", 0)), 8),
+            "score": round(float(c.get("score", 0)), 8),
+            "estrutura_hash": hash_estrutura,
+            "regime": c.get("regime", "NEUTRO"),
+            
+            # Mantém os objetos para compatibilidade de analytics legados
+            "features": feat_dict,
+            "versao_gerador": versao,
+            "created_at": datetime.now().isoformat()
+        })
+
+    if payload:
+        supabase.table(
+            "feature_store_jogos"
+        ).upsert(
+            payload,
+            on_conflict="concurso_referencia,indice_palpite"
+        ).execute()
+
+        print(f"🧠 [Feature Store] Otimizado: {len(payload)} registros populados em colunas indexadas físicas.")
 
 
 # ======================================================
