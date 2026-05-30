@@ -245,5 +245,6 @@ def main():
         }
         supabase.table("memoria_regimes").upsert(payload_regime, on_conflict="concurso").execute()
         print(f"📡 Regime adaptativo consolidado: {regime} | Score Global: {media_score:.4f}")
-
-if name == "main":main()
+        
+if __name__ == "__main__":
+    main()
