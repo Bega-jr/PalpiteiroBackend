@@ -245,6 +245,10 @@ def main():
         }
         supabase.table("memoria_regimes").upsert(payload_regime, on_conflict="concurso").execute()
         print(f"📡 Regime adaptativo consolidado: {regime} | Score Global: {media_score:.4f}")
-        
+
+    except Exception as e:
+        print(f"❌ Erro crítico: {e}")
+        sys.exit(1)
+
 if __name__ == "__main__":
     main()
