@@ -190,20 +190,30 @@ def main():
     # LOOP AUTO-REGENERAÇÃO
     # ==================================================
     tentativa = 1
-    # 🟢 Inicialização das variáveis dinâmicas locais baseadas nas constantes globais do topo
+    # 🟢 INICIALIZAÇÃO FIXA FORA DO LOOP (Evita que os limites resetem a cada iteração)
     limite_exp_dinamico = LIMITE_EXPOSICAO_DEZENA
     limite_ov_dinamico = LIMITE_OVERLAP_MEDIO
 
     while tentativa <= MAX_REGENERACOES:
         print(f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}")
+
+        # Se for uma nova tentativa de regeneração, força os novos limites dinâmicos ativamente
+        if tentativa == 2:
+            limite_exp_dinamico = 7
+        elif tentativa == 3:
+            limite_exp_dinamico = 7
+            limite_ov_dinamico = 11.5
+
         jogos = carregar_palpites(supabase, concurso)
         if len(jogos) < QTD_PALPITES:
             print("⚠️ Menos de 7 palpites.")
             return
 
-        # 🟢 CORREÇÃO: Passa os limites dinâmicos locais em vez de deixar a função ler as constantes rígidas
         analise = analisar_portfolio(jogos, limite_exp_dinamico, limite_ov_dinamico)
         status = analise["status"]
+
+        # ... (bloco de OUTPUT, payload e upsert do meta_validacao_execucoes permanecem iguais) ...
+
 
         # ==================================================
         # OUTPUT
