@@ -181,28 +181,28 @@ def main():
         .execute()
         .data
     )
-
     if not ultimo:
         print("❌ Nenhum concurso encontrado.")
         return
-
     concurso = ultimo[0]["concurso_referencia"]
 
     # ==================================================
     # LOOP AUTO-REGENERAÇÃO
     # ==================================================
     tentativa = 1
+    # 🟢 Inicialização das variáveis dinâmicas locais baseadas nas constantes globais do topo
+    limite_exp_dinamico = LIMITE_EXPOSICAO_DEZENA
+    limite_ov_dinamico = LIMITE_OVERLAP_MEDIO
 
     while tentativa <= MAX_REGENERACOES:
         print(f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}")
-
         jogos = carregar_palpites(supabase, concurso)
-
         if len(jogos) < QTD_PALPITES:
             print("⚠️ Menos de 7 palpites.")
             return
 
-        analise = analisar_portfolio(jogos)
+        # 🟢 CORREÇÃO: Passa os limites dinâmicos locais em vez de deixar a função ler as constantes rígidas
+        analise = analisar_portfolio(jogos, limite_exp_dinamico, limite_ov_dinamico)
         status = analise["status"]
 
         # ==================================================
@@ -217,7 +217,6 @@ def main():
         print(f"🌎 Diversidade: {analise['diversidade']}")
         print(f"⚠️ Risco: {analise['nivel_risco']}")
         print(f"📌 Status: {status}")
-
         if analise["alertas"]:
             print("\n🚨 ALERTAS:")
             for a in analise["alertas"]:
@@ -239,7 +238,6 @@ def main():
             "tentativa": tentativa,
             "versao": VERSAO
         }
-
         try:
             supabase.table("meta_validacao_execucoes").upsert(
                 payload,
@@ -249,7 +247,7 @@ def main():
             print(f"⚠️ Erro ao salvar: {e}")
 
         # ==================================================
-        # PORTFÓLIO SAUDÁVEL (Indentação Corrigida)
+        # PORTFÓLIO SAUDÁVEL
         # ==================================================
         if status == "OK":
             print("\n✅ Portfólio aprovado e validado com sucesso!")
@@ -263,25 +261,22 @@ def main():
             print("♻️ Removendo palpites inválidos...")
             remover_palpites_ruins(supabase, concurso)
 
-            # 🟢 RELAXAMENTO DINÂMICO PARA EVITAR VOLTAR AO LOOP PESADO À TOA
-            # Conforme as tentativas avançam, damos mais tolerância para as dezenas de elite
+            # 🟢 CORREÇÃO: Altera as variáveis locais dinâmicas que a função 'analisar_portfolio' vai herdar na próxima rodada
             if tentativa == 1:
-                LIMITE_EXPOSICAO_DEZENA = 7
+                limite_exp_dinamico = 7
             elif tentativa == 2:
-                LIMITE_EXPOSICAO_DEZENA = 7
-                LIMITE_OVERLAP_MEDIO = 11.5
+                limite_exp_dinamico = 7
+                limite_ov_dinamico = 11.5
 
-            print(f"🚀 Executando engine de regeneração com limites calibrados (Exposição Máx: {LIMITE_EXPOSICAO_DEZENA})...")
+            print(f"🚀 Executando engine de regeneração com limites calibrados (Exposição Máx: {limite_exp_dinamico})...")
             import subprocess
             subprocess.run([
                 sys.executable,
                 "scripts/gerar_palpites_diarios.py"
             ], check=True)
-
             tentativa += 1
         else:
             break
-
 
     # ==================================================
     # FALHA FINAL
@@ -290,7 +285,5 @@ def main():
     print(f"⚠️ Limite de {MAX_REGENERACOES} tentativas atingido sem gerar um portfólio saudável.")
     print("🛑 Os últimos palpites gerados foram mantidos no banco para análise manual.")
 
-
 if __name__ == "__main__":
     main()
-
