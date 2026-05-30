@@ -71,7 +71,8 @@ def recalibrar_clusters():
         rows = (
             supabase
             .table("feature_store_jogos")
-            .select("cluster_id, score_final, score_mc, concurso_referencia")
+            # 🟢 CORREÇÃO: Remove 'score_mc' da busca para evitar o erro 42703
+            .select("cluster_id, score_final, score, concurso_referencia")
             .order("created_at", desc=True)
             .limit(5000)
             .execute()
@@ -80,23 +81,20 @@ def recalibrar_clusters():
         if not rows:
             print("⚠️ [Clusters] Feature Store sem dados recentes para recalibragem.")
             return
-        
         mapa_clusters = {}
         for r in rows:
             c_id = int(r.get("cluster_id", 0))
             s_final = float(r.get("score_final", 0.0))
-            s_mc = float(r.get("score_mc", 0.0))
+            # 🟢 CORREÇÃO: Usa a coluna física 'score' como fallback seguro para a média móvel
+            s_mc = float(r.get("score", 0.0))
             conc_ref = int(r.get("concurso_referencia", 0))
-            
             if c_id not in mapa_clusters:
                 mapa_clusters[c_id] = {"scores": [], "scores_mc": [], "qtd": 0, "concursos": set()}
-            
             mapa_clusters[c_id]["scores"].append(s_final)
             mapa_clusters[c_id]["scores_mc"].append(s_mc)
             mapa_clusters[c_id]["qtd"] += 1
             if conc_ref > 0:
                 mapa_clusters[c_id]["concursos"].add(conc_ref)
-        
         payload_upsert = []
         for c_id, dados in mapa_clusters.items():
             arr_scores = dados["scores"]
@@ -104,10 +102,7 @@ def recalibrar_clusters():
             score_medio = float(np.mean(arr_scores)) if arr_scores else 0.0
             score_mc_medio = float(np.mean(arr_mc)) if arr_mc else 0.0
             dispersao = float(np.std(arr_scores)) if len(arr_scores) > 1 else 0.0
-            
-            # Identifica o último concurso de referência processado para manter integridade composicional
             ultimo_concurso = max(dados["concursos"]) if dados["concursos"] else 0
-            
             payload_upsert.append({
                 "concurso_referencia": ultimo_concurso,
                 "cluster_id": c_id,
@@ -118,7 +113,6 @@ def recalibrar_clusters():
                 "score": round(score_medio, 6),
                 "updated_at": datetime.now().isoformat()
             })
-            
         if payload_upsert:
             supabase.table("memoria_clusters").upsert(
                 payload_upsert,
