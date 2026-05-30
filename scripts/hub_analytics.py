@@ -91,7 +91,7 @@ def executar_etapa(nome, func):
 # =========================================================
 # LOG EXECUÇÃO
 # =========================================================
-def保存_execucao_hub(supabase, resultados):
+def salvar_execucao_hub(supabase, resultados):
     try:
         payload = {
             "versao": VERSAO,
