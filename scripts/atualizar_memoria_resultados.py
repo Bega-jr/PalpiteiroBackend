@@ -99,7 +99,7 @@ def ajustar_por_memoria(df, memoria):
     return df
 
 # ======================================================
-# REGIME DINÂMICO CONTEXTUAL
+# REGIME DINÂMICO CONTEXTUAL (CORRIGIDO)
 # ======================================================
 def calcular_regime_dinamico(supabase, score_atual):
     try:
@@ -115,6 +115,7 @@ def calcular_regime_dinamico(supabase, score_atual):
         if len(historico_execucoes) < 2:
             print("📊 Histórico zerado pós-reset. Mantendo regime NEUTRO.")
             return "NEUTRO"
+        # 🟢 CORREÇÃO: Acessa o índice [0] para ler o dicionário da última execução
         ultima_execucao = historico_execucoes[0]
         if int(ultima_execucao.get("dispersao", 0)) >= 4:
             print("⚠️ Instabilidade contextual detectada (Spread >= 4). Forçando CONTRACAO_FRIAS.")
@@ -134,6 +135,7 @@ def calcular_regime_dinamico(supabase, score_atual):
     except Exception as e:
         print(f"⚠️ Erro regime adaptativo: {e}")
         return "NEUTRO"
+
 
 # ======================================================
 # MAIN
