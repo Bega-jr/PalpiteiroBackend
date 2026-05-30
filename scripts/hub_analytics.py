@@ -102,7 +102,7 @@ def salvar_execucao_hub(supabase, resultados):
     try:
         payload = {
             "versao": VERSAO,
-            "data_execucao": datetime.now(datetime.UTC).isoformat(),
+            "data_execucao": datetime.now().isoformat(),
             "etapas_sucesso": sum(1 for x in resultados if x["sucesso"]),
             "etapas_falha": sum(1 for x in resultados if not x["sucesso"]),
             "resultado": resultados
