@@ -1,249 +1,75 @@
 import random
 import numpy as np
 
-
 # =========================================================
 # HELPERS
 # =========================================================
-def limitar(
-    valor,
-    minimo=0.0,
-    maximo=1.5
-):
-
-    return max(
-        minimo,
-        min(valor, maximo)
-    )
-
-
-# =========================================================
-# MOTORES
-# =========================================================
-def motor_estatistico(
-    score_estatistico
-):
-
-    return score_estatistico
-
-
-def motor_montecarlo(
-    score_montecarlo
-):
-
-    return score_montecarlo
-
-
-def motor_global(
-    fator_global
-):
-
-    return fator_global
-
-
-def motor_feedback(
-    fator_feedback
-):
-
-    return fator_feedback
-
-
-def motor_regime(
-    fator_regime
-):
-
-    return fator_regime
-
+def limitar(valor, minimo, maximo):
+    """Garante que o valor fique estritamente dentro do intervalo definido."""
+    return max(minimo, min(valor, maximo))
 
 # =========================================================
 # ENSEMBLE CENTRAL
 # =========================================================
 def calcular_score_ensemble(
-
     score_estatistico,
-
     score_montecarlo,
-
-    fator_global,
-
-    fator_feedback,
-
-    fator_regime,
-
+    score_potencial=0.0,
+    fator_global=1.0,
+    fator_feedback=1.0,
+    fator_regime=1.0,
     bonus_estrutura=1.0,
-
     bonus_fadiga=1.0,
-
     bonus_recencia=1.0,
-
     bonus_moldura=1.0,
-
     bonus_recompensa=1.0,
-
     pesos=None,
-
     **kwargs
 ):
-
-    # =====================================================
-    # PESOS DEFAULT
-    # =====================================================
     if pesos is None:
-
         pesos = {
-
-            "peso_base": 0.40,
-
-            "peso_global": 0.15,
-
-            "peso_feedback": 0.10,
-
-            "peso_regime": 0.10,
-
-            "peso_moldura": 0.08,
-
-            "peso_estrutura": 0.07,
-
-            "peso_fadiga": 0.05,
-
-            "peso_recompensa": 0.08,
-
-            "peso_recencia": 0.05
+            "peso_base": 0.35,
+            "peso_montecarlo": 0.15,
+            "peso_potencial": 0.25,
+            "peso_global": 0.10,
+            "peso_feedback": 0.08,
+            "peso_regime": 0.07,
+            "peso_moldura": 0.06,
+            "peso_estrutura": 0.05,
+            "peso_fadiga": 0.04,
+            "peso_recencia": 0.04,
+            "peso_recompensa": 0.06
         }
 
-    # =====================================================
-    # NORMALIZA
-    # =====================================================
-    score_estatistico = limitar(
-        score_estatistico
-    )
+    # Normalização explícita com os limites corretos
+    score_estatistico = limitar(score_estatistico, 0.0, 1.6)
+    score_montecarlo = limitar(score_montecarlo, 0.0, 1.6)
+    score_potencial = limitar(score_potencial, 0.0, 2.0)
 
-    score_montecarlo = limitar(
-        score_montecarlo
-    )
-
-    fator_global = limitar(
-        fator_global
-    )
-
-    fator_feedback = limitar(
-        fator_feedback
-    )
-
-    fator_regime = limitar(
-        fator_regime
-    )
-
-    bonus_estrutura = limitar(
-        bonus_estrutura
-    )
-
-    bonus_fadiga = limitar(
-        bonus_fadiga
-    )
-
-    bonus_recencia = limitar(
-        bonus_recencia
-    )
-
-    bonus_moldura = limitar(
-        bonus_moldura
-    )
-
-    bonus_recompensa = limitar(
-        bonus_recompensa
-    )
-
-    # =====================================================
-    # BASE
-    # =====================================================
+    # Cálculo do Score Base Ponderado
     score = (
-
-        score_estatistico
-        * pesos["peso_base"]
-
-        +
-
-        score_montecarlo
-        * 0.15
+        score_estatistico * pesos["peso_base"] +
+        score_montecarlo * pesos["peso_montecarlo"] +
+        score_potencial * pesos["peso_potencial"]
     )
 
-    # =====================================================
-    # FATORES
-    # =====================================================
+    # Aplicação dos fatores multiplicativos
     score *= (
-
-        1
-
-        +
-
-        (
-            (fator_global - 1)
-            * pesos["peso_global"]
-        )
-
-        +
-
-        (
-            (fator_feedback - 1)
-            * pesos["peso_feedback"]
-        )
-
-        +
-
-        (
-            (fator_regime - 1)
-            * pesos["peso_regime"]
-        )
+        1 +
+        (fator_global - 1) * pesos["peso_global"] +
+        (fator_feedback - 1) * pesos["peso_feedback"] +
+        (fator_regime - 1) * pesos["peso_regime"]
     )
 
-    # =====================================================
-    # BÔNUS
-    # =====================================================
-    score *= (
-
-        bonus_moldura
-        ** pesos["peso_moldura"]
-
-    )
-
-    score *= (
-
-        bonus_estrutura
-        ** pesos["peso_estrutura"]
-
-    )
-
-    score *= (
-
-        bonus_fadiga
-        ** pesos["peso_fadiga"]
-
-    )
-
-    score *= (
-
-        bonus_recencia
-        ** pesos["peso_recencia"]
-
-    )
-
-    score *= (
-
-        bonus_recompensa
-        ** pesos["peso_recompensa"]
+    # Aplicação sequencial dos bônus
+    bonus_chaves = ["moldura", "estrutura", "fadiga", "recencia", "recompensa"]
+    locais = locals()
     
-    )
+    for chave in bonus_chaves:
+        valor_bonus = locais[f"bonus_{chave}"]
+        score *= (1 + (valor_bonus - 1) * pesos[f"peso_{chave}"])
 
-    # =====================================================
-    # ENTROPIA CONTROLADA
-    # =====================================================
-    score *= random.uniform(
-        0.995,
-        1.005
-    )
+    # Injeção de entropia controlada leve
+    score *= random.uniform(0.993, 1.007)
 
-    return round(
-        float(score),
-        8
-    )
+    return round(float(score), 8)
