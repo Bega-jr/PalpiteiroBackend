@@ -1,90 +1,57 @@
-import random
 import numpy as np
 
-
 # =========================================================
-# HELPERS
-# =========================================================
-def calcular_acertos(
-    jogo,
-    sorteio
-):
-
-    return len(
-        set(jogo) & set(sorteio)
-    )
-
-
-# =========================================================
-# MONTE CARLO
+# MONTE CARLO COM RECÊNCIA
 # =========================================================
 def simular_probabilidade_jogo(
     jogo,
     historico=None,
-    simulacoes=300,
+    simulacoes=400,
+    expoente_recencia=2.0,  # Substitui o peso fixo para controlar a curva
     **kwargs
 ):
-
-    # =====================================================
-    # FALLBACK
-    # =====================================================
+    # Fallback seguro para histórico vazio ou nulo
     if not historico:
+        return 0.65  
 
-        historico = []
+    # Garante o tamanho máximo da janela baseado nas simulações
+    janela = historico[-simulacoes:]
+    total_elementos = len(janela)
 
-        for _ in range(simulacoes):
-
-            historico.append({
-
-                "numeros": sorted(
-                    random.sample(
-                        range(1, 26),
-                        15
-                    )
-                )
-            })
-
-    resultados = []
-
-    # =====================================================
-    # SIMULAÇÃO HISTÓRICA
-    # =====================================================
-    for concurso in historico[-simulacoes:]:
-
-        dezenas = concurso.get(
-            "numeros",
-            []
-        )
-
-        acertos = calcular_acertos(
-            jogo,
-            dezenas
-        )
-
-        resultados.append(acertos)
-
-    if not resultados:
+    if total_elementos == 0:
         return 0.0
 
-    media = float(
-        np.mean(resultados)
-    )
+    resultados = []
+    pesos = []
 
-    estabilidade = 1 - min(
-        np.std(resultados) / 5,
-        1
-    )
+    # Processamento em lote dos acertos e geração de pesos
+    for i, concurso in enumerate(janela):
+        dezenas = concurso.get("numeros", [])
+        acertos = len(set(jogo) & set(dezenas))
+        resultados.append(acertos)
+        
+        # Peso progressivo baseado na posição na janela (evita divisão por zero)
+        proporcao = (i + 1) / total_elementos
+        pesos.append(proporcao ** expoente_recencia)
 
-    score = (
+    # Convertendo para arrays NumPy para eficiência matemática
+    resultados = np.array(resultados)
+    pesos = np.array(pesos)
 
-        (media / 15) * 0.75
+    # Média e Desvio Padrão Ponderados pela recência
+    media_ponderada = np.average(resultados, weights=pesos)
+    
+    # Variância ponderada para um cálculo estritamente correto da estabilidade
+    variancia_ponderada = np.average((resultados - media_ponderada)**2, weights=pesos)
+    std_ponderado = np.sqrt(variancia_ponderada)
 
-        +
+    # Cálculo do Score (Pesos ajustados conforme sua nova regra)
+    estabilidade = 1 - min(std_ponderado / 6.0, 1.0)
+    score = (media_ponderada / 15.0) * 0.78 + (estabilidade * 0.22)
 
-        (estabilidade * 0.25)
-    )
+    # Bônus por consistência de alta performance na janela (11 ou mais acertos)
+    acertos_altos = np.sum(resultados >= 11)
+    if acertos_altos > 8:
+        score *= 1.08
 
-    return round(
-        float(score),
-        6
-    )
+    return round(float(score), 6)
