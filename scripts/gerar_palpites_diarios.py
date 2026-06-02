@@ -231,7 +231,7 @@ def main():
         "seq_max_limite": 5, "max_linha_limite": 5
     }
 
-        for _ in range(MAX_TENTATIVAS):
+    for _ in range(MAX_TENTATIVAS):
         if len(candidatos) >= 2800:
             break
 
