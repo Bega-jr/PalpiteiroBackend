@@ -231,7 +231,7 @@ def main():
         "seq_max_limite": 5, "max_linha_limite": 5
     }
 
-    for _ in range(MAX_TENTATIVAS):
+        for _ in range(MAX_TENTATIVAS):
         if len(candidatos) >= 2800:
             break
 
@@ -245,7 +245,17 @@ def main():
         if not validar_autonomo(filtros, estrutura["linhas"], limites):
             continue
 
-        features = gerar_features_jogo(jogo, filtros, estrutura, contexto)
+        # ======================================================
+        # CHAMADA CORRIGIDA E NOMEADA (Evita a troca de parâmetros)
+        # ======================================================
+        features = gerar_features_jogo(
+            jogo=jogo,
+            ultimo=ultimo,
+            filtros=filtros,
+            estrutura=estrutura,
+            contexto=contexto
+        )
+
         score_mc = simular_probabilidade_jogo(jogo, historico=hist)
         cluster_id = identificar_cluster_jogo(features)
 
@@ -291,6 +301,7 @@ def main():
 
         for n in jogo:
             contador_dezenas[n] += 1
+
 
     # Seleção por Tiers
     candidatos.sort(key=lambda x: x["score"], reverse=True)
