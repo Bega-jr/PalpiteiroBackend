@@ -83,10 +83,14 @@ def carregar_palpites(supabase, concurso):
     for r in rows:
         jogos.append({
             "indice": r["indice_palpite"],
-            "numeros": json.loads(r["numeros"])
+            # Garante compatibilidade se vier como lista ou string JSON
+            "numeros": (
+                r["numeros"]
+                if isinstance(r["numeros"], list)
+                else json.loads(r["numeros"])
+            )
         })
     return jogos
-
 
 # ======================================================
 # ANALISA PORTFÓLIO
