@@ -116,77 +116,62 @@ def gerar_features_jogo(
     nums = sorted(jogo)
 
     # =====================================================
-    # FALLBACKS
+    # FALLBACKS & VALIDAÇÕES
     # =====================================================
     if filtros is None:
+        filtros = {}
 
-        pares = sum(
-            1 for n in nums
-            if n % 2 == 0
+    # Garante o preenchimento individual de cada chave se não existir
+    if "pares" not in filtros:
+        filtros["pares"] = sum(1 for n in nums if n % 2 == 0)
+
+    if "impares" not in filtros:
+        filtros["impares"] = 15 - filtros["pares"]
+
+    if "primos" not in filtros:
+        filtros["primos"] = sum(1 for n in nums if n in PRIMOS)
+
+    if "moldura" not in filtros:
+        filtros["moldura"] = sum(1 for n in nums if n in MOLDURA)
+
+    if "soma" not in filtros:
+        filtros["soma"] = sum(nums)
+
+    if "repetidos" not in filtros:
+        filtros["repetidos"] = (
+            len(set(nums) & set(ultimo))
+            if ultimo
+            else 0
         )
 
-        filtros = {
+    if "seq_max" not in filtros:
+        filtros["seq_max"] = calcular_sequencias(nums)
 
-            "pares": pares,
-
-            "impares": 15 - pares,
-
-            "primos": sum(
-                1 for n in nums
-                if n in PRIMOS
-            ),
-
-            "moldura": sum(
-                1 for n in nums
-                if n in MOLDURA
-            ),
-
-            "soma": sum(nums),
-
-            "repetidos": (
-                len(set(nums) & set(ultimo))
-                if ultimo
-                else 0
-            ),
-
-            "seq_max": calcular_sequencias(nums)
-        }
 
     if estrutura is None:
-
         estrutura = {
-
             "linhas": calcular_linhas(nums)
         }
 
+
     if contexto is None:
-
         contexto = {
-
             "media_repetidos": 0.0,
-
             "media_soma": 0.0,
-
             "media_seq": 0.0
         }
 
-    # =====================================================
-    # FEATURES
-    # =====================================================
-    colunas = calcular_colunas(nums)
 
-    quadrantes = calcular_quadrantes(nums)
-
-    entropia = calcular_entropia(nums)
-
-    dispersao = float(np.std(nums))
-
-    amplitude = max(nums) - min(nums)
-
-    densidade = filtros["soma"] / 15
-
-
-    features = {
+        # =====================================================
+        # FEATURES
+        # =====================================================
+        colunas = calcular_colunas(nums)
+        quadrantes = calcular_quadrantes(nums)
+        entropia = calcular_entropia(nums)
+        dispersao = float(np.std(nums))
+        amplitude = max(nums) - min(nums)
+        densidade = filtros["soma"] / 15
+        features = {
 
         # =========================================
         # BASE
