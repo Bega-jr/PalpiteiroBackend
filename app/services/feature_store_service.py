@@ -116,12 +116,20 @@ def gerar_features_jogo(
     nums = sorted(jogo)
 
     # =====================================================
-    # FALLBACKS & VALIDAÇÕES
+    # FALLBACKS & VALIDAÇÕES (Dicionários Principais)
     # =====================================================
     if filtros is None:
         filtros = {}
 
-    # Garante o preenchimento individual de cada chave se não existir
+    if estrutura is None:
+        estrutura = {}
+
+    if contexto is None:
+        contexto = {}
+
+    # =====================================================
+    # GARANTIA DE CHAVES (Preenche individualmente se faltar)
+    # =====================================================
     if "pares" not in filtros:
         filtros["pares"] = sum(1 for n in nums if n % 2 == 0)
 
@@ -147,41 +155,27 @@ def gerar_features_jogo(
     if "seq_max" not in filtros:
         filtros["seq_max"] = calcular_sequencias(nums)
 
+    if "linhas" not in estrutura:
+        estrutura["linhas"] = calcular_linhas(nums)
 
-    if estrutura is None:
-        estrutura = {
-            "linhas": calcular_linhas(nums)
-        }
+    # =====================================================
+    # FEATURES (Identação Corrigida para Fora dos IFs)
+    # =====================================================
+    colunas = calcular_colunas(nums)
+    quadrantes = calcular_quadrantes(nums)
+    entropia = calcular_entropia(nums)
+    dispersao = float(np.std(nums))
+    amplitude = max(nums) - min(nums)
+    densidade = filtros["soma"] / 15
 
-
-    if contexto is None:
-        contexto = {
-            "media_repetidos": 0.0,
-            "media_soma": 0.0,
-            "media_seq": 0.0
-        }
-
-
-        # =====================================================
-        # FEATURES
-        # =====================================================
-        colunas = calcular_colunas(nums)
-        quadrantes = calcular_quadrantes(nums)
-        entropia = calcular_entropia(nums)
-        dispersao = float(np.std(nums))
-        amplitude = max(nums) - min(nums)
-        densidade = filtros["soma"] / 15
-        features = {
+    features = {
 
         # =========================================
         # BASE
         # =========================================
         "pares": filtros["pares"],
 
-        "impares": filtros.get(
-            "impares",
-            15 - filtros["pares"]
-        ),
+        "impares": filtros["impares"],
 
         "primos": filtros["primos"],
 
@@ -254,3 +248,4 @@ def gerar_features_jogo(
 # COMPATIBILIDADE RETROATIVA
 # =========================================================
 extrair_features = gerar_features_jogo
+
