@@ -303,15 +303,29 @@ def main():
             contador_dezenas[n] += 1
 
 
-    # Seleção por Tiers
+    # ======================================================
+    # SELEÇÃO POR TIERS COM INVERSÃO CLÁSSICA (ANTI-VIÉS)
+    # ======================================================
     candidatos.sort(key=lambda x: x["score"], reverse=True)
 
     finais = []
-    finais.extend(candidatos[:3])                    # Conservador
-    finais.extend(candidatos[4:8])                   # Equilibrado
-    finais.extend([c for c in candidatos[8:20] if c["score_potencial"] > 1.35][:4])  # Agressivo
+    finais.extend(candidatos[:3])                    # Conservador (Top 3)
+    finais.extend(candidatos[4:8])                   # Equilibrado (4 palpites)
+
+    # Captura o jogo Matriz (O 1º colocado absoluto)
+    jogo_matriz = set(finais[0]["nums"])
+
+    # Isola o restante da lista para filtrar os avessos
+    resto_candidatos = candidatos[8:]
+
+    # Ordena pelo MENOR overlap com o Top 1 (e maior score em caso de empate)
+    resto_candidatos.sort(key=lambda x: (len(set(x["nums"]) & jogo_matriz), -x["score"]))
+
+    # Adiciona os 3 palpites mais distantes da matriz para fechar o time
+    finais.extend(resto_candidatos[:3])
 
     finais = finais[:10]
+
 
     # Output
     payload = []
