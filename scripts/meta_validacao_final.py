@@ -233,7 +233,6 @@ def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
 def remover_palpites_ruins(supabase, concurso):
     supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso).execute()
 
-
 # ======================================================
 # MAIN
 # ======================================================
@@ -242,9 +241,17 @@ def main():
     supabase = get_supabase()
 
     # ==================================================
-    # ÚLTIMO CONCURSO
+    # DETECÇÃO AUTO-AJUSTÁVEL DE CONCURSO (FALLBACK ATIVO)
     # ==================================================
-    ultimo = (
+    try:
+        from scripts.gerar_palpites_diarios import carregar_historico
+        hist = carregar_historico()
+        concurso_alvo_real = int(hist[-1]["concurso"]) + 1
+    except Exception as e:
+        print(f"⚠️ Não foi possível ler o histórico oficial ({e}). Tentando inferir pelo banco...")
+        concurso_alvo_real = None
+
+    ultimo_gravado_banco = (
         supabase
         .table("palpites_validos")
         .select("concurso_referencia")
@@ -253,36 +260,76 @@ def main():
         .execute()
         .data
     )
-    if not ultimo:
-        print("❌ Nenhum concurso encontrado.")
+
+    if not ultimo_gravado_banco:
+        print("❌ Tabela 'palpites_validos' vazia. Não há dados para validar.")
         return
-    concurso = ultimo[0]["concurso_referencia"]
+
+    # Correção aplicada: adicionado o índice [0] como você colocou
+    concurso_banco_max = ultimo_gravado_banco[0]["concurso_referencia"] 
+
+    # Inicializa flag de controle
+    forçar_regeneracao_imediata = False
+
+    if concurso_alvo_real and concurso_banco_max != concurso_alvo_real:
+        print(f"\n⚠️ [DESALINHAMENTO DETECTADO]")
+        print(f"   O histórico aponta para o Concurso: {concurso_alvo_real}")
+        print(f"   O banco possui palpites apenas até o Concurso: {concurso_banco_max}")
+        print(f"   🚨 Um ou mais concursos foram perdidos no meio do caminho!")
+        print(f"   ⚙️ Forçando auto-ajuste para o Concurso {concurso_alvo_real} para investigação...")
+        
+        concurso = concurso_alvo_real
+        forçar_regeneracao_imediata = True
+    else:
+        concurso = concurso_banco_max
+
+    print(f"🎯 Concurso definitivo definido para validação: {concurso}")
 
     # ==================================================
     # LOOP AUTO-REGENERAÇÃO
     # ==================================================
     tentativa = 1
-    # 🟢 INICIALIZAÇÃO FIXA FORA DO LOOP (Evita que os limites resetem a cada iteração)
     limite_exp_dinamico = LIMITE_EXPOSICAO_DEZENA
     limite_ov_dinamico = LIMITE_OVERLAP_MEDIO
 
     while tentativa <= MAX_REGENERACOES:
         print(f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}")
 
-        # Se for uma nova tentativa de regeneração, força os novos limites dinâmicos ativamente
         if tentativa == 2:
             limite_exp_dinamico = 9
         elif tentativa == 3:
             limite_exp_dinamico = 10
             limite_ov_dinamico = 11.5
 
-        jogos = carregar_palpites(supabase, concurso)
-        if len(jogos) < QTD_PALPITES:
-            print("⚠️ Menos de 7 palpites.")
-            return
-
-        analise = analisar_portfolio(jogos, limite_exp_dinamico, limite_ov_dinamico)
-        status = analise["status"]
+        # Se forçado pelo auto-ajuste, ignora a leitura e simula métricas zeradas
+        if forçar_regeneracao_imediata and tentativa == 1:
+            print("ℹ️ Aplicando métricas zeradas temporárias para disparar o motor de geração...")
+            status = "REJEITADO_FORCADO"
+            analise = {
+                "overlap_medio": 0.0,
+                "entropia": 0.0,
+                "diversidade": 0,
+                "limite_exposicao_real": limite_exp_dinamico,
+                "nivel_risco": "NENHUM (AUTO-AJUSTE)",
+                "risco_colapso": 0,
+                "dezenas_superexpostas": [],
+                "alertas": ["Desalinhamento de histórico: Forçando criação de raiz do concurso."]
+            }
+        else:
+            jogos = carregar_palpites(supabase, concurso)
+            if len(jogos) < QTD_PALPITES:
+                print(f"⚠️ Menos de {QTD_PALPITES} palpites reais encontrados no banco.")
+                # Se faltar jogo em uma tentativa avançada, força o gatilho de recriação
+                status = "REJEITADO_POR_FALTA_DE_DADOS"
+                analise = {
+                    "overlap_medio": 0.0, "entropia": 0.0, "diversidade": 0,
+                    "limite_exposicao_real": limite_exp_dinamico, "nivel_risco": "ALTO",
+                    "risco_colapso": 3, "dezenas_superexpostas": [],
+                    "alertas": ["Dados insuficientes no banco."]
+                }
+            else:
+                analise = analisar_portfolio(jogos, limite_exp_dinamico, limite_ov_dinamico)
+                status = analise["status"]
 
         # ==================================================
         # OUTPUT
@@ -337,11 +384,10 @@ def main():
         # DISPARA REGENERAÇÃO SE HOUVER TENTATIVAS RESTANTES
         # ==================================================
         if tentativa < MAX_REGENERACOES:
-            print(f"\n🔥 Portfólio rejeitado na tentativa {tentativa}/{MAX_REGENERACOES}.")
-            print("♻️ Removendo palpites inválidos...")
+            print(f"\n🔥 Portfólio rejeitado/forçado na tentativa {tentativa}/{MAX_REGENERACOES}.")
+            print("♻️ Limpando possíveis resquícios da tabela...")
             remover_palpites_ruins(supabase, concurso)
 
-            # 🟢 CORREÇÃO: Altera as variáveis locais dinâmicas que a função 'analisar_portfolio' vai herdar na próxima rodada
             if tentativa == 1:
                 limite_exp_dinamico = 7
             elif tentativa == 2:
@@ -354,13 +400,13 @@ def main():
                 sys.executable,
                 "scripts/gerar_palpites_diarios.py"
             ], check=True)
+            
+            # Desativa o bypass para a tentativa 2 consultar os palpites recém-gerados pela engine
+            forçar_regeneracao_imediata = False 
             tentativa += 1
         else:
             break
 
-    # ==================================================
-    # FALHA FINAL
-    # ==================================================
     print("\n❌ FALHA CRÍTICA")
     print(f"⚠️ Limite de {MAX_REGENERACOES} tentativas atingido sem gerar um portfólio saudável.")
     print("🛑 Os últimos palpites gerados foram mantidos no banco para análise manual.")
