@@ -454,3 +454,6 @@ def main():
 
     print(f"⏱️ Tempo total: {time.time() - inicio_execucao:.1f} segundos")
 
+    if __name__ == "__main__":
+        main()
+
