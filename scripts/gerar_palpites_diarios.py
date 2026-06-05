@@ -400,7 +400,7 @@ def main():
     finais = finais[:10]
 
 
-    # ======================================================
+      # ======================================================
     # OUTPUT
     # ======================================================
     payload = []
@@ -428,6 +428,7 @@ def main():
             "indice_palpite": i,
             "tipo": tier,
             "numeros": json.dumps(c["nums"]),
+            # Mapeamento exato com float para casar com o double precision/numeric do banco
             "score": round(float(c["score"]), 8),
             "score_potencial": round(float(c["score_potencial"]), 8),
             "score_montecarlo": round(float(c["score_mc"]), 8),
@@ -445,10 +446,13 @@ def main():
             on_conflict="concurso_referencia,indice_palpite"
         ).execute()
 
-        print(f"✅ {len(payload)} palpites salvos com sucesso!")
+        print(f"✅ [BANCO] {len(payload)} palpites salvos com sucesso!")
 
     except Exception as e:
-        print(f"❌ Erro ao salvar: {e}")
+        # Mudança cirúrgica aqui: expõe o erro detalhado em vez de camuflar
+        print("\n❌ [ERRO CRÍTICO NO SUPABASE] O banco recusou o salvamento!")
+        print(f"DETALHES DO ERRO: {str(e)}")
+        print("--------------------------------------------------")
 
     print("\n📲 TELEGRAM_PAYLOAD_START")
     print(montar_msg_telegram(concurso_ref, telegram))
