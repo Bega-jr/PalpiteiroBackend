@@ -11,11 +11,11 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 VERSAO = "v2.0-meta-validacao-autoregenerativa"
-QTD_PALPITES = 7
-LIMITE_OVERLAP_MEDIO = 11.2
+QTD_PALPITES = 10
+LIMITE_OVERLAP_MEDIO = 11.5
 LIMITE_EXPOSICAO_DEZENA = 8
-LIMITE_ENTROPIA = 2.70
-LIMITE_DIVERSIDADE = 16
+LIMITE_ENTROPIA = 2.60
+LIMITE_DIVERSIDADE = 18
 MAX_REGENERACOES = 3
 
 
