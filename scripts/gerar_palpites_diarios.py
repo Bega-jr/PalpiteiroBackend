@@ -426,8 +426,7 @@ def main():
                 "concurso_referencia": concurso_ref,
                 "indice_palpite": i,
                 "tipo": tier,
-                # 🟢 CORREÇÃO CRÍTICA: Enviando a lista pura [2, 3, 5...] compatível com JSONB nativo do Supabase
-                "numeros": c["nums"], 
+                "numeros": json.dumps(c["nums"]), 
                 "score": round(float(c["score"]), 8),
                 "score_potencial": round(float(c["score_potencial"]), 8),
                 "score_montecarlo": round(float(c["score_mc"]), 8),
