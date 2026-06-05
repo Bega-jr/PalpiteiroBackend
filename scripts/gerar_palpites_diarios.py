@@ -315,174 +315,174 @@ def main():
             contador_dezenas[n] += 1
 
 
-   # ======================================================
-# FILTRO GLOBAL DE EXPOSIÇÃO
-# ======================================================
-from collections import Counter
-
-contador_global = Counter()
-candidatos_filtrados = []
-
-for cand in sorted(candidatos, key=lambda x: -x["score"]):
-
-    excesso = False
-
-    for n in cand["nums"]:
-        if contador_global[n] >= 7:
-            excesso = True
+    # ======================================================
+    # FILTRO GLOBAL DE EXPOSIÇÃO
+    # ======================================================
+    
+    
+    contador_global = Counter()
+    candidatos_filtrados = []
+    
+    for cand in sorted(candidatos, key=lambda x: -x["score"]):
+    
+        excesso = False
+    
+        for n in cand["nums"]:
+            if contador_global[n] >= 7:
+                excesso = True
+                break
+    
+        if excesso:
+            continue
+    
+        candidatos_filtrados.append(cand)
+    
+        for n in cand["nums"]:
+            contador_global[n] += 1
+    
+    
+    # ======================================================
+    # SELEÇÃO POR TIERS COM INVERSÃO CLÁSSICA (ANTI-VIÉS)
+    # ======================================================
+    candidatos_filtrados.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+    
+    finais = []
+    
+    # Conservadores
+    finais.extend(candidatos_filtrados[:3])
+    
+    # Equilibrados
+    finais.extend(candidatos_filtrados[3:7])
+    
+    # ======================================================
+    # AGRESSIVOS REAIS
+    # ======================================================
+    
+    jogo_matriz = set(finais[0]["nums"])
+    
+    resto_candidatos = candidatos_filtrados[7:]
+    
+    resto_candidatos.sort(
+        key=lambda x: (
+            len(set(x["nums"]) & jogo_matriz),
+            -x["score"]
+        )
+    )
+    
+    agressivos = []
+    
+    for cand in resto_candidatos:
+    
+        if all(
+            len(set(cand["nums"]) & set(a["nums"])) <= 7
+            for a in agressivos
+        ):
+            agressivos.append(cand)
+    
+        if len(agressivos) == 3:
             break
-
-    if excesso:
-        continue
-
-    candidatos_filtrados.append(cand)
-
-    for n in cand["nums"]:
-        contador_global[n] += 1
-
-
-# ======================================================
-# SELEÇÃO POR TIERS COM INVERSÃO CLÁSSICA (ANTI-VIÉS)
-# ======================================================
-candidatos_filtrados.sort(
-    key=lambda x: x["score"],
-    reverse=True
-)
-
-finais = []
-
-# Conservadores
-finais.extend(candidatos_filtrados[:3])
-
-# Equilibrados
-finais.extend(candidatos_filtrados[3:7])
-
-# ======================================================
-# AGRESSIVOS REAIS
-# ======================================================
-
-jogo_matriz = set(finais[0]["nums"])
-
-resto_candidatos = candidatos_filtrados[7:]
-
-resto_candidatos.sort(
-    key=lambda x: (
-        len(set(x["nums"]) & jogo_matriz),
-        -x["score"]
-    )
-)
-
-agressivos = []
-
-for cand in resto_candidatos:
-
-    if all(
-        len(set(cand["nums"]) & set(a["nums"])) <= 7
-        for a in agressivos
-    ):
-        agressivos.append(cand)
-
-    if len(agressivos) == 3:
-        break
-
-finais.extend(agressivos)
-
-# Garante exatamente 10 jogos
-finais = finais[:10]
-
-
-# ======================================================
-# OUTPUT
-# ======================================================
-payload = []
-telegram = []
-
-for i, c in enumerate(finais, 1):
-
-    tier = (
-        "conservador"
-        if i <= 3
-        else "equilibrado"
-        if i <= 7
-        else "agressivo"
-    )
-
-    telegram.append(
-        f"{i}º | {c['score']:.5f} | "
-        f"Pot={c['score_potencial']:.3f} | "
-        f"MC={c['score_mc']:.4f} | "
-        f"{tier.upper()} | {c['nums']}"
-    )
-
-    payload.append({
-
-        "data_referencia": hoje,
-        "concurso_referencia": concurso_ref,
-        "indice_palpite": i,
-        "tipo": tier,
-
-        "numeros": json.dumps(
-            c["nums"]
-        ),
-
-        "score": round(
-            float(c["score"]),
-            8
-        ),
-
-        "score_potencial": round(
-            float(c["score_potencial"]),
-            8
-        ),
-
-        "score_montecarlo": round(
-            float(c["score_mc"]),
-            8
-        ),
-
-        "versao_gerador": VERSAO
-    })
-
-
-# ======================================================
-# SALVAR
-# ======================================================
-try:
-
-    supabase.table(
-        "palpites_validos"
-    ).upsert(
-
-        payload,
-
-        on_conflict=
-        "concurso_referencia,indice_palpite"
-
-    ).execute()
-
+    
+    finais.extend(agressivos)
+    
+    # Garante exatamente 10 jogos
+    finais = finais[:10]
+    
+    
+    # ======================================================
+    # OUTPUT
+    # ======================================================
+    payload = []
+    telegram = []
+    
+    for i, c in enumerate(finais, 1):
+    
+        tier = (
+            "conservador"
+            if i <= 3
+            else "equilibrado"
+            if i <= 7
+            else "agressivo"
+        )
+    
+        telegram.append(
+            f"{i}º | {c['score']:.5f} | "
+            f"Pot={c['score_potencial']:.3f} | "
+            f"MC={c['score_mc']:.4f} | "
+            f"{tier.upper()} | {c['nums']}"
+        )
+    
+        payload.append({
+    
+            "data_referencia": hoje,
+            "concurso_referencia": concurso_ref,
+            "indice_palpite": i,
+            "tipo": tier,
+    
+            "numeros": json.dumps(
+                c["nums"]
+            ),
+    
+            "score": round(
+                float(c["score"]),
+                8
+            ),
+    
+            "score_potencial": round(
+                float(c["score_potencial"]),
+                8
+            ),
+    
+            "score_montecarlo": round(
+                float(c["score_mc"]),
+                8
+            ),
+    
+            "versao_gerador": VERSAO
+        })
+    
+    
+    # ======================================================
+    # SALVAR
+    # ======================================================
+    try:
+    
+        supabase.table(
+            "palpites_validos"
+        ).upsert(
+    
+            payload,
+    
+            on_conflict=
+            "concurso_referencia,indice_palpite"
+    
+        ).execute()
+    
+        print(
+            f"✅ {len(payload)} palpites salvos com sucesso!"
+        )
+    
+    except Exception as e:
+    
+        print(
+            f"❌ Erro ao salvar: {e}"
+        )
+    
+    
+    print("\n📲 TELEGRAM_PAYLOAD_START")
+    
     print(
-        f"✅ {len(payload)} palpites salvos com sucesso!"
+        montar_msg_telegram(
+            concurso_ref,
+            telegram
+        )
     )
-
-except Exception as e:
-
+    
+    print("📲 TELEGRAM_PAYLOAD_END")
+    
     print(
-        f"❌ Erro ao salvar: {e}"
+        f"⏱️ Tempo total: "
+        f"{time.time() - inicio_execucao:.1f} segundos"
     )
-
-
-print("\n📲 TELEGRAM_PAYLOAD_START")
-
-print(
-    montar_msg_telegram(
-        concurso_ref,
-        telegram
-    )
-)
-
-print("📲 TELEGRAM_PAYLOAD_END")
-
-print(
-    f"⏱️ Tempo total: "
-    f"{time.time() - inicio_execucao:.1f} segundos"
-)
