@@ -453,7 +453,13 @@ def main():
     print("📲 TELEGRAM_PAYLOAD_END")
 
     print(f"⏱️ Tempo total: {time.time() - inicio_execucao:.1f} segundos")
-
-    if __name__ == "__main__":
+# ======================================================
+# ENTRYPOINT
+# ======================================================
+if __name__ == "__main__":
+    try:
         main()
-
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise
