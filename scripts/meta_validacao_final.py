@@ -79,32 +79,32 @@ def carregar_palpites(supabase, concurso):
         .data
     )
 
-        jogos = []
-        for r in rows:
-            dado_bruto = r["numeros"]
-            
-            # Se for uma string (que é o formato antigo "[1, 2...]" que estamos resgatando)
-            if isinstance(dado_bruto, str):
-                try:
-                    numeros_convertidos = json.loads(dado_bruto)
-                    # Se o json.loads ainda retornar uma string (escapada dupla), limpa de novo
-                    if isinstance(numeros_convertidos, str):
-                        numeros_convertidos = json.loads(numeros_convertidos)
-                except Exception:
-                    # Fallback caso seja uma string com formato inválido textuado
-                    numeros_convertidos = []
-            # Se já vier como lista nativa do Python
-            elif isinstance(dado_bruto, list):
-                numeros_convertidos = dado_bruto
-            else:
+    jogos = []
+    for r in rows:
+        dado_bruto = r["numeros"]
+        
+        # Se for uma string (formato antigo "[1, 2...]")
+        if isinstance(dado_bruto, str):
+            try:
+                numeros_convertidos = json.loads(dado_bruto)
+                # Se o json.loads ainda retornar uma string, limpa de novo
+                if isinstance(numeros_convertidos, str):
+                    numeros_convertidos = json.loads(numeros_convertidos)
+            except Exception:
                 numeros_convertidos = []
-    
-            jogos.append({
-                "indice": r["indice_palpite"],
-                "numeros": numeros_convertidos
-            })
-            
-        return jogos
+        # Se já vier como lista nativa do Python
+        elif isinstance(dado_bruto, list):
+            numeros_convertidos = dado_bruto
+        else:
+            numeros_convertidos = []
+
+        jogos.append({
+            "indice": r["indice_palpite"],
+            "numeros": numeros_convertidos
+        })
+        
+    return jogos
+
 
 
 # ======================================================
