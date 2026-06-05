@@ -145,7 +145,7 @@ def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
     limite_exposicao_real = max(
         limite_exposicao,
         math.ceil(
-            ((len(jogos) * 15) / 25) * 1.40
+            ((len(jogos) * 15) / 25) * 1.20
         )
     )
 
@@ -271,9 +271,9 @@ def main():
 
         # Se for uma nova tentativa de regeneração, força os novos limites dinâmicos ativamente
         if tentativa == 2:
-            limite_exp_dinamico = 7
+            limite_exp_dinamico = 9
         elif tentativa == 3:
-            limite_exp_dinamico = 7
+            limite_exp_dinamico = 10
             limite_ov_dinamico = 11.5
 
         jogos = carregar_palpites(supabase, concurso)
