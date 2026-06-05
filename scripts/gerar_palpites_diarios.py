@@ -262,6 +262,17 @@ def main():
         if not diversidade_avancada_ok(jogo, candidatos[-40:], estrutura, cluster_id):
             continue
 
+        # ==========================================
+        # CONTROLE DE DIVERSIDADE LOCAL (Inserido aqui)
+        # ==========================================
+        if candidatos:
+            overlap_medio_local = np.mean([
+                len(set(jogo) & set(c["nums"]))
+                for c in candidatos[-50:]
+            ])
+            if overlap_medio_local > 10:
+                continue
+
         s1, s2, s3 = score_base(jogo, base_scores)
         score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
 
@@ -282,12 +293,13 @@ def main():
         )
 
         # Peso forte no novo score de potencial
-        score_final = score_final * 0.65 + score_potencial * 0.35
+        score_final = score_final * 0.80 + score_potencial * 0.20
 
         # Menos ruído
         score_final -= sum(contador_dezenas[n] * 0.018 for n in jogo)
         score_final *= random.uniform(0.992, 1.008)
 
+        # Salvando o candidato com a estrutura completa exigida
         candidatos.append({
             "nums": jogo,
             "score": float(score_final),
@@ -319,10 +331,23 @@ def main():
     resto_candidatos = candidatos[8:]
 
     # Ordena pelo MENOR overlap com o Top 1 (e maior score em caso de empate)
-    resto_candidatos.sort(key=lambda x: (len(set(x["nums"]) & jogo_matriz), -x["score"]))
+    # ==========================================
+    # AGRESSIVOS REAIS (Com ordenação prévia por score)
+    # ==========================================
+    # Ordena primeiro para garantir que os melhores scores sejam avaliados antes
+    resto_candidatos.sort(key=lambda x: -x["score"])
+    
+    agressivos = []
+    for cand in resto_candidatos:
+        # Garante que o candidato atual não tenha mais de 7 números iguais a nenhum já aceito
+        if all(len(set(cand["nums"]) & set(a["nums"])) <= 7 for a in agressivos):
+            agressivos.append(cand)
+    
+        if len(agressivos) == 3:
+            break
+    
+    finais.extend(agressivos)
 
-    # Adiciona os 3 palpites mais distantes da matriz para fechar o time
-    finais.extend(resto_candidatos[:3])
 
     finais = finais[:10]
 
