@@ -216,7 +216,7 @@ def main():
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
     pesos = obter_pesos_ensemble()
-    contexto = detectar_contexto(hist)
+    contexto = detecting_contexto(hist)
 
     # Geração
     candidatos = []
@@ -231,6 +231,9 @@ def main():
         "seq_max_limite": 5, "max_linha_limite": 5
     }
 
+    # ======================================================
+    # LOOP DE GERAÇÃO BRUTA (Escopo Interno: 8 espaços)
+    # ======================================================
     for _ in range(MAX_TENTATIVAS):
         if len(candidatos) >= 2800:
             break
@@ -245,9 +248,7 @@ def main():
         if not validar_autonomo(filtros, estrutura["linhas"], limites):
             continue
 
-        # ======================================================
-        # CHAMADA CORRIGIDA E NOMEADA (Evita a troca de parâmetros)
-        # ======================================================
+        # CHAMADA CORRIGIDA E NOMEADA
         features = gerar_features_jogo(
             jogo=jogo,
             ultimo=ultimo,
@@ -262,9 +263,7 @@ def main():
         if not diversidade_avancada_ok(jogo, candidatos[-40:], estrutura, cluster_id):
             continue
 
-        # ==========================================
-        # CONTROLE DE DIVERSIDADE LOCAL (Inserido aqui)
-        # ==========================================
+        # CONTROLE DE DIVERSIDADE LOCAL
         if candidatos:
             overlap_medio_local = np.mean([
                 len(set(jogo) & set(c["nums"]))
@@ -292,14 +291,11 @@ def main():
             bonus_recompensa=calcular_recompensa_evolutiva(estrutura, filtros, cluster_id)
         )
 
-        # Peso forte no novo score de potencial
         score_final = score_final * 0.80 + score_potencial * 0.20
 
-        # Menos ruído
         score_final -= sum(contador_dezenas[n] * 0.045 for n in jogo)
         score_final *= random.uniform(0.992, 1.008)
 
-        # Salvando o candidato com a estrutura completa exigida
         candidatos.append({
             "nums": jogo,
             "score": float(score_final),
@@ -314,146 +310,145 @@ def main():
         for n in jogo:
             contador_dezenas[n] += 1
 
-        # ======================================================
-        # FILTRO GLOBAL DE EXPOSIÇÃO
-        # ======================================================
-        contador_global = Counter()
-        candidatos_filtrados = []
-    
-        for cand in sorted(candidatos, key=lambda x: -x["score"]):
-            excesso = False
-            for n in cand["nums"]:
-                if contador_global[n] >= 7:
-                    excesso = True
-                    break
-    
-            if excesso:
+    # ======================================================
+    # FILTRO GLOBAL DE EXPOSIÇÃO (Fora do Loop: 4 espaços)
+    # ======================================================
+    contador_global = Counter()
+    candidatos_filtrados = []
+
+    for cand in sorted(candidatos, key=lambda x: -x["score"]):
+        excesso = False
+        for n in cand["nums"]:
+            if contador_global[n] >= 7:
+                excesso = True
+                break
+
+        if excesso:
+            continue
+
+        candidatos_filtrados.append(cand)
+
+        for n in cand["nums"]:
+            contador_global[n] += 1
+
+    # ======================================================
+    # SELEÇÃO POR TIERS COM INVERSÃO CLÁSSICA
+    # ======================================================
+    candidatos_filtrados.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    if len(candidatos_filtrados) < 10:
+        print(f"⚠️ Alerta: Filtro de exposição excessivo ({len(candidatos_filtrados)} jogos). Usando candidatos brutos como fallback.")
+        candidatos_filtrados = sorted(candidatos, key=lambda x: -x["score"])
+
+    if not candidatos_filtrados:
+        print("❌ Erro Crítico: Nenhum candidato disponível para seleção.")
+        return
+
+    finais = []
+
+    # Conservadores
+    finais.extend(candidatos_filtrados[:3])
+
+    # Equilibrados
+    finais.extend(candidatos_filtrados[3:7])
+
+    # ======================================================
+    # AGRESSIVOS REAIS
+    # ======================================================
+    jogo_matriz = set(finais[0]["nums"])
+    resto_candidatos = candidatos_filtrados[7:]
+
+    resto_candidatos.sort(
+        key=lambda x: (
+            len(set(x["nums"]) & jogo_matriz),
+            -x["score"]
+        )
+    )
+
+    agressivos = []
+
+    for limite_overlap in [7, 8, 9]:
+        for cand in resto_candidatos:
+            if cand in agressivos:
                 continue
-    
-            candidatos_filtrados.append(cand)
-    
-            for n in cand["nums"]:
-                contador_global[n] += 1
-    
-        # ======================================================
-        # SELEÇÃO POR TIERS COM INVERSÃO CLÁSSICA (ANTI-VIÉS)
-        # ======================================================
-        candidatos_filtrados.sort(
-            key=lambda x: x["score"],
-            reverse=True
-        )
-    
-        # 🚨 BLINDAGEM CRÍTICA: Se o filtro de exposição apagou os candidatos, 
-        # usamos a lista original (bruta) para garantir que o sistema não quebre
-        if len(candidatos_filtrados) < 10:
-            print(f"⚠️ Alerta: Filtro de exposição excessivo ({len(candidatos_filtrados)} jogos). Usando candidatos brutos como fallback.")
-            candidatos_filtrados = sorted(candidatos, key=lambda x: -x["score"])
-    
-        # Se mesmo os brutos forem insuficientes (ex: geração travou antes), evita erro fatal
-        if not candidatos_filtrados:
-            print("❌ Erro Crítico: Nenhum candidato disponível para seleção.")
-            return
-    
-        finais = []
-    
-        # Conservadores
-        finais.extend(candidatos_filtrados[:3])
-    
-        # Equilibrados
-        finais.extend(candidatos_filtrados[3:7])
-    
-        # ======================================================
-        # AGRESSIVOS REAIS
-        # ======================================================
-        # Agora o índice [0] está 100% garantido por causa da blindagem acima
-        jogo_matriz = set(finais[0]["nums"])
-        resto_candidatos = candidatos_filtrados[7:]
-    
-        resto_candidatos.sort(
-            key=lambda x: (
-                len(set(x["nums"]) & jogo_matriz),
-                -x["score"]
-            )
-        )
-    
-        agressivos = []
-    
-        # Se o resto dos candidatos for muito pequeno, tentamos relaxar o overlap de 7 para 9
-        for limite_overlap in [7, 8, 9]:
-            for cand in resto_candidatos:
-                if cand in agressivos:
-                    continue
-                if all(
-                    len(set(cand["nums"]) & set(a["nums"])) <= limite_overlap
-                    for a in agressivos
-                ):
-                    agressivos.append(cand)
-    
-                if len(agressivos) == 3:
-                    break
+            if all(
+                len(set(cand["nums"]) & set(a["nums"])) <= limite_overlap
+                for a in agressivos
+            ):
+                agressivos.append(cand)
+
             if len(agressivos) == 3:
                 break
-    
-        finais.extend(agressivos)
-    
-        # Garante exatamente 10 jogos
-        finais = finais[:10]
-    
-        # ======================================================
-        # OUTPUT
-        # ======================================================
-        payload = []
-        telegram = []
-    
-        for i, c in enumerate(finais, 1):
-            tier = (
-                "conservador"
-                if i <= 3
-                else "equilibrado"
-                if i <= 7
-                else "agressivo"
-            )
-    
-            telegram.append(
-                f"{i}º | {c['score']:.5f} | "
-                f"Pot={c['score_potencial']:.3f} | "
-                f"MC={c['score_mc']:.4f} | "
-                f"{tier.upper()} | {c['nums']}"
-            )
-    
-            payload.append({
-                "data_referencia": hoje,
-                "concurso_referencia": concurso_ref,
-                "indice_palpite": i,
-                "tipo": tier,
-                "numeros": json.dumps(c["nums"]), 
-                "score": round(float(c["score"]), 8),
-                "score_potencial": round(float(c["score_potencial"]), 8),
-                "score_montecarlo": round(float(c["score_mc"]), 8),
-                "versao_gerador": VERSAO
-            })
-    
-        # ======================================================
-        # SALVAR
-        # ======================================================
-        try:
-            supabase.table(
-                "palpites_validos"
-            ).upsert(
-                payload,
-                on_conflict="concurso_referencia,indice_palpite"
-            ).execute()
-    
-            print(f"✅ [BANCO] {len(payload)} palpites salvos com sucesso!")
-    
-        except Exception as e:
-            print("\n❌ [ERRO CRÍTICO NO SUPABASE] O banco recusou o salvamento!")
-            print(f"DETALHES DO ERRO: {str(e)}")
-            print("--------------------------------------------------")
-            raise e
-    
-        print("\n📲 TELEGRAM_PAYLOAD_START")
-        print(montar_msg_telegram(concurso_ref, telegram))
-        print("📲 TELEGRAM_PAYLOAD_END")
-    
-        print(f"⏱️ Tempo total: {time.time() - inicio_execucao:.1f} segundos")
+        if len(agressivos) == 3:
+            break
+
+    finais.extend(agressivos)
+    finais = finais[:10]
+
+    # ======================================================
+    # OUTPUT
+    # ======================================================
+    payload = []
+    telegram = []
+
+    for i, c in enumerate(finais, 1):
+        tier = (
+            "conservador"
+            if i <= 3
+            else "equilibrado"
+            if i <= 7
+            else "agressivo"
+        )
+
+        telegram.append(
+            f"{i}º | {c['score']:.5f} | "
+            f"Pot={c['score_potencial']:.3f} | "
+            f"MC={c['score_mc']:.4f} | "
+            f"{tier.upper()} | {c['nums']}"
+        )
+
+        payload.append({
+            "data_referencia": hoje,
+            "concurso_referencia": concurso_ref,
+            "indice_palpite": i,
+            "tipo": tier,
+            "numeros": json.dumps(c["nums"]), 
+            "score": round(float(c["score"]), 8),
+            "score_potencial": round(float(c["score_potencial"]), 8),
+            "score_montecarlo": round(float(c["score_mc"]), 8),
+            "versao_gerador": VERSAO
+        })
+
+    # ======================================================
+    # SALVAR
+    # ======================================================
+    print("\n📦 === PALPITES GERADOS EM MEMÓRIA (BACKUP) ===")
+    for item in payload:
+        print(f"Jogo {item['indice_palpite']} [{item['tipo'].upper()}]: {item['numeros']}")
+    print("================================================\n")
+
+    try:
+        supabase.table(
+            "palpites_validos"
+        ).upsert(
+            payload,
+            on_conflict="concurso_referencia,indice_palpite"
+        ).execute()
+
+        print(f"✅ [BANCO] {len(payload)} palpites salvos com sucesso!")
+
+    except Exception as e:
+        print("\n❌ [ERRO CRÍTICO NO SUPABASE] O banco recusou o salvamento!")
+        print(f"DETALHES DO ERRO: {str(e)}")
+        print("--------------------------------------------------")
+        raise e
+
+    print("\n📲 TELEGRAM_PAYLOAD_START")
+    print(montar_msg_telegram(concurso_ref, telegram))
+    print("📲 TELEGRAM_PAYLOAD_END")
+
+    print(f"⏱️ Tempo total: {time.time() - inicio_execucao:.1f} segundos")
+
