@@ -30,8 +30,9 @@ TABELAS_CRITICAS = {
 
     "feature_store_jogos": [
 
-        "concurso",
-        "jogo",
+        "concurso_referencia",
+        "hash_jogo",
+        "numeros",
         "cluster_id",
         "score"
     ],
