@@ -13,7 +13,7 @@ from app.services.supabase_service import get_supabase
 VERSAO = "v2.0-meta-validacao-autoregenerativa"
 QTD_PALPITES = 7
 LIMITE_OVERLAP_MEDIO = 11.2
-LIMITE_EXPOSICAO_DEZENA = 6
+LIMITE_EXPOSICAO_DEZENA = 8
 LIMITE_ENTROPIA = 2.70
 LIMITE_DIVERSIDADE = 16
 MAX_REGENERACOES = 3
@@ -95,69 +95,137 @@ def carregar_palpites(supabase, concurso):
 # ======================================================
 # ANALISA PORTFÓLIO
 # ======================================================
-def analisar_portfolio(jogos, limite_exposicao=6, limite_overlap=11.2):
+def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
+
     overlaps = []
     contador = Counter()
     matriz_overlap = []
 
     for i in range(len(jogos)):
+
         jogo_i = jogos[i]["numeros"]
+
         for dez in jogo_i:
             contador[dez] += 1
 
         for j in range(i + 1, len(jogos)):
+
             jogo_j = jogos[j]["numeros"]
-            ov = calcular_overlap(jogo_i, jogo_j)  # Corrigido "juego" para "jogo"
+
+            ov = calcular_overlap(
+                jogo_i,
+                jogo_j
+            )
+
             overlaps.append(ov)
+
             matriz_overlap.append({
                 "j1": i + 1,
                 "j2": j + 1,
                 "overlap": ov
             })
 
-    overlap_medio = round(statistics.mean(overlaps), 6) if overlaps else 0.0
-    entropia = round(calcular_entropia(contador), 6)
-    diversidade = calcular_score_diversidade([x["numeros"] for x in jogos])
-    
+    overlap_medio = (
+        round(statistics.mean(overlaps), 6)
+        if overlaps else 0.0
+    )
+
+    entropia = round(
+        calcular_entropia(contador),
+        6
+    )
+
+    diversidade = calcular_score_diversidade(
+        [x["numeros"] for x in jogos]
+    )
+
+    # ==================================================
+    # LIMITE DINÂMICO DE EXPOSIÇÃO
+    # ==================================================
+    limite_exposicao_real = max(
+        limite_exposicao,
+        math.ceil(
+            ((len(jogos) * 15) / 25) * 1.40
+        )
+    )
+
     dezenas_superexpostas = [
-        dez for dez, qtd in contador.items()
-        if qtd >= LIMITE_EXPOSICAO_DEZENA
+
+        dez
+
+        for dez, qtd in contador.items()
+
+        if qtd >= limite_exposicao_real
     ]
 
-    risco_colapso = calcular_risco_colapso(overlap_medio, entropia, diversidade)
-    nivel_risco = interpretar_risco(risco_colapso)
+    risco_colapso = calcular_risco_colapso(
+        overlap_medio,
+        entropia,
+        diversidade
+    )
+
+    nivel_risco = interpretar_risco(
+        risco_colapso
+    )
 
     status = "OK"
+
     alertas = []
 
-    if overlap_medio >= LIMITE_OVERLAP_MEDIO:
+    if overlap_medio >= limite_overlap:
+
         status = "ALERTA"
-        alertas.append("Overlap excessivo")
+
+        alertas.append(
+            f"Overlap excessivo ({overlap_medio})"
+        )
 
     if entropia <= LIMITE_ENTROPIA:
+
         status = "ALERTA"
-        alertas.append("Baixa entropia")
+
+        alertas.append(
+            "Baixa entropia"
+        )
 
     if diversidade <= LIMITE_DIVERSIDADE:
+
         status = "ALERTA"
-        alertas.append("Baixa diversidade")
+
+        alertas.append(
+            "Baixa diversidade"
+        )
 
     if dezenas_superexpostas:
+
         status = "ALERTA"
-        alertas.append(f"Superexposição: {dezenas_superexpostas}")
+
+        alertas.append(
+            f"Superexposição: {dezenas_superexpostas}"
+        )
 
     return {
-        "status": status,
-        "overlap_medio": overlap_medio,
-        "entropia": entropia,
-        "diversidade": diversidade,
-        "risco_colapso": risco_colapso,
-        "nivel_risco": nivel_risco,
-        "dezenas_superexpostas": dezenas_superexpostas,
-        "alertas": alertas,
-        "matriz_overlap": matriz_overlap
-    }
 
+        "status": status,
+
+        "overlap_medio": overlap_medio,
+
+        "entropia": entropia,
+
+        "diversidade": diversidade,
+
+        "risco_colapso": risco_colapso,
+
+        "nivel_risco": nivel_risco,
+
+        "dezenas_superexpostas": dezenas_superexpostas,
+
+        "alertas": alertas,
+
+        "matriz_overlap": matriz_overlap,
+
+        "limite_exposicao_real": limite_exposicao_real
+    }
 
 # ======================================================
 # REMOVE PALPITES
@@ -216,9 +284,6 @@ def main():
         analise = analisar_portfolio(jogos, limite_exp_dinamico, limite_ov_dinamico)
         status = analise["status"]
 
-        # ... (bloco de OUTPUT, payload e upsert do meta_validacao_execucoes permanecem iguais) ...
-
-
         # ==================================================
         # OUTPUT
         # ==================================================
@@ -229,6 +294,7 @@ def main():
         print(f"📊 Overlap médio: {analise['overlap_medio']}")
         print(f"🧬 Entropia: {analise['entropia']}")
         print(f"🌎 Diversidade: {analise['diversidade']}")
+        print(f"📈 Limite Exposição: {analise['limite_exposicao_real']}")
         print(f"⚠️ Risco: {analise['nivel_risco']}")
         print(f"📌 Status: {status}")
         if analise["alertas"]:
