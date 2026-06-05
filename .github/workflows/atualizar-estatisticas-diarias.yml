@@ -197,7 +197,6 @@ jobs:
       # ==================================================
       - name: Gerar palpites IA
         run: |
-          # Executa o script de forma pura. Se quebrar, o erro do Python aparece na hora.
           python scripts/gerar_palpites_diarios.py
 
       # ==================================================
@@ -206,7 +205,6 @@ jobs:
       # ==================================================
       - name: Extrair metadados para o Telegram
         run: |
-          # Executa novamente rápido apenas para capturar os prints das tags para o arquivo de texto
           python scripts/gerar_palpites_diarios.py > saida.txt || true
           
           sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
@@ -275,8 +273,7 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Adiciona flags de retry e timeout para contornar instabilidades de rede do Runner
-          curl -s --retry 3 --retry-delay 5 --connect-timeout 10 \
+            curl -s --retry 3 --retry-delay 5 --connect-timeout 10 \
             -X POST "https://telegram.org{TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"🔴 Erro detectado no pipeline Lotofácil v19.2! Verifique os logs da Action.\""
