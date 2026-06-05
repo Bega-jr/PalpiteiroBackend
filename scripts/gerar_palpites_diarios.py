@@ -216,7 +216,7 @@ def main():
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
     pesos = obter_pesos_ensemble()
-   contexto = detectar_contexto(hist)
+    contexto = detectar_contexto(hist)
 
     # Geração
     candidatos = []
