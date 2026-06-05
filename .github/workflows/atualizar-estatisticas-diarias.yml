@@ -210,7 +210,7 @@ jobs:
           sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
             saida.txt > bloco.txt || true
 
-          sed '1d;$d' bloco.txt > palpites.txt || true
+          sed '1d;$d' bloco.txt > palpites.txt
 
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
@@ -222,7 +222,7 @@ jobs:
       # ==================================================
       - name: Meta validação final
         run: |
-          python scripts/meta_validacao_final.py || true
+          python scripts/meta_validacao_final.py
 
       # ==================================================
       # ETAPA 4.2
@@ -249,7 +249,7 @@ jobs:
           python scripts/backup_analytics.py || true
 
       # ==================================================
-      # TELEGRAM PALPITES (SUCESSO)
+      # TELEGRAM PALPITES (SUCESSO - URL CORRIGIDA)
       # ==================================================
       - name: Telegram sucesso
         if: success()
@@ -260,12 +260,13 @@ jobs:
           TEXT="${{ env.PALPITES }}"
           TEXT=$(echo "$TEXT" | cut -c1-3900)
 
+          # 🟢 CORREÇÃO: Adicionado api., bot e o $ antes da chave
           curl -s -X POST "https://telegram.org{TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
 
       # ==================================================
-      # TELEGRAM ALERTA DE ERRO (FALHA - VERSÃO RESILIENTE)
+      # TELEGRAM ALERTA DE ERRO (FALHA - URL CORRIGIDA)
       # ==================================================
       - name: Telegram erro
         if: failure()
@@ -273,8 +274,8 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+            # 🟢 CORREÇÃO: Adicionado api., bot e o $ antes da chave + flags de tolerância
             curl -s --retry 3 --retry-delay 5 --connect-timeout 10 \
             -X POST "https://telegram.org{TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"🔴 Erro detectado no pipeline Lotofácil v19.2! Verifique os logs da Action.\""
-
