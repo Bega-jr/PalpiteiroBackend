@@ -266,7 +266,7 @@ jobs:
 
 
       # ==================================================
-      # TELEGRAM ERRO
+      # TELEGRAM ERRO (CORRIGIDO)
       # ==================================================
       - name: Telegram erro
         if: failure()
@@ -274,10 +274,7 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-
-          TEXT="🔴 Erro no pipeline Lotofácil v19.2"
-
+          # Usamos o jq diretamente para injetar o texto de forma segura em uma única linha
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
-
+            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"🔴 Erro detectado no pipeline Lotofácil v19.2! Verifique os logs da Action.\""
