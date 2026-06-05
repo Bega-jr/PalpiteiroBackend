@@ -193,10 +193,12 @@ jobs:
 
       # ==================================================
       # ETAPA 4
-      # GERAÇÃO IA
+      # GERAÇÃO IA (CORRIGIDA)
       # ==================================================
       - name: Gerar palpites IA
         run: |
+          # 🟢 FORÇA O TERMINAL A FALHAR SE O SCRIPT PYTHON QUEBRAR NO PIPE
+          set -o pipefail
 
           python scripts/gerar_palpites_diarios.py | tee saida.txt
 
@@ -208,6 +210,20 @@ jobs:
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
+
+
+      # ==================================================
+      # EXPOR ERRO DO BANCO DE DADOS (NOVO)
+      # ==================================================
+      - name: 🚨 Exibir logs de erro do Supabase
+        if: failure()
+        run: |
+          echo "=================================================="
+          echo "🔎 BUSCANDO MOTIVO DA FALHA NO SALVAMENTO:"
+          echo "=================================================="
+          # Mostra as últimas 30 linhas do arquivo para capturar o print do except
+          tail -n 30 saida.txt || echo "Arquivo saida.txt não encontrado."
+
 
 
       # ==================================================
