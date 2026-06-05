@@ -139,10 +139,11 @@ def main():
 
         try:
 
-            nums = json.loads(
-                r["numeros"]
-            )
+            nums = r["numeros"]
 
+            if isinstance(nums, str):
+                nums = json.loads(nums)
+            
             dezenas.extend(nums)
 
         except:
