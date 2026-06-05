@@ -335,13 +335,24 @@ def main():
         for n in cand["nums"]:
             contador_global[n] += 1
 
-    # ======================================================
+       # ======================================================
     # SELEÇÃO POR TIERS COM INVERSÃO CLÁSSICA (ANTI-VIÉS)
     # ======================================================
     candidatos_filtrados.sort(
         key=lambda x: x["score"],
         reverse=True
     )
+
+    # 🚨 BLINDAGEM CRÍTICA: Se o filtro de exposição apagou os candidatos, 
+    # usamos a lista original (bruta) para garantir que o sistema não quebre
+    if len(candidatos_filtrados) < 10:
+        print(f"⚠️ Alerta: Filtro de exposição excessivo ({len(candidatos_filtrados)} jogos). Usando candidatos brutos como fallback.")
+        candidatos_filtrados = sorted(candidatos, key=lambda x: -x["score"])
+
+    # Se mesmo os brutos forem insuficientes (ex: geração travou antes), evita erro fatal
+    if not candidatos_filtrados:
+        print("❌ Erro Crítico: Nenhumm candidato disponível para seleção.")
+        return
 
     finais = []
 
@@ -354,6 +365,7 @@ def main():
     # ======================================================
     # AGRESSIVOS REAIS
     # ======================================================
+    # Agora o índice [0] está 100% garantido por causa da blindagem acima
     jogo_matriz = set(finais[0]["nums"])
     resto_candidatos = candidatos_filtrados[7:]
 
@@ -366,13 +378,19 @@ def main():
 
     agressivos = []
 
-    for cand in resto_candidatos:
-        if all(
-            len(set(cand["nums"]) & set(a["nums"])) <= 7
-            for a in agressivos
-        ):
-            agressivos.append(cand)
+    # Se o resto dos candidatos for muito pequeno, tentamos relaxar o overlap de 7 para 9
+    for limite_overlap in [7, 8, 9]:
+        for cand in resto_candidatos:
+            if cand in agressivos:
+                continue
+            if all(
+                len(set(cand["nums"]) & set(a["nums"])) <= limite_overlap
+                for a in agressivos
+            ):
+                agressivos.append(cand)
 
+            if len(agressivos) == 3:
+                break
         if len(agressivos) == 3:
             break
 
@@ -380,6 +398,7 @@ def main():
 
     # Garante exatamente 10 jogos
     finais = finais[:10]
+
 
     # ======================================================
     # OUTPUT
