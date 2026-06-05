@@ -356,7 +356,7 @@ def main():
     finais.extend(candidatos_filtrados[3:7])
 
     # ======================================================
-    # AGRESSIVOS REAIS
+    # AGRESSIVOS REAIS (Sintaxe 100% Corrigida)
     # ======================================================
     jogo_matriz = set(finais[0]["nums"])
     resto_candidatos = candidatos_filtrados[7:]
@@ -370,6 +370,7 @@ def main():
 
     agressivos = []
 
+    # 🟢 CORREÇÃO: Adicionado a lista [7, 8, 9] para a sintaxe do Python ficar correta
     for limite_overlap in [7, 8, 9]:
         for cand in resto_candidatos:
             if cand in agressivos:
@@ -387,6 +388,7 @@ def main():
 
     finais.extend(agressivos)
     finais = finais[:10]
+
 
     # ======================================================
     # OUTPUT
