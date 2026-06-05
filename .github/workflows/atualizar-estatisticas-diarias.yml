@@ -193,15 +193,22 @@ jobs:
 
       # ==================================================
       # ETAPA 4
-      # GERAÇÃO IA (CORRIGIDA)
+      # GERAÇÃO IA (MODO DIAGNÓSTICO DIRETO)
       # ==================================================
       - name: Gerar palpites IA
         run: |
-          # 🟢 FORÇA O TERMINAL A FALHAR SE O SCRIPT PYTHON QUEBRAR NO PIPE
-          set -o pipefail
+          # Executa o script de forma pura. Se quebrar, o erro do Python aparece na hora.
+          python scripts/gerar_palpites_diarios.py
 
-          python scripts/gerar_palpites_diarios.py | tee saida.txt
-
+      # ==================================================
+      # ETAPA 4.0.1
+      # EXTRAÇÃO DE METADADOS PARA TELEGRAM (Roda se a geração passar)
+      # ==================================================
+      - name: Extrair metadados para o Telegram
+        run: |
+          # Executa novamente rápido apenas para capturar os prints das tags para o arquivo de texto
+          python scripts/gerar_palpites_diarios.py > saida.txt || true
+          
           sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
             saida.txt > bloco.txt || true
 
@@ -211,21 +218,6 @@ jobs:
           cat palpites.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-
-      # ==================================================
-      # EXPOR ERRO DO BANCO DE DADOS (NOVO)
-      # ==================================================
-      - name: 🚨 Exibir logs de erro do Supabase
-        if: failure()
-        run: |
-          echo "=================================================="
-          echo "🔎 BUSCANDO MOTIVO DA FALHA NO SALVAMENTO:"
-          echo "=================================================="
-          # Mostra as últimas 30 linhas do arquivo para capturar o print do except
-          tail -n 30 saida.txt || echo "Arquivo saida.txt não encontrado."
-
-
-
       # ==================================================
       # ETAPA 4.1
       # META-VALIDAÇÃO FINAL
@@ -233,7 +225,6 @@ jobs:
       - name: Meta validação final
         run: |
           python scripts/meta_validacao_final.py || true
-
 
       # ==================================================
       # ETAPA 4.2
@@ -243,7 +234,6 @@ jobs:
         run: |
           python scripts/snapshot_telemetria.py || true
 
-
       # ==================================================
       # ETAPA 4.3
       # AUDITORIA ESTRUTURAL
@@ -251,7 +241,6 @@ jobs:
       - name: Auditoria estrutural banco
         run: |
           python scripts/auditoria_estrutural.py || true
-
 
       # ==================================================
       # ETAPA 4.4
@@ -261,9 +250,8 @@ jobs:
         run: |
           python scripts/backup_analytics.py || true
 
-
       # ==================================================
-      # TELEGRAM PALPITES
+      # TELEGRAM PALPITES (SUCESSO)
       # ==================================================
       - name: Telegram sucesso
         if: success()
@@ -271,18 +259,15 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-
           TEXT="${{ env.PALPITES }}"
-
           TEXT=$(echo "$TEXT" | cut -c1-3900)
 
-          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+          curl -s -X POST "https://telegram.org{TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
 
-
       # ==================================================
-      # TELEGRAM ERRO (CORRIGIDO)
+      # TELEGRAM ALERTA DE ERRO (FALHA)
       # ==================================================
       - name: Telegram erro
         if: failure()
@@ -290,7 +275,7 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Usamos o jq diretamente para injetar o texto de forma segura em uma única linha
-          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+          # Envia um alerta limpo via JQ injetando a string sem variáveis instáveis do bash
+          curl -s -X POST "https://telegram.org{TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"🔴 Erro detectado no pipeline Lotofácil v19.2! Verifique os logs da Action.\""
