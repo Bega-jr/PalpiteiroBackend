@@ -338,20 +338,30 @@ def main():
         key=lambda x: x["score"],
         reverse=True
     )
-
-    if len(candidatos_filtrados) < 10:
-        print(f"⚠️ Alerta: Filtro de exposição excessivo ({len(candidatos_filtrados)} jogos). Usando candidatos brutos como fallback.")
-        candidatos_filtrados = sorted(candidatos, key=lambda x: -x["score"])
-
+    
+    # Só ativa fallback se ficar abaixo do mínimo aceitável
+    if len(candidatos_filtrados) < 7:
+    
+        print(
+            f"⚠️ Poucos candidatos após filtro "
+            f"({len(candidatos_filtrados)} jogos). "
+            f"Aplicando fallback."
+        )
+    
+        candidatos_filtrados = sorted(
+            candidatos,
+            key=lambda x: -x["score"]
+        )
+    
     if not candidatos_filtrados:
         print("❌ Erro Crítico: Nenhum candidato disponível para seleção.")
         return
-
+    
     finais = []
-
+    
     # Conservadores
     finais.extend(candidatos_filtrados[:3])
-
+    
     # Equilibrados
     finais.extend(candidatos_filtrados[3:7])
 
