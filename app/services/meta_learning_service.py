@@ -119,9 +119,9 @@ def calcular_entropia(
 ):
 
     score = (
-        (melhor_acerto * 0.45)
+        (melhor_acerto * 0.50)
         +
-        (media_acertos * 0.35)
+        (media_acertos * 0.30)
         +
         (dispersao * 0.20)
     )
@@ -160,7 +160,7 @@ def aplicar_anti_overfitting(
     # Cenário:
     # Pico isolado muito alto
     # ==========================================
-    if melhor_acerto >= 12 and media_acertos < 9:
+    if melhor_acerto >= 14 and media_acertos < 11:
 
         pesos["peso_base"] -= 0.010
         pesos["peso_global"] -= 0.010
