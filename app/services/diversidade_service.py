@@ -29,7 +29,7 @@ def diversidade_avancada_ok(
     candidatos,
     estrutura=None,
     cluster_id=None,
-    limite_similares=12,
+    limite_similares=10,
     limite_cluster=8,
     **kwargs
 ):
