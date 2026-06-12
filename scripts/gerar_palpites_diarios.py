@@ -376,9 +376,9 @@ def main(modo_variacao="moderado"):
         print(f"DETALHES DO ERRO: {str(e)}")
         raise e
 
-    print("\n📲 TELEGRAM_PAYLOAD_START")
-    print(montar_msg_telegram(concurso_ref, telegram))
-    print("📲 TELEGRAM_PAYLOAD_END")
+    #print("\n📲 TELEGRAM_PAYLOAD_START")
+    #print(montar_msg_telegram(concurso_ref, telegram))
+    #print("📲 TELEGRAM_PAYLOAD_END")
     print(f"⏱️ Tempo total: {time.time() - inicio_execucao:.1f} segundos")
 
 # ======================================================
