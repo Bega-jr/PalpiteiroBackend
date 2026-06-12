@@ -294,9 +294,6 @@ def main():
     limite_exp_dinamico = LIMITE_EXPOSICAO_DEZENA
     limite_ov_dinamico = LIMITE_OVERLAP_MEDIO
 
-    # Armazena os dados brutos de retorno da IA em memória para o fluxo final
-    dados_ia_memoria = None
-
     while tentativa <= MAX_REGENERACOES:
         print(f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}")
 
@@ -306,7 +303,11 @@ def main():
             limite_exp_dinamico = 10
             limite_ov_dinamico = 11.5
 
-        # Se forçado pelo auto-ajuste na tentativa 1, ignora a geração síncrona imediata
+        # Inicializa estruturas locais para a rodada atual
+        payload_ia = []
+        telegram_ia = []
+
+        # Se forçado pelo auto-ajuste na tentativa 1, ignora a geração imediata
         if forçar_regeneracao_imediata and tentativa == 1:
             print("ℹ️ Aplicando métricas zeradas temporárias para disparar o motor de geração...")
             status = "REJEITADO_FORCADO"
@@ -321,25 +322,34 @@ def main():
                 "alertas": ["Desalinhamento de histórico: Forçando criação de raiz do concurso."]
             }
         else:
-            # INTERCESSÃO DE FLUXO: Importa e executa o motor diretamente na memória RAM
             print(f"🚀 Chamando motor de IA para gerar candidatos (Modo de variação calibrado)...")
             from scripts.gerar_palpites_diarios import executar_motor_geracao
             
-            # Executa a inteligência e captura os dados de payload e do telegram montados pela IA
+            # Executa a inteligência
             dados_ia_memoria = executar_motor_geracao(concurso_alvo=concurso)
             
-            if not dados_ia_memoria or len(dados_ia_memoria["payload"]) < QTD_PALPITES:
-                print(f"⚠️ Menos de {QTD_PALPITES} palpites gerados em memória pelo motor de IA.")
+            # --- BLINDAGEM DE RETORNO (Evita o KeyError) ---
+            if isinstance(dados_ia_memoria, dict):
+                payload_ia = dados_ia_memoria.get("payload", [])
+                telegram_ia = dados_ia_memoria.get("telegram", [])
+            elif isinstance(dados_ia_memoria, list):
+                # Fallback caso a função tenha retornado a lista direta
+                payload_ia = dados_ia_memoria
+                telegram_ia = [f"Jogo {idx+1} | {j}" for idx, j in enumerate(payload_ia)]
+            # -----------------------------------------------
+
+            if not payload_ia or len(payload_ia) < QTD_PALPITES:
+                print(f"⚠️ Menos de {QTD_PALPITES} palpites gerados em memória pela IA (Gerados: {len(payload_ia)}).")
                 status = "REJEITADO_POR_FALTA_DE_DADOS"
                 analise = {
                     "overlap_medio": 0.0, "entropia": 0.0, "diversidade": 0,
                     "limite_exposicao_real": limite_exp_dinamico, "nivel_risco": "ALTO",
                     "risco_colapso": 3, "dezenas_superexpostas": [],
-                    "alertas": ["Dados gerados insuficientes."]
+                    "alertas": [f"Dados gerados insuficientes na tentativa {tentativa}."]
                 }
             else:
                 # Adapta os dados de memória para o formato do validador estruturado
-                jogos_validacao = preparar_jogos_memoria(dados_ia_memoria["payload"])
+                jogos_validacao = preparar_jogos_memoria(payload_ia)
                 analise = analisar_portfolio(jogos_validacao, limite_exp_dinamico, limite_ov_dinamico)
                 status = analise["status"]
 
@@ -388,31 +398,27 @@ def main():
         # ==================================================
         # PORTFÓLIO SAUDÁVEL: SALVAMENTO E ENVIO DO TELEGRAM DEFINITIVOS
         # ==================================================
-        if status == "OK" and dados_ia_memoria:
+        if status == "OK" and payload_ia:
             print("\n✅ Portfólio aprovado e validado com sucesso!")
             
-            # 1. Realiza o salvamento síncrono definitivo no banco de dados
             try:
-                print("💾 Persistindo 10 palpites validados na tabela 'palpites_validos'...")
-                # Remove resquícios por segurança antes do commit oficial do lote limpo
+                print(f"💾 Persistindo {len(payload_ia)} palpites validados na tabela 'palpites_validos'...")
                 remover_palpites_ruins(supabase, concurso)
                 
                 supabase.table("palpites_validos").upsert(
-                    dados_ia_memoria["payload"], 
+                    payload_ia, 
                     on_conflict="concurso_referencia,indice_palpite"
                 ).execute()
-                print(f"✅ [BANCO] {len(dados_ia_memoria['payload'])} palpites salvos com sucesso absoluto!")
+                print(f"✅ [BANCO] {len(payload_ia)} palpites salvos com sucesso absoluto!")
             except Exception as e:
                 print(f"\n❌ [ERRO CRÍTICO] O banco recusou a gravação do portfólio definitivo: {e}")
                 return
 
-            # 2. Executa a montagem e o envio do payload limpo para o Telegram
             try:
                 from scripts.gerar_palpites_diarios import montar_msg_telegram
                 
                 print("\n📲 TELEGRAM_PAYLOAD_START")
-                # Envia o log textual original gerado junto com os coeficientes reais de Pot e MC da memória
-                print(montar_msg_telegram(concurso, dados_ia_memoria["telegram"]))
+                print(montar_msg_telegram(concurso, telegram_ia))
                 print("📲 TELEGRAM_PAYLOAD_END")
                 
             except Exception as e:
@@ -425,13 +431,6 @@ def main():
         # ==================================================
         if tentativa < MAX_REGENERACOES:
             print(f"\n🔥 Portfólio rejeitado/forçado na tentativa {tentativa}/{MAX_REGENERACOES}.")
-            
-            if tentativa == 1:
-                limite_exp_dinamico = 7
-            elif tentativa == 2:
-                limite_exp_dinamico = 7
-                limite_ov_dinamico = 11.5
-
             forçar_regeneracao_imediata = False 
             tentativa += 1
         else:
@@ -439,6 +438,3 @@ def main():
 
     print("\n❌ FALHA CRÍTICA")
     print(f"⚠️ Limite de {MAX_REGENERACOES} tentativas atingido sem gerar um portfólio saudável.")
-
-if __name__ == "__main__":
-    main()
