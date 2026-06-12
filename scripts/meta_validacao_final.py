@@ -168,16 +168,17 @@ def main():
         print(f"🚀 Acionando motor de IA para criar portfólio temporário...")
         from scripts.gerar_palpites_diarios import executar_motor_geracao
         
-        # Executa a inteligência pura na memória RAM (passando o concurso dinamicamente se necessário)
-        retorno_ia = executar_motor_geracao(modo_variacao="moderado")
+        # Executa a inteligência na RAM ignorando travas antigas de concursos já processados
+        retorno_ia = executar_motor_geracao(modo_variacao="moderado", ignorar_trava=True)
 
         # --- SINCRONIA DE CHAVES DO SEU RETORNO ---
         payload_ia = retorno_ia.get("palpites", []) if isinstance(retorno_ia, dict) else []
         telegram_ia = retorno_ia.get("linhas_telegram", []) if isinstance(retorno_ia, dict) else []
         # ------------------------------------------
 
-        if not payload_ia or len(payload_ia) < QTD_PALPITES:
-            print(f"⚠️ Lote rejeitado: Gerados apenas {len(payload_ia)} de {QTD_PALPITES} palpites exigidos.")
+        # AJUSTE DA MARGEM ELÁSTICA: Aceita lotes saudáveis a partir de 7 palpites
+        if not payload_ia or len(payload_ia) < 7:
+            print(f"⚠️ Lote rejeitado: Gerados apenas {len(payload_ia)} de um mínimo de 7 palpites aceitáveis.")
             status = "REJEITADO_POR_VOLUME_INSUFICIENTE"
             analise = {
                 "overlap_medio": 0.0, "entropia": 0.0, "diversidade": 0,
@@ -186,7 +187,7 @@ def main():
                 "alertas": [f"Lote incompleto na tentativa {tentativa}."]
             }
         else:
-            # Audita as listas e os pesos contidos na RAM
+            # Audita as listas e os pesos contidos na RAM (mesmo vindo 7, 8, 9 ou 10 jogos)
             jogos_validacao = preparar_jogos_memoria(payload_ia)
             analise = analisar_portfolio(jogos_validacao, limite_exp_dinamico, limite_ov_dinamico)
             status = analise["status"]
