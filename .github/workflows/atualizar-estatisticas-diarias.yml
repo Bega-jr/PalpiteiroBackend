@@ -199,11 +199,18 @@ jobs:
 
       # ==================================================
       # ETAPA 4.0.1
-      # EXTRAÇÃO DE METADADOS PARA TELEGRAM (Roda se a geração passar)
+      # META-VALIDAÇÃO FINAL (Gera a IA e salva o log textual)
+      # ==================================================
+      - name: Meta validação final
+        run: |
+          python scripts/meta_validacao_final.py | tee saida.txt
+
+      # ==================================================
+      # ETAPA 4.1
+      # EXTRAÇÃO DE METADADOS PARA TELEGRAM (Lê o log do Validador Pai)
       # ==================================================
       - name: Extrair metadados para o Telegram
         run: |
-
           sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
             saida.txt > bloco.txt || true
 
@@ -212,14 +219,6 @@ jobs:
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-
-      # ==================================================
-      # ETAPA 4.1
-      # META-VALIDAÇÃO FINAL
-      # ==================================================
-      - name: Meta validação final
-        run: |
-          python scripts/meta_validacao_final.py
 
       # ==================================================
       # ETAPA 4.2
