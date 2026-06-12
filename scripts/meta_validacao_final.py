@@ -393,6 +393,28 @@ def main():
         # ==================================================
         if status == "OK":
             print("\n✅ Portfólio aprovado e validado com sucesso!")
+            
+            # --- NOVO BLOCO: ENVIO DO TELEGRAM CONSOLIDADO ---
+            try:
+                # Importa a função de montagem do próprio script filho
+                from scripts.gerar_palpites_diarios import montar_msg_telegram
+                
+                # Recarrega os jogos finais e limpos direto do banco
+                jogos_finais = carregar_palpites(supabase, concurso)
+                
+                # Adapta o formato para a estrutura que a sua função montar_msg_telegram espera
+                # (Extrai apenas as listas de números dos dicionários se necessário)
+                lista_jogos_simples = [j["numeros"] for j in jogos_finais]
+                
+                print("\n📲 TELEGRAM_PAYLOAD_START")
+                # Passa a lista validada de 10 jogos para a função de mensagem
+                print(montar_msg_telegram(concurso, lista_jogos_simples))
+                print("📲 TELEGRAM_PAYLOAD_END")
+                
+            except Exception as e:
+                print(f"⚠️ Erro ao gerar o payload do Telegram no validador: {e}")
+            # -------------------------------------------------
+
             return
 
         # ==================================================
