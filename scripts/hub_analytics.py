@@ -3,72 +3,50 @@ import traceback
 from pathlib import Path
 from datetime import datetime
 
-# 🟢 CORREÇÃO: Injeta a raiz do projeto no caminho de busca do Python
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
 
 # =========================================================
-# AUDITORIA INDEPENDENTE
+# IMPORTS BLINDADOS (Dispara erro real se o arquivo interno estiver quebrado)
 # =========================================================
 try:
     from scripts.auditar_padroes import identificar_padroes_elite
-except:
+except ImportError:
     identificar_padroes_elite = None
 
-
-# =========================================================
-# FEEDBACK ANALYTICS (Corrigido para apontar ao seu script real)
-# =========================================================
 try:
     from scripts.processamento_feedback_meta import avaliar_desempenho_concurso as processar_feedback_analytics
-except:
+except ImportError:
     processar_feedback_analytics = None
 
-# =========================================================
-# META LEARNING
-# =========================================================
 try:
     from app.services.meta_learning_service import atualizar_pesos_dinamicos
-except:
+except ImportError:
     atualizar_pesos_dinamicos = None
 
-# =========================================================
-# CLUSTERS
-# =========================================================
 try:
     from app.services.clusterizacao_service import recalibrar_clusters
-except:
+except ImportError:
     recalibrar_clusters = None
 
-# =========================================================
-# TELEMETRIA (Conecta a função consolidar_telemetria se existente)
-# =========================================================
 try:
     from app.services.persistencia_analytics_service import consolidar_telemetria
-except:
+except ImportError:
     consolidar_telemetria = None
 
-# =========================================================
-# COLAPSO ESTRATÉGICO
-# =========================================================
 try:
     from app.services.colapso_service import detectar_colapso_estrategico
-except:
+except ImportError:
     detectar_colapso_estrategico = None
 
-# =========================================================
-# ELITE SERVICE
-# =========================================================
 try:
     from app.services.elite_service import atualizar_ranking_elite
-except:
+except ImportError:
     atualizar_ranking_elite = None
 
-
 VERSAO = "v20.0-hub-analytics"
-
 
 # =========================================================
 # HELPERS
@@ -77,26 +55,28 @@ def executar_etapa(nome, func):
     print(f"\n🚀 {nome}")
 
     if func is None:
-        print(f"⚠️ Etapa não disponível ou módulo não implementado: {nome}")
+        print(f"⚠️ Módulo não implementado ou erro severo de sintaxe no arquivo: {nome}")
         return False
 
     try:
         inicio = datetime.now()
-        func()
+        
+        # Executa de forma limpa. Se as funções precisarem do Supabase futuramente,
+        # você pode injetar os argumentos de forma elástica aqui.
+        func() 
+        
         fim = datetime.now()
-
         delta = (fim - inicio).total_seconds()
         print(f"✅ {nome} concluído em {delta:.2f}s")
         return True
 
     except Exception as e:
-        print(f"❌ Erro em {nome}: {e}")
+        print(f"❌ Erro de execução em {nome}: {e}")
         traceback.print_exc()
         return False
 
-
 # =========================================================
-# LOG EXECUÇÃO
+# LOG EXECUÇÃO (Otimizado para evitar duplicidade de concorrência)
 # =========================================================
 def salvar_execucao_hub(supabase, resultados):
     try:
@@ -105,85 +85,50 @@ def salvar_execucao_hub(supabase, resultados):
             "data_execucao": datetime.now().isoformat(),
             "etapas_sucesso": sum(1 for x in resultados if x["sucesso"]),
             "etapas_falha": sum(1 for x in resultados if not x["sucesso"]),
-            "resultado": resultados
+            "resultado": json.dumps(resultados) if not isinstance(resultados, str) else resultados
         }
+        # Mudamos para upsert se sua tabela tiver uma chave primária como a data ou ID do concurso,
+        # ou mantemos o insert caso queira um histórico incremental estrito.
         supabase.table("hub_analytics_execucoes").insert(payload).execute()
         print("📡 Execução do HUB registrada em hub_analytics_execucoes.")
     except Exception as e:
-        print(f"⚠️ Falha ao salvar log HUB no banco: {e}")
-
+        print(f"⚠️ Falha ao persistir telemetria do HUB no Supabase: {e}")
 
 # =========================================================
 # MAIN
 # =========================================================
 def main():
-    print("\n")
-    print("=" * 60)
+    import json # Garante a importação local para a gravação
+    print("\n" + "=" * 60)
     print(f"🧠 HUB ANALYTICS {VERSAO}")
     print("=" * 60)
 
     supabase = get_supabase()
     resultados = []
 
-    # =====================================================
-    # FEEDBACK (Agora totalmente operacional)
-    # =====================================================
-    ok = executar_etapa("PROCESSAMENTO FEEDBACK", processar_feedback_analytics)
-    resultados.append({"etapa": "feedback", "sucesso": ok})
+    # Execução sequencial da esteira evolutiva pós-sorteio
+    etapas = [
+        ("PROCESSAMENTO FEEDBACK", processar_feedback_analytics, "feedback"),
+        ("AUDITORIA PADRÕES ELITE", identificar_padroes_elite, "elite"),
+        ("RECALIBRAGEM CLUSTERS", recalibrar_clusters, "clusters"),
+        ("META LEARNING DINÂMICO", atualizar_pesos_dinamicos, "meta_learning"),
+        ("CONSOLIDAÇÃO TELEMETRIA", consolidar_telemetria, "telemetria"),
+        ("ANÁLISE COLAPSO", detectar_colapso_estrategico, "colapso"),
+        ("ATUALIZAÇÃO ELITE", atualizar_ranking_elite, "ranking_elite")
+    ]
 
-    # =====================================================
-    # AUDITORIA ELITE
-    # =====================================================
-    ok = executar_etapa("AUDITORIA PADRÕES ELITE", identificar_padroes_elite)
-    resultados.append({"etapa": "elite", "sucesso": ok})
+    for nome, func, chave in etapas:
+        ok = executar_etapa(nome, func)
+        resultados.append({"etapa": chave, "sucesso": ok})
 
-    # =====================================================
-    # CLUSTERS
-    # =====================================================
-    ok = executar_etapa("RECALIBRAGEM CLUSTERS", recalibrar_clusters)
-    resultados.append({"etapa": "clusters", "sucesso": ok})
-
-    # =====================================================
-    # META LEARNING
-    # =====================================================
-    ok = executar_etapa("META LEARNING DINÂMICO", atualizar_pesos_dinamicos)
-    resultados.append({"etapa": "meta_learning", "sucesso": ok})
-
-    # =====================================================
-    # TELEMETRIA
-    # =====================================================
-    ok = executar_etapa("CONSOLIDAÇÃO TELEMETRIA", consolidar_telemetria)
-    resultados.append({"etapa": "telemetria", "sucesso": ok})
-
-    # =====================================================
-    # COLAPSO ESTRATÉGICO
-    # =====================================================
-    ok = executar_etapa("ANÁLISE COLAPSO", detectar_colapso_estrategico)
-    resultados.append({"etapa": "colapso", "sucesso": ok})
-
-    # =====================================================
-    # RANKING ELITE
-    # =====================================================
-    ok = executar_etapa("ATUALIZAÇÃO ELITE", atualizar_ranking_elite)
-    resultados.append({"etapa": "ranking_elite", "sucesso": ok})
-
-    # =====================================================
-    # LOG FINAL
-    # =====================================================
     salvar_execucao_hub(supabase, resultados)
 
-    # =====================================================
-    # RESUMO
-    # =====================================================
     total_ok = sum(1 for x in resultados if x["sucesso"])
     total_fail = sum(1 for x in resultados if not x["sucesso"])
 
-    print("\n")
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print(f"✅ HUB FINALIZADO | Sucesso: {total_ok} | Falhas: {total_fail}")
-    print("=" * 60)
-    print("\n")
-
+    print("=" * 60 + "\n")
 
 if __name__ == "__main__":
     main()
