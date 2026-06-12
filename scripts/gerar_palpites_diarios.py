@@ -185,7 +185,7 @@ def score_potencial_alto(jogo, historico, base_scores):
     return float(score)
 
 # ======================================================
-# MAIN - Com Modo de Variação
+# MAIN - Versão Corrigida (Garantia Forte de 10 Jogos)
 # ======================================================
 def main(modo_variacao="moderado"):
     inicio_execucao = time.time()
@@ -220,7 +220,7 @@ def main(modo_variacao="moderado"):
     }
 
     for _ in range(MAX_TENTATIVAS):
-        if len(candidatos) >= 3200:   # aumentado um pouco
+        if len(candidatos) >= 3500:   # Aumentado
             break
         jogo = sorted(random.sample(pool, 15))
         if tuple(jogo) in usados:
@@ -270,8 +270,6 @@ def main(modo_variacao="moderado"):
 
         score_final = score_final * 0.80 + score_potencial * 0.20
         score_final -= sum(contador_dezenas[n] * 0.045 for n in jogo)
-        
-        # === NOVA: Entropia por modo ===
         score_final = aplicar_entropia_modo(score_final, modo_variacao)
 
         candidatos.append({
@@ -287,7 +285,7 @@ def main(modo_variacao="moderado"):
         for n in jogo:
             contador_dezenas[n] += 1
 
-    # Filtro global (mantido igual)
+    # Filtro global
     contador_global = Counter()
     candidatos_filtrados = []
     for cand in sorted(candidatos, key=lambda x: -x["score"]):
@@ -302,34 +300,38 @@ def main(modo_variacao="moderado"):
         for n in cand["nums"]:
             contador_global[n] += 1
 
-    # Seleção final com garantia de 10 jogos
+    # ==================== SELEÇÃO FINAL ROBUSTA ====================
     candidatos_filtrados.sort(key=lambda x: x["score"], reverse=True)
 
     if len(candidatos_filtrados) < 7:
-        print(f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). Aplicando fallback.")
+        print(f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). Aplicando fallback completo.")
         candidatos_filtrados = sorted(candidatos, key=lambda x: -x["score"])
 
     finais = []
-    finais.extend(candidatos_filtrados[:3])                    # Conservadores
-    finais.extend(candidatos_filtrados[3:7])                   # Equilibrados
+
+    # Conservadores + Equilibrados
+    finais.extend(candidatos_filtrados[:7])
 
     # Agressivos com mais variação
-    resto = candidatos_filtrados[7:]
+    resto = [c for c in candidatos_filtrados[7:] if c not in finais]
     random.shuffle(resto)
-    agressivos = []
     for cand in resto:
-        if len(agressivos) >= 3:
+        if len(finais) >= QTD_FINAL:
             break
-        if all(len(set(cand["nums"]) & set(a["nums"])) <= 7 for a in agressivos):
-            agressivos.append(cand)
-    finais.extend(agressivos)
+        overlap_max = max([len(set(cand["nums"]) & set(f["nums"])) for f in finais], default=0)
+        if overlap_max <= 8:   # Ajustado para permitir mais variação
+            finais.append(cand)
 
-    # Garantia forte de 10 jogos
+    # GARANTIA FORTE DE 10 JOGOS
     while len(finais) < QTD_FINAL and len(candidatos_filtrados) > len(finais):
         prox = candidatos_filtrados[len(finais)]
         if prox not in finais:
             finais.append(prox)
+
     finais = finais[:QTD_FINAL]
+
+    if len(finais) < QTD_FINAL:
+        print(f"⚠️ Ainda faltaram palpites. Gerados: {len(finais)}")
 
     # ROI
     calcular_roi()
@@ -356,6 +358,8 @@ def main(modo_variacao="moderado"):
             "score_montecarlo": round(float(c["score_mc"]), 8),
             "versao_gerador": VERSAO
         })
+
+    # ... (o resto do código de print, salvamento e telegram permanece igual ao que você tem)
 
     print("\n📦 === PALPITES GERADOS EM MEMÓRIA (BACKUP) ===")
     for item in payload:
