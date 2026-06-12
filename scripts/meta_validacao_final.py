@@ -169,7 +169,7 @@ def main():
         from scripts.gerar_palpites_diarios import executar_motor_geracao
         
         # Executa a inteligência na RAM ignorando travas antigas de concursos já processados
-        retorno_ia = executar_motor_geracao(modo_variacao="moderado", ignorar_trava=True)
+        retorno_ia = executar_motor_geracao(modo_variacao="moderado")
 
         # --- SINCRONIA DE CHAVES DO SEU RETORNO ---
         payload_ia = retorno_ia.get("palpites", []) if isinstance(retorno_ia, dict) else []
