@@ -1,4 +1,5 @@
 import sys
+import json  # 💡 CORREÇÃO: Adicionado o import do json no topo para o Supabase aceitar
 import traceback
 from pathlib import Path
 from datetime import datetime
@@ -9,7 +10,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 # =========================================================
-# IMPORTS BLINDADOS (Dispara erro real se o arquivo interno estiver quebrado)
+# IMPORTS BLINDADOS (Tratamento limpo de caminhos)
 # =========================================================
 try:
     from scripts.auditar_padroes import identificar_padroes_elite
@@ -60,11 +61,7 @@ def executar_etapa(nome, func):
 
     try:
         inicio = datetime.now()
-        
-        # Executa de forma limpa. Se as funções precisarem do Supabase futuramente,
-        # você pode injetar os argumentos de forma elástica aqui.
         func() 
-        
         fim = datetime.now()
         delta = (fim - inicio).total_seconds()
         print(f"✅ {nome} concluído em {delta:.2f}s")
@@ -76,7 +73,7 @@ def executar_etapa(nome, func):
         return False
 
 # =========================================================
-# LOG EXECUÇÃO (Otimizado para evitar duplicidade de concorrência)
+# LOG EXECUÇÃO (Corrigido com escopo global do json)
 # =========================================================
 def salvar_execucao_hub(supabase, resultados):
     try:
@@ -85,10 +82,8 @@ def salvar_execucao_hub(supabase, resultados):
             "data_execucao": datetime.now().isoformat(),
             "etapas_sucesso": sum(1 for x in resultados if x["sucesso"]),
             "etapas_falha": sum(1 for x in resultados if not x["sucesso"]),
-            "resultado": json.dumps(resultados) if not isinstance(resultados, str) else resultados
+            "resultado": json.dumps(resultados)  # Agora funciona perfeitamente
         }
-        # Mudamos para upsert se sua tabela tiver uma chave primária como a data ou ID do concurso,
-        # ou mantemos o insert caso queira um histórico incremental estrito.
         supabase.table("hub_analytics_execucoes").insert(payload).execute()
         print("📡 Execução do HUB registrada em hub_analytics_execucoes.")
     except Exception as e:
@@ -98,7 +93,6 @@ def salvar_execucao_hub(supabase, resultados):
 # MAIN
 # =========================================================
 def main():
-    import json # Garante a importação local para a gravação
     print("\n" + "=" * 60)
     print(f"🧠 HUB ANALYTICS {VERSAO}")
     print("=" * 60)
@@ -106,7 +100,6 @@ def main():
     supabase = get_supabase()
     resultados = []
 
-    # Execução sequencial da esteira evolutiva pós-sorteio
     etapas = [
         ("PROCESSAMENTO FEEDBACK", processar_feedback_analytics, "feedback"),
         ("AUDITORIA PADRÕES ELITE", identificar_padroes_elite, "elite"),
