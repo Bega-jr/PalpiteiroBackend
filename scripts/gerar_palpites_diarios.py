@@ -410,15 +410,29 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--modo", default="moderado", choices=["conservador", "moderado", "agressivo"])
+    # Adicionamos a flag --force para o Meta-Validador poder injetar comandos de mutação se necessário
+    parser.add_argument("--force", action="store_true", help="Força a regeneração ignorando travas de banco")
     args = parser.parse_args()
     
     try:
-        # Se rodar direto: 'python scripts/gerar_palpites_diarios.py'
+        sb = get_supabase()
+        
+        # Como o código roda de forma isolada, precisamos calcular o concurso_ref para a trava
+        from scripts.processamento_diario_lotofacil import carregar_historico
+        hist = carregar_historico()
+        concurso_ref = int(hist[-1]["concurso"]) + 1
+        
+        # TRAVA DE SEGURANÇA INTELIGENTE:
+        # Se NÃO tiver a flag --force E o concurso já existir no banco, ele protege o banco.
+        # Se tiver --force (enviado pelo Pai), ele limpa e avança para a IA gerar novos padrões.
+        if not args.force and concurso_ja_processado(sb, concurso_ref):
+            print(f"ℹ️ Concurso {concurso_ref} já processado no banco. Ignorando geração para segurança.")
+            sys.exit(0)
+
         print("⚙️ Executando engine em modo de teste isolado...")
         resultado_teste = executar_motor_geracao(modo_variacao=args.modo)
         
         if resultado_teste:
-            sb = get_supabase()
             # Simula a gravação antiga para propósitos de teste isolado
             payload_teste = []
             for p in resultado_teste["palpites"]:
