@@ -193,9 +193,9 @@ jobs:
       # ETAPA 4
       # GERAÇÃO IA (MODO DIAGNÓSTICO DIRETO)
       # ==================================================
-      - name: Gerar palpites IA
-        run: |
-          python scripts/gerar_palpites_diarios.py | tee saida.txt
+      #- name: Gerar palpites IA
+      #  run: |
+      #    python scripts/gerar_palpites_diarios.py | tee saida.txt
 
       # ==================================================
       # ETAPA 4.0.1
