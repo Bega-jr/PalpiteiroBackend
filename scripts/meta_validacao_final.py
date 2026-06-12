@@ -2,6 +2,7 @@ import sys
 import json
 import math
 import statistics
+import subprocess
 from pathlib import Path
 from collections import Counter
 
@@ -11,7 +12,7 @@ sys.path.append(str(BASE_DIR))
 from app.services.supabase_service import get_supabase
 
 VERSAO = "v2.0-meta-validacao-autoregenerativa"
-QTD_PALPITES = 10
+MIN_PALPITES_ACEITAVEIS = 7  # Elasticidade da IA (Aceita entre 7 e 10 jogos)
 LIMITE_OVERLAP_MEDIO = 11.5
 LIMITE_EXPOSICAO_DEZENA = 8
 LIMITE_ENTROPIA = 2.60
@@ -26,84 +27,64 @@ def calcular_overlap(j1, j2):
 
 def calcular_entropia(contagem):
     total = sum(contagem.values())
-    if total == 0:
-        return 0
+    if total == 0: return 0
     entropia = 0
     for v in contagem.values():
         p = v / total
-        if p > 0:
-            entropia -= p * math.log2(p)
+        if p > 0: entropia -= p * math.log2(p)
     return entropia
 
 def calcular_score_diversidade(jogos):
     dezenas = set()
-    for j in jogos:
-        dezenas.update(j)
+    for j in jogos: dezenas.update(j)
     return len(dezenas)
 
 def calcular_risco_colapso(overlap_medio, entropia, diversidade):
     risco = 0
-    if overlap_medio >= 11:
-        risco += 1
-    if entropia <= 2.75:
-        risco += 1
-    if diversidade <= 17:
-        risco += 1
+    if overlap_medio >= 11: risco += 1
+    if entropia <= 2.75: risco += 1
+    if diversidade <= 17: risco += 1
     return risco
 
 def interpretar_risco(risco):
-    if risco <= 1:
-        return "BAIXO"
-    if risco == 2:
-        return "MODERADO"
+    if risco <= 1: return "BAIXO"
+    if risco == 2: return "MODERADO"
     return "ALTO"
 
-def preparar_jogos_memoria(payload_ia):
-    """Converte o retorno em memória da IA para o formato de auditoria"""
+def carregar_palpites(supabase, concurso):
+    rows = supabase.table("palpites_validos").select("*").eq("concurso_referencia", concurso).order("indice_palpite").execute().data
     jogos = []
-    for item in payload_ia:
-        nums = item["numeros"]
-        # Se por acaso vier string, converte, senão usa a lista pura
-        if isinstance(nums, str):
-            nums = json.loads(nums)
-        jogos.append({
-            "indice": item["indice_palpite"],
-            "numeros": nums
-        })
+    for r in rows:
+        dado_bruto = r["numeros"]
+        if isinstance(dado_bruto, str):
+            try:
+                numeros_convertidos = json.loads(dado_bruto)
+                if isinstance(numeros_convertidos, str): numeros_convertidos = json.loads(numeros_convertidos)
+            except Exception: numeros_convertidos = []
+        elif isinstance(dado_bruto, list): numeros_convertidos = dado_bruto
+        else: numeros_convertidos = []
+        jogos.append({"indice": r["indice_palpite"], "numeros": numeros_convertidos})
     return jogos
 
-# ======================================================
-# AUDITORIA DE PORTFÓLIO
-# ======================================================
 def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
     overlaps = []
     contador = Counter()
-    matriz_overlap = []
-
     for i in range(len(jogos)):
         jogo_i = jogos[i]["numeros"]
-        for dez in jogo_i:
-            contador[dez] += 1
-
+        for dez in jogo_i: contador[dez] += 1
         for j in range(i + 1, len(jogos)):
-            jogo_j = jogos[j]["numeros"]
-            ov = calcular_overlap(jogo_i, jogo_j)
-            overlaps.append(ov)
-            matriz_overlap.append({"j1": i + 1, "j2": j + 1, "overlap": ov})
+            overlaps.append(calcular_overlap(jogo_i, jogos[j]["numeros"]))
 
     overlap_medio = round(statistics.mean(overlaps), 6) if overlaps else 0.0
     entropia = round(calcular_entropia(contador), 6)
     diversidade = calcular_score_diversidade([x["numeros"] for x in jogos])
-
     limite_exposicao_real = max(limite_exposicao, math.ceil(((len(jogos) * 15) / 25) * 1.20))
     dezenas_superexpostas = [dez for dez, qtd in contador.items() if qtd >= limite_exposicao_real]
-
     risco_colapso = calcular_risco_colapso(overlap_medio, entropia, diversidade)
     nivel_risco = interpretar_risco(risco_colapso)
 
     status = "OK"
     alertas = []
-
     if overlap_medio >= limite_overlap:
         status = "ALERTA"
         alertas.append(f"Overlap excessivo ({overlap_medio})")
@@ -120,81 +101,75 @@ def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
     return {
         "status": status, "overlap_medio": overlap_medio, "entropia": entropia,
         "diversidade": diversidade, "risco_colapso": risco_colapso, "nivel_risco": nivel_risco,
-        "dezenas_superexpostas": dezenas_superexpostas, "alertas": alertas,
-        "matriz_overlap": matriz_overlap, "limite_exposicao_real": limite_exposicao_real
+        "dezenas_superexpostas": dezenas_superexpostas, "alertas": alertas, "limite_exposicao_real": limite_exposicao_real
     }
 
 def remover_palpites_ruins(supabase, concurso):
-    try:
-        supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso).execute()
-    except Exception as e:
-        print(f"⚠️ Alerta na limpeza de tabela: {e}")
+    supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso).execute()
 
 # ======================================================
-# ENGINE CORE VALIDADOR
+# MAIN (EXECUÇÃO EVOLUTIVA POR SUBPROCESS)
 # ======================================================
 def main():
     print(f"🧠 {VERSAO}")
     supabase = get_supabase()
 
-    # 1. Determina concurso alvo a partir do histórico local
     try:
         from scripts.processamento_diario_lotofacil import carregar_historico
         hist = carregar_historico()
         concurso = int(hist[-1]["concurso"]) + 1
     except Exception as e:
-        print(f"❌ Falha Crítica ao ler histórico local: {e}")
+        print(f"❌ Falha Crítica ao ler histórico: {e}")
         return
 
     print(f"🎯 Concurso definitivo definido para validação: {concurso}")
 
-    # ==================================================
-    # LOOP AUTO-REGENERAÇÃO EM MEMÓRIA RAM
-    # ==================================================
     tentativa = 1
     limite_exp_dinamico = LIMITE_EXPOSICAO_DEZENA
     limite_ov_dinamico = LIMITE_OVERLAP_MEDIO
 
+    # Primeiro passo: Limpa o banco preventivamente para iniciar a primeira rodada limpa
+    remover_palpites_ruins(supabase, concurso)
+
     while tentativa <= MAX_REGENERACOES:
         print(f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}")
 
-        # Calibração dinâmica das rédeas matemáticas conforme a rodada avança
-        if tentativa == 2:
+        # Define o modo de variação da IA baseado na rodada para forçar mutações matemáticas
+        if tentativa == 1:
+            modo_ia = "moderado"
+        elif tentativa == 2:
+            modo_ia = "agressivo"  # Afrouxa a entropia na IA para abrir o leque
             limite_exp_dinamico = 9
-        elif tentativa == 3:
+        else:
+            modo_ia = "conservador"  # Tenta uma abordagem de segurança
             limite_exp_dinamico = 10
             limite_ov_dinamico = 11.5
 
-        print(f"🚀 Acionando motor de IA para criar portfólio temporário...")
-        from scripts.gerar_palpites_diarios import executar_motor_geracao
+        print(f"🚀 Disparando motor de IA via Subprocess no modo: {modo_ia.upper()}...")
         
-        # Executa a inteligência na RAM ignorando travas antigas de concursos já processados
-        retorno_ia = executar_motor_geracao(modo_variacao="moderado")
+        # Dispara a IA passando os argumentos dinâmicos. Usamos --force a partir da tentativa 2
+        cmd = [sys.executable, "scripts/gerar_palpites_diarios.py", "--modo", modo_ia]
+        if tentativa > 1:
+            cmd.append("--force")
+            
+        subprocess.run(cmd, check=True)
 
-        # --- SINCRONIA DE CHAVES DO SEU RETORNO ---
-        payload_ia = retorno_ia.get("palpites", []) if isinstance(retorno_ia, dict) else []
-        telegram_ia = retorno_ia.get("linhas_telegram", []) if isinstance(retorno_ia, dict) else []
-        # ------------------------------------------
+        # Lê o que a IA acabou de persistir no banco para auditar
+        jogos = carregar_palpites(supabase, concurso)
 
-        # AJUSTE DA MARGEM ELÁSTICA: Aceita lotes saudáveis a partir de 7 palpites
-        if not payload_ia or len(payload_ia) < 7:
-            print(f"⚠️ Lote rejeitado: Gerados apenas {len(payload_ia)} de um mínimo de 7 palpites aceitáveis.")
-            status = "REJEITADO_POR_VOLUME_INSUFICIENTE"
+        if not jogos or len(jogos) < MIN_PALPITES_ACEITAVEIS:
+            print(f"⚠️ Lote rejeitado por volume: Apenas {len(jogos)} jogos salvos. Mínimo aceitável: {MIN_PALPITES_ACEITAVEIS}")
+            status = "REJEITADO_POR_FALTA_DE_DADOS"
             analise = {
                 "overlap_medio": 0.0, "entropia": 0.0, "diversidade": 0,
                 "limite_exposicao_real": limite_exp_dinamico, "nivel_risco": "ALTO",
-                "risco_colapso": 3, "dezenas_superexpostas": [],
-                "alertas": [f"Lote incompleto na tentativa {tentativa}."]
+                "risco_colapso": 3, "dezenas_superexpostas": [], "alertas": ["Volume insuficiente"]
             }
         else:
-            # Audita as listas e os pesos contidos na RAM (mesmo vindo 7, 8, 9 ou 10 jogos)
-            jogos_validacao = preparar_jogos_memoria(payload_ia)
-            analise = analisar_portfolio(jogos_validacao, limite_exp_dinamico, limite_ov_dinamico)
+            analise = analisar_portfolio(jogos, limite_exp_dinamico, limite_ov_dinamico)
             status = analise["status"]
 
-        # ==================================================
         # OUTPUT DE AUDITORIA
-        # ==================================================
         print("\n==============================")
         print("🧠 META VALIDAÇÃO FINAL")
         print("==============================\n")
@@ -205,12 +180,7 @@ def main():
         print(f"📈 Limite Exposição: {analise['limite_exposicao_real']}")
         print(f"⚠️ Risco: {analise['nivel_risco']}")
         print(f"📌 Status: {status}")
-        if analise["alertas"]:
-            print("\n🚨 ALERTAS:")
-            for a in analise["alertas"]:
-                print(f"- {a}")
 
-        # Salva log de auditoria no bucket de telemetria externa
         try:
             payload_meta = {
                 "concurso_referencia": concurso, "overlap_medio": analise["overlap_medio"],
@@ -221,52 +191,22 @@ def main():
             }
             supabase.table("meta_validacao_execucoes").upsert(payload_meta, on_conflict="concurso_referencia").execute()
         except Exception as e:
-            print(f"⚠️ Falha ao salvar metadados de execução: {e}")
+            print(f"⚠️ Falha ao salvar telemetria: {e}")
 
-        # ==================================================
-        # CRITÉRIO DE SUCESSO: COMMIT DO LOTE INTEIRO E TELEGRAM
-        # ==================================================
-        if status == "OK" and payload_ia:
-            print("\n✅ Portfólio aprovado e validado com sucesso!")
-            
-            try:
-                print(f"💾 Efetuando commit síncrono dos {len(payload_ia)} palpites na tabela 'palpites_validos'...")
-                
-                # Garante a formatação JSON em string para o banco antes do commit definitivo
-                payload_banco = []
-                for p in payload_ia:
-                    p_copy = p.copy()
-                    if isinstance(p_copy["numeros"], list):
-                        p_copy["numeros"] = json.dumps(p_copy["numeros"])
-                    payload_banco.append(p_copy)
-
-                # Limpa qualquer lixo residual e persiste o portfólio oficial de uma vez só
-                remover_palpites_ruins(supabase, concurso)
-                supabase.table("palpites_validos").upsert(payload_banco, on_conflict="concurso_referencia,indice_palpite").execute()
-                print(f"✅ [CONSOLIDADO] Dados persistidos com segurança absoluta.")
-            except Exception as e:
-                print(f"\n❌ [ERRO GRAVE] Falha catastrófica ao tentar salvar dados auditados: {e}")
-                return
-
-            # Dispara o print do Telegram limpo e definitivo na tela
-            try:
-                from scripts.gerar_palpites_diarios import montar_msg_telegram
-                print("\n📲 TELEGRAM_PAYLOAD_START")
-                print(montar_msg_telegram(concurso, telegram_ia))
-                print("📲 TELEGRAM_PAYLOAD_END")
-            except Exception as e:
-                print(f"⚠️ Falha ao estruturar mensagem do Telegram: {e}")
+        # CRITÉRIO DE SUCESSO: Se o lote estiver saudável, mantém os dados e encerra
+        if status == "OK":
+            print(f"\n✅ Portfólio de {len(jogos)} jogos aprovado com sucesso no modo {modo_ia.upper()}!")
             return
 
-        # Se falhou por risco ou volume, o lote da memória RAM é limpo e avança o loop
+        # Se falhar, limpa o banco de dados e força a próxima mutação da IA
         if tentativa < MAX_REGENERACOES:
-            print(f"\n🔥 Portfólio rejeitado na tentativa {tentativa}. Reiniciando motor com limites expandidos...")
+            print(f"\n🔥 Portfólio rejeitado na tentativa {tentativa}. Limpando banco e forçando mutação da IA...")
+            remover_palpites_ruins(supabase, concurso)
             tentativa += 1
         else:
             break
 
-    print("\n❌ PIPELINE FINALIZADO COM RESTRIÇÕES")
-    print(f"⚠️ O motor atingiu o limite de {MAX_REGENERACOES} tentativas sem obter a chancela ideal de risco.")
+    print("\n❌ PIPELINE FINALIZADO COM RESTRIÇÕES MÁXIMAS")
 
 if __name__ == "__main__":
     main()
