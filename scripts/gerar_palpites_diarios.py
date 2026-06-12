@@ -185,9 +185,30 @@ def score_potencial_alto(jogo, historico, base_scores):
     return float(score)
 
 # ======================================================
-# MAIN - Versão Corrigida (Garantia Forte de 10 Jogos)
+# INÍCIO DO MOTOR PRINCIPAL
 # ======================================================
-def main(modo_variacao="moderado"):
+def executar_motor_geracao(concurso_alvo=None):
+    """
+    Função principal que encapsula a inteligência de IA.
+    Ela será chamada pelo Meta Validador e retornará os palpites estruturados.
+    """
+    inicio_execucao = time.time()
+    print(f"🚀 {VERSAO} - Modo: MODERADO | Potencial Alto + Tiers")
+    calcular_roi()
+    
+    supabase = get_supabase()
+    historico = carregar_historico()
+    
+    # Define o concurso alvo se não for passado pelo validador
+    if concurso_alvo is None:
+        concurso_ref = int(historico[-1]["concurso"]) + 1
+    else:
+        concurso_ref = concurso_alvo
+        
+# ======================================================
+# MOTOR DE GERAÇÃO - Versão Modulada para o Meta-Validador
+# ======================================================
+def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     inicio_execucao = time.time()
     supabase = get_supabase()
     print(f"🚀 {VERSAO} - Modo: {modo_variacao.upper()} | Potencial Alto + Tiers")
@@ -196,11 +217,18 @@ def main(modo_variacao="moderado"):
     hoje = datetime.now(fuso).date().isoformat()
     hist = carregar_historico()
     ultimo = hist[-1]["numeros"]
-    concurso_ref = int(hist[-1]["concurso"]) + 1
+    
+    # Se o validador enviou o concurso correto, usamos ele. Se não, calculamos.
+    if concurso_alvo is None:
+        concurso_ref = int(hist[-1]["concurso"]) + 1
+    else:
+        concurso_ref = concurso_alvo
 
-    if concurso_ja_processado(supabase, concurso_ref):
+    # Se rodado de forma avulsa e já processado, interrompe.
+    # (Quando rodado pelo pai, o pai limpa a tabela antes, então este if não vai travar).
+    if concurso_alvo is None and concurso_ja_processado(supabase, concurso_ref):
         print(f"ℹ️ Concurso {concurso_ref} já processado.")
-        return
+        return []
 
     base_scores, _ = calcular_score_combinacoes_reais()
     fator_global = obter_fator_aprendizado_global()["fator"]
@@ -220,7 +248,7 @@ def main(modo_variacao="moderado"):
     }
 
     for _ in range(MAX_TENTATIVAS):
-        if len(candidatos) >= 3500:   # Aumentado
+        if len(candidatos) >= 3500:
             break
         jogo = sorted(random.sample(pool, 15))
         if tuple(jogo) in usados:
@@ -319,7 +347,7 @@ def main(modo_variacao="moderado"):
         if len(finais) >= QTD_FINAL:
             break
         overlap_max = max([len(set(cand["nums"]) & set(f["nums"])) for f in finais], default=0)
-        if overlap_max <= 8:   # Ajustado para permitir mais variação
+        if overlap_max <= 8:
             finais.append(cand)
 
     # GARANTIA FORTE DE 10 JOGOS
@@ -336,53 +364,47 @@ def main(modo_variacao="moderado"):
     # ROI
     calcular_roi()
 
-    # OUTPUT (mantido igual)
-    payload = []
-    telegram = []
+    # Estruturação dos dados de retorno para o Pai
+    dados_palpites = []
+    linhas_telegram = []
+    
     for i, c in enumerate(finais, 1):
         tier = "conservador" if i <= 3 else "equilibrado" if i <= 7 else "agressivo"
-        telegram.append(
+        
+        # Texto original mantendo Pot e MC para a mensagem do Telegram
+        texto_linha_telegram = (
             f"{i}º | {c['score']:.5f} | "
             f"Pot={c['score_potencial']:.3f} | "
             f"MC={c['score_mc']:.4f} | "
             f"{tier.upper()} | {c['nums']}"
         )
-        payload.append({
+        linhas_telegram.append(texto_linha_telegram)
+        
+        # Dicionário cru para o banco de dados e para a meta-validação
+        dados_palpites.append({
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
             "tipo": tier,
-            "numeros": json.dumps(c["nums"]),
+            "numeros": c["nums"],  # Enviamos como lista pura, o pai converte em string/json na aprovação
             "score": round(float(c["score"]), 8),
             "score_potencial": round(float(c["score_potencial"]), 8),
             "score_montecarlo": round(float(c["score_mc"]), 8),
             "versao_gerador": VERSAO
         })
 
-    # ... (o resto do código de print, salvamento e telegram permanece igual ao que você tem)
+    print(f"⏱️ Tempo total da geração: {time.time() - inicio_execucao:.1f} segundos")
+    
+    # RETORNO CRU: O pai recebe os dados do banco e o formato do Telegram prontos em memória!
+    return {
+        "palpites": dados_palpites,
+        "linhas_telegram": linhas_telegram,
+        "concurso": concurso_ref
+    }
 
-    print("\n📦 === PALPITES GERADOS EM MEMÓRIA (BACKUP) ===")
-    for item in payload:
-        print(f"Jogo {item['indice_palpite']} [{item['tipo'].upper()}]: {item['numeros']}")
-    print("================================================\n")
-
-    try:
-        supabase.table("palpites_validos").upsert(
-            payload, on_conflict="concurso_referencia,indice_palpite"
-        ).execute()
-        print(f"✅ [BANCO] {len(payload)} palpites salvos com sucesso!")
-    except Exception as e:
-        print("\n❌ [ERRO CRÍTICO NO SUPABASE] O banco recusou o salvamento!")
-        print(f"DETALHES DO ERRO: {str(e)}")
-        raise e
-
-    #print("\n📲 TELEGRAM_PAYLOAD_START")
-    #print(montar_msg_telegram(concurso_ref, telegram))
-    #print("📲 TELEGRAM_PAYLOAD_END")
-    print(f"⏱️ Tempo total: {time.time() - inicio_execucao:.1f} segundos")
 
 # ======================================================
-# ENTRYPOINT com argumento --modo
+# ENTRYPOINT (Modo isolado para testes manuais no terminal)
 # ======================================================
 if __name__ == "__main__":
     import argparse
@@ -391,7 +413,29 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     try:
-        main(modo_variacao=args.modo)
+        # Se rodar direto: 'python scripts/gerar_palpites_diarios.py'
+        print("⚙️ Executando engine em modo de teste isolado...")
+        resultado_teste = executar_motor_geracao(modo_variacao=args.modo)
+        
+        if resultado_teste:
+            sb = get_supabase()
+            # Simula a gravação antiga para propósitos de teste isolado
+            payload_teste = []
+            for p in resultado_teste["palpites"]:
+                p_copy = p.copy()
+                p_copy["numeros"] = json.dumps(p_copy["numeros"]) # Formata json para salvar
+                payload_teste.append(p_copy)
+                
+            sb.table("palpites_validos").upsert(
+                payload_teste, on_conflict="concurso_referencia,indice_palpite"
+            ).execute()
+            print(f"✅ [TESTE BUCKET] {len(payload_teste)} palpites gravados no banco.")
+            
+            # Imprime o Telegram na tela para validação visual do teste
+            print("\n📲 TELEGRAM_PAYLOAD_START")
+            print(montar_msg_telegram(resultado_teste["concurso"], resultado_teste["linhas_telegram"]))
+            print("📲 TELEGRAM_PAYLOAD_END")
+            
     except Exception:
         import traceback
         traceback.print_exc()
