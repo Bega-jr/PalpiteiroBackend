@@ -110,236 +110,236 @@ def avaliar_desempenho_concurso():
     )
 
     # ======================================================
-# 2. AUTO-AJUSTE DA MEMÓRIA DE CENÁRIOS E ESTRUTURAS
-# ======================================================
-try:
-
-    estrutura_real = extrair_estrutura(
-        list(resultado)
-    )
-
-    hash_est = estrutura_real["hash_estrutura"]
-
-    cenario_banco = (
-        supabase
-        .table("memoria_cenarios")
-        .select("*")
-        .eq("hash_estrutura", hash_est)
-        .limit(1)
-        .execute()
-        .data
-    )
-
-    agora = datetime.now().isoformat()
-
-    vezes_gerado = 1
-    score_medio_real = media_concurso
-
-    estabilidade_media = 1.0
-    dispersao_media = dispersao
-
-    taxa_sobrevivencia = (
-        1 if media_concurso >= 10 else 0
-    )
-
-    score_contextual = media_concurso
-
-    score_previsibilidade = (
-        max(
-            0,
-            1 - (dispersao / 15)
+    # 2. AUTO-AJUSTE DA MEMÓRIA DE CENÁRIOS E ESTRUTURAS
+    # ======================================================
+    try:
+    
+        estrutura_real = extrair_estrutura(
+            list(resultado)
         )
-    )
-
-    if cenario_banco:
-
-        row = cenario_banco[0]
-
-        v_antigo = int(
-            row.get(
-                "vezes_gerado",
-                0
-            )
+    
+        hash_est = estrutura_real["hash_estrutura"]
+    
+        cenario_banco = (
+            supabase
+            .table("memoria_cenarios")
+            .select("*")
+            .eq("hash_estrutura", hash_est)
+            .limit(1)
+            .execute()
+            .data
         )
-
-        score_antigo = float(
-            row.get(
-                "score_medio_real",
-                0
-            )
-        )
-
-        estabilidade_antiga = float(
-            row.get(
-                "estabilidade_media",
-                0
-            )
-        )
-
-        dispersao_antiga = float(
-            row.get(
-                "dispersao_media",
-                0
-            )
-        )
-
-        sobrevivencia_antiga = float(
-            row.get(
-                "taxa_sobrevivencia",
-                0
-            )
-        )
-
-        previsibilidade_antiga = float(
-            row.get(
-                "score_previsibilidade",
-                0
-            )
-        )
-
-        vezes_gerado = v_antigo + 1
-
-        score_medio_real = (
-            (
-                score_antigo * v_antigo
-            )
-            + media_concurso
-        ) / vezes_gerado
-
-        estabilidade_atual = max(
-            0,
-            1 - (dispersao / 15)
-        )
-
-        estabilidade_media = (
-            (
-                estabilidade_antiga * v_antigo
-            )
-            + estabilidade_atual
-        ) / vezes_gerado
-
-        dispersao_media = (
-            (
-                dispersao_antiga * v_antigo
-            )
-            + dispersao
-        ) / vezes_gerado
-
+    
+        agora = datetime.now().isoformat()
+    
+        vezes_gerado = 1
+        score_medio_real = media_concurso
+    
+        estabilidade_media = 1.0
+        dispersao_media = dispersao
+    
         taxa_sobrevivencia = (
-            (
-                sobrevivencia_antiga * v_antigo
-            )
-            + (
-                1 if media_concurso >= 10
-                else 0
-            )
-        ) / vezes_gerado
-
+            1 if media_concurso >= 10 else 0
+        )
+    
+        score_contextual = media_concurso
+    
         score_previsibilidade = (
-            (
-                previsibilidade_antiga * v_antigo
-            )
-            + max(
+            max(
                 0,
                 1 - (dispersao / 15)
             )
-        ) / vezes_gerado
-
-        score_contextual = (
-            score_medio_real * 0.60
-            +
-            estabilidade_media * 0.20
-            +
-            taxa_sobrevivencia * 10 * 0.20
         )
-
-    (
-        supabase
-        .table("memoria_cenarios")
-        .upsert({
-
-            "hash_estrutura":
-                hash_est,
-
-            "soma_faixa":
-                estrutura_real["soma_faixa"],
-
-            "pares":
-                estrutura_real["pares"],
-
-            "primos":
-                estrutura_real["primos"],
-
-            "linhas":
-                estrutura_real["linhas"],
-
-            "vezes_gerado":
-                vezes_gerado,
-
-            "score_medio_real":
-                round(
-                    score_medio_real,
-                    4
-                ),
-
-            "estabilidade_media":
-                round(
-                    estabilidade_media,
-                    6
-                ),
-
-            "dispersao_media":
-                round(
-                    dispersao_media,
-                    6
-                ),
-
-            "taxa_sobrevivencia":
-                round(
-                    taxa_sobrevivencia,
-                    6
-                ),
-
-            "score_contextual":
-                round(
-                    score_contextual,
-                    6
-                ),
-
-            "score_previsibilidade":
-                round(
-                    score_previsibilidade,
-                    6
-                ),
-
-            "ultima_aparicao":
-                concurso,
-
-            "ultima_atualizacao_contextual":
-                agora,
-
-            "updated_at":
-                agora
-
-        },
-        on_conflict="hash_estrutura"
+    
+        if cenario_banco:
+    
+            row = cenario_banco[0]
+    
+            v_antigo = int(
+                row.get(
+                    "vezes_gerado",
+                    0
+                )
+            )
+    
+            score_antigo = float(
+                row.get(
+                    "score_medio_real",
+                    0
+                )
+            )
+    
+            estabilidade_antiga = float(
+                row.get(
+                    "estabilidade_media",
+                    0
+                )
+            )
+    
+            dispersao_antiga = float(
+                row.get(
+                    "dispersao_media",
+                    0
+                )
+            )
+    
+            sobrevivencia_antiga = float(
+                row.get(
+                    "taxa_sobrevivencia",
+                    0
+                )
+            )
+    
+            previsibilidade_antiga = float(
+                row.get(
+                    "score_previsibilidade",
+                    0
+                )
+            )
+    
+            vezes_gerado = v_antigo + 1
+    
+            score_medio_real = (
+                (
+                    score_antigo * v_antigo
+                )
+                + media_concurso
+            ) / vezes_gerado
+    
+            estabilidade_atual = max(
+                0,
+                1 - (dispersao / 15)
+            )
+    
+            estabilidade_media = (
+                (
+                    estabilidade_antiga * v_antigo
+                )
+                + estabilidade_atual
+            ) / vezes_gerado
+    
+            dispersao_media = (
+                (
+                    dispersao_antiga * v_antigo
+                )
+                + dispersao
+            ) / vezes_gerado
+    
+            taxa_sobrevivencia = (
+                (
+                    sobrevivencia_antiga * v_antigo
+                )
+                + (
+                    1 if media_concurso >= 10
+                    else 0
+                )
+            ) / vezes_gerado
+    
+            score_previsibilidade = (
+                (
+                    previsibilidade_antiga * v_antigo
+                )
+                + max(
+                    0,
+                    1 - (dispersao / 15)
+                )
+            ) / vezes_gerado
+    
+            score_contextual = (
+                score_medio_real * 0.60
+                +
+                estabilidade_media * 0.20
+                +
+                taxa_sobrevivencia * 10 * 0.20
+            )
+    
+        (
+            supabase
+            .table("memoria_cenarios")
+            .upsert({
+    
+                "hash_estrutura":
+                    hash_est,
+    
+                "soma_faixa":
+                    estrutura_real["soma_faixa"],
+    
+                "pares":
+                    estrutura_real["pares"],
+    
+                "primos":
+                    estrutura_real["primos"],
+    
+                "linhas":
+                    estrutura_real["linhas"],
+    
+                "vezes_gerado":
+                    vezes_gerado,
+    
+                "score_medio_real":
+                    round(
+                        score_medio_real,
+                        4
+                    ),
+    
+                "estabilidade_media":
+                    round(
+                        estabilidade_media,
+                        6
+                    ),
+    
+                "dispersao_media":
+                    round(
+                        dispersao_media,
+                        6
+                    ),
+    
+                "taxa_sobrevivencia":
+                    round(
+                        taxa_sobrevivencia,
+                        6
+                    ),
+    
+                "score_contextual":
+                    round(
+                        score_contextual,
+                        6
+                    ),
+    
+                "score_previsibilidade":
+                    round(
+                        score_previsibilidade,
+                        6
+                    ),
+    
+                "ultima_aparicao":
+                    concurso,
+    
+                "ultima_atualizacao_contextual":
+                    agora,
+    
+                "updated_at":
+                    agora
+    
+            },
+            on_conflict="hash_estrutura"
+            )
+            .execute()
         )
-        .execute()
-    )
-
-    print(
-        f"📈 Estrutura {hash_est} | "
-        f"Score={score_medio_real:.2f} | "
-        f"Estab={estabilidade_media:.2f} | "
-        f"Disp={dispersao_media:.2f}"
-    )
-
-except Exception as e_cen:
-
-    print(
-        f"⚠️ Erro ao atualizar "
-        f"memoria_cenarios: {e_cen}"
-    )
+    
+        print(
+            f"📈 Estrutura {hash_est} | "
+            f"Score={score_medio_real:.2f} | "
+            f"Estab={estabilidade_media:.2f} | "
+            f"Disp={dispersao_media:.2f}"
+        )
+    
+    except Exception as e_cen:
+    
+        print(
+            f"⚠️ Erro ao atualizar "
+            f"memoria_cenarios: {e_cen}"
+        )
 
     # 3. Força a atualização de todos os palpites da rodada de forma segura (Bulk Upsert)
     if palpites_atualizados:
