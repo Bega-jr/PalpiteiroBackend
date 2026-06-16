@@ -257,42 +257,237 @@ def main():
             except Exception as e:
                 print(f"⚠️ Erro ao atualizar meta-learning: {e}")
 
+            # ======================================================
             # 2. AUTO-AJUSTE DA MEMÓRIA DE CENÁRIOS E ESTRUTURAS
+            # ======================================================
             try:
-                # Extrai a estrutura real que acabou de ser sorteada
-                estrutura_real = extrair_estrutura(list(resultado))
+            
+                estrutura_real = extrair_estrutura(
+                    list(resultado)
+                )
+            
                 hash_est = estrutura_real["hash_estrutura"]
-
-                # Puxa o estado atual deste cenário específico no banco de dados
-                cenario_banco = supabase.table("memoria_cenarios").select("*").eq("hash_estrutura", hash_est).execute().data
-
+            
+                cenario_banco = (
+                    supabase
+                    .table("memoria_cenarios")
+                    .select("*")
+                    .eq("hash_estrutura", hash_est)
+                    .limit(1)
+                    .execute()
+                    .data
+                )
+            
+                agora = datetime.now().isoformat()
+            
                 vezes_gerado = 1
-                score_acumulado = media_concurso
-
+                score_medio_real = media_concurso
+            
+                estabilidade_media = 1.0
+                dispersao_media = dispersao
+            
+                taxa_sobrevivencia = (
+                    1 if media_concurso >= 10 else 0
+                )
+            
+                score_contextual = media_concurso
+            
+                score_previsibilidade = (
+                    max(
+                        0,
+                        1 - (dispersao / 15)
+                    )
+                )
+            
                 if cenario_banco:
-                    row_cenario = cenario_banco[0]
-                    v_antigo = int(row_cenario.get("vezes_gerado", 0))
-                    s_antigo = float(row_cenario.get("score_medio_real", 0.0))
-
+            
+                    row = cenario_banco[0]
+            
+                    v_antigo = int(
+                        row.get(
+                            "vezes_gerado",
+                            0
+                        )
+                    )
+            
+                    score_antigo = float(
+                        row.get(
+                            "score_medio_real",
+                            0
+                        )
+                    )
+            
+                    estabilidade_antiga = float(
+                        row.get(
+                            "estabilidade_media",
+                            0
+                        )
+                    )
+            
+                    dispersao_antiga = float(
+                        row.get(
+                            "dispersao_media",
+                            0
+                        )
+                    )
+            
+                    sobrevivencia_antiga = float(
+                        row.get(
+                            "taxa_sobrevivencia",
+                            0
+                        )
+                    )
+            
+                    previsibilidade_antiga = float(
+                        row.get(
+                            "score_previsibilidade",
+                            0
+                        )
+                    )
+            
                     vezes_gerado = v_antigo + 1
-                    # Executa a média móvel cumulativa real ponderada
-                    score_acumulado = ((s_antigo * v_antigo) + media_concurso) / vezes_gerado
-
-                # Insere ou atualiza dinamicamente as métricas lidas pelo processamento diário
-                supabase.table("memoria_cenarios").upsert({
-                    "hash_estrutura": hash_est,
-                    "soma_faixa": estrutura_real["soma_faixa"],
-                    "pares": estrutura_real["pares"],
-                    "primos": estrutura_real["primos"],
-                    "linhas": estrutura_real["linhas"],
-                    "vezes_gerado": vezes_gerado,
-                    "score_medio_real": round(score_acumulado, 4),
-                    "updated_at": datetime.now().isoformat()
-                }, on_conflict="soma_faixa,pares,primos,hash_estrutura").execute()
-
-                print(f"📈 [Auto-Ajuste] Estrutura {hash_est} calibrada | Testes: {vezes_gerado}x | Score Real: {score_acumulado:.2f}")
+            
+                    score_medio_real = (
+                        (
+                            score_antigo * v_antigo
+                        )
+                        + media_concurso
+                    ) / vezes_gerado
+            
+                    estabilidade_atual = max(
+                        0,
+                        1 - (dispersao / 15)
+                    )
+            
+                    estabilidade_media = (
+                        (
+                            estabilidade_antiga * v_antigo
+                        )
+                        + estabilidade_atual
+                    ) / vezes_gerado
+            
+                    dispersao_media = (
+                        (
+                            dispersao_antiga * v_antigo
+                        )
+                        + dispersao
+                    ) / vezes_gerado
+            
+                    taxa_sobrevivencia = (
+                        (
+                            sobrevivencia_antiga * v_antigo
+                        )
+                        + (
+                            1 if media_concurso >= 10
+                            else 0
+                        )
+                    ) / vezes_gerado
+            
+                    score_previsibilidade = (
+                        (
+                            previsibilidade_antiga * v_antigo
+                        )
+                        + max(
+                            0,
+                            1 - (dispersao / 15)
+                        )
+                    ) / vezes_gerado
+            
+                    score_contextual = (
+                        score_medio_real * 0.60
+                        +
+                        estabilidade_media * 0.20
+                        +
+                        taxa_sobrevivencia * 10 * 0.20
+                    )
+            
+                (
+                    supabase
+                    .table("memoria_cenarios")
+                    .upsert({
+            
+                        "hash_estrutura":
+                            hash_est,
+            
+                        "soma_faixa":
+                            estrutura_real["soma_faixa"],
+            
+                        "pares":
+                            estrutura_real["pares"],
+            
+                        "primos":
+                            estrutura_real["primos"],
+            
+                        "linhas":
+                            estrutura_real["linhas"],
+            
+                        "vezes_gerado":
+                            vezes_gerado,
+            
+                        "score_medio_real":
+                            round(
+                                score_medio_real,
+                                4
+                            ),
+            
+                        "estabilidade_media":
+                            round(
+                                estabilidade_media,
+                                6
+                            ),
+            
+                        "dispersao_media":
+                            round(
+                                dispersao_media,
+                                6
+                            ),
+            
+                        "taxa_sobrevivencia":
+                            round(
+                                taxa_sobrevivencia,
+                                6
+                            ),
+            
+                        "score_contextual":
+                            round(
+                                score_contextual,
+                                6
+                            ),
+            
+                        "score_previsibilidade":
+                            round(
+                                score_previsibilidade,
+                                6
+                            ),
+            
+                        "ultima_aparicao":
+                            concurso,
+            
+                        "ultima_atualizacao_contextual":
+                            agora,
+            
+                        "updated_at":
+                            agora
+            
+                    },
+                    on_conflict="hash_estrutura"
+                    )
+                    .execute()
+                )
+            
+                print(
+                    f"📈 Estrutura {hash_est} | "
+                    f"Score={score_medio_real:.2f} | "
+                    f"Estab={estabilidade_media:.2f} | "
+                    f"Disp={dispersao_media:.2f}"
+                )
+            
             except Exception as e_cen:
-                print(f"⚠️ Erro ao atualizar auto-aprendizado de cenários: {e_cen}")
+            
+                print(
+                    f"⚠️ Erro ao atualizar "
+                    f"memoria_cenarios: {e_cen}"
+                )
 
         # ======================================================
         # AUDITORIA
