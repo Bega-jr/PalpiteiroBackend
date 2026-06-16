@@ -288,9 +288,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             fator_global=fator_global,
             fator_feedback=1.0,
             fator_regime=1.0,
-            bonus_estrutura=bonus_estrutura(None),
-            bonus_fadiga=bonus_fadiga(None),
-            bonus_recencia=bonus_recencia(None),
+            bonus_estrutura=bonus_estrutura(memoria_estrutura),
+            bonus_fadiga=bonus_fadiga(memoria_estrutura),
+            bonus_recencia=bonus_recencia(memoria_estrutura),
             bonus_moldura=bonus_moldura(filtros),
             pesos=pesos,
             bonus_recompensa=calcular_recompensa_evolutiva(estrutura, filtros, cluster_id)
