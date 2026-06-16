@@ -255,6 +255,24 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             continue
         filtros = calcular_filtros(jogo, ultimo)
         estrutura = extrair_estrutura(jogo)
+        memoria_estrutura = (
+            supabase
+            .table("memoria_cenarios")
+            .select("*")
+            .eq(
+                "hash_estrutura",
+                estrutura["hash_estrutura"]
+            )
+            .limit(1)
+            .execute()
+            .data
+        )
+        
+        memoria_estrutura = (
+            memoria_estrutura[0]
+            if memoria_estrutura
+            else None
+        )
         if not validar_autonomo(filtros, estrutura["linhas"], limites):
             continue
 
