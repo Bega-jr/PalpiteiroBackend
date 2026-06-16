@@ -181,7 +181,7 @@ def main():
             "ultima_aparicao": data,
             "updated_at": datetime.now().isoformat()
         }
-        supabase.table("memoria_cenarios").upsert(payload, on_conflict="soma_faixa,pares,primos,hash_estrutura").execute()
+        supabase.table("memoria_cenarios").upsert(payload, on_conflict="hash_estrutura").execute()
         print("🔄 Memória estrutural updated via UPSERT seguro")
 
         # ==================================================
