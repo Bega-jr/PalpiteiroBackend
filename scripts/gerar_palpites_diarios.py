@@ -299,6 +299,15 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         s1, s2, s3 = score_base(jogo, base_scores)
         score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
         score_potencial = score_potencial_alto(jogo, hist, base_scores)
+        score_contextual = 0
+
+        if memoria_estrutura:
+            score_contextual = float(
+                memoria_estrutura.get(
+                    "score_contextual",
+                    0
+                )
+            )
 
         score_final = calcular_score_ensemble(
             score_estatistico=score_estatistico,
