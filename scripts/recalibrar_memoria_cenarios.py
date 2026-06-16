@@ -46,13 +46,13 @@ def main():
     )
 
     concursos = (
-
         supabase
         .table("lotofacil_concursos")
         .select("concurso,dezenas")
+        .order("concurso", desc=True)
+        .limit(300)
         .execute()
         .data
-
     )
 
     mapa_resultados = {}
@@ -71,7 +71,8 @@ def main():
     
     print(f"\n📊 Concursos carregados: {len(mapa_resultados)}")
     
-    for k in sorted(list(mapa_resultados.keys()), reverse=True)[:5]:
+    for c in sorted(mapa_resultados.keys(), reverse=True)[:20]:
+    print(f"Concurso carregado: {c}")
     
         print(
             f"Concurso: {k} | "
@@ -112,6 +113,11 @@ def main():
             []
         ).append(row)
 
+    print(f"\n📊 Concursos com palpites: {len(por_concurso)}")
+
+    for c in sorted(por_concurso.keys(), reverse=True):
+        print(f"Palpite encontrado para concurso {c}")
+
     memoria = {}
 
     agora = datetime.now().isoformat()
@@ -123,8 +129,14 @@ def main():
     for concurso, jogos in por_concurso.items():
 
         if concurso not in mapa_resultados:
+            print(
+                f"❌ Concurso {concurso} não encontrado em mapa_resultados"
+            )
             continue
-
+    
+        print(
+            f"✅ Concurso {concurso} encontrado"
+        )
         resultado = mapa_resultados[
             concurso
         ]
