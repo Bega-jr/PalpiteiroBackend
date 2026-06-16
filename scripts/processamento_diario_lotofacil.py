@@ -153,10 +153,11 @@ def buscar_memoria_real(
         supabase
         .table("memoria_cenarios")
         .select("*")
-        .eq(
-            "hash_estrutura",
-            estrutura["hash_estrutura"]
-        )
+        .eq("hash_estrutura", estrutura["hash_estrutura"])
+        .eq("soma_faixa", estrutura["soma_faixa"])
+        .eq("pares", estrutura["pares"])
+        .eq("primos", estrutura["primos"])
+        .order("updated_at", desc=True)
         .limit(1)
         .execute()
     )
