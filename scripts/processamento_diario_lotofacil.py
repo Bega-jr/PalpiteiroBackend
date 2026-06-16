@@ -479,7 +479,7 @@ def main():
             "memoria_cenarios"
         ).upsert(
             payload_memoria,
-            on_conflict="soma_faixa,pares,primos,hash_estrutura"
+            on_conflict="hash_estrutura"
         ).execute()
 
         print("🔄 Memória estrutural updated via UPSERT seguro")
