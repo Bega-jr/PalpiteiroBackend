@@ -73,12 +73,6 @@ def main():
     
     for c in sorted(mapa_resultados.keys(), reverse=True)[:20]:
         print(f"Concurso carregado: {c}")
-        
-        print(
-            f"Concurso: {k} | "
-            f"Qtd dezenas: {len(mapa_resultados[k])} | "
-            f"Dezenas: {sorted(list(mapa_resultados[k]))}"
-         )
 
     palpites = (
 
