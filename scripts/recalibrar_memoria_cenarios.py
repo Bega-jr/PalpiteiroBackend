@@ -58,15 +58,25 @@ def main():
     mapa_resultados = {}
 
     for row in concursos:
-
+    
         concurso = int(row["concurso"])
-
+    
         mapa_resultados[
             concurso
         ] = set(
             parse_numeros(
                 row["dezenas"]
             )
+        )
+    
+    print(f"\n📊 Concursos carregados: {len(mapa_resultados)}")
+    
+    for k in sorted(list(mapa_resultados.keys()), reverse=True)[:5]:
+    
+        print(
+            f"Concurso: {k} | "
+            f"Qtd dezenas: {len(mapa_resultados[k])} | "
+            f"Dezenas: {sorted(list(mapa_resultados[k]))}"
         )
 
     palpites = (
