@@ -198,9 +198,36 @@ def main():
                 "limite_exposicao_real": limite_exp_dinamico, "nivel_risco": "ALTO",
                 "risco_colapso": 3, "dezenas_superexpostas": [], "alertas": ["Volume insuficiente"]
             }
+            max_cluster = None
+            max_estrutura = None
         else:
             analise = analisar_portfolio(jogos, limite_exp_dinamico, limite_ov_dinamico)
             status = analise["status"]
+
+            # Análise complementar dos palpites
+            contador_clusters = Counter(
+                j["cluster_id"]
+                for j in jogos
+                if j.get("cluster_id") is not None
+            )
+            
+            contador_estruturas = Counter(
+                j["hash_estrutura"]
+                for j in jogos
+                if j.get("hash_estrutura")
+            )
+            
+            max_cluster = (
+                contador_clusters.most_common(1)[0][0]
+                if contador_clusters
+                else None
+            )
+            
+            max_estrutura = (
+                contador_estruturas.most_common(1)[0][0]
+                if contador_estruturas
+                else None
+            )
 
         # OUTPUT DE AUDITORIA
         print("\n==============================")
@@ -218,35 +245,6 @@ def main():
         print(f"🏗️ Score Estrutural Médio: {score_estrutural_medio:.4f}")
         print(f"🧩 Cluster Dominante: {max_cluster}")
 
-
-        # =====================================
-        # Análise complementar dos palpites
-        # =====================================
-        
-        contador_clusters = Counter(
-            j["cluster_id"]
-            for j in jogos
-            if j.get("cluster_id") is not None
-        )
-        
-        contador_estruturas = Counter(
-            j["hash_estrutura"]
-            for j in jogos
-            if j.get("hash_estrutura")
-        )
-        
-        max_cluster = (
-            contador_clusters.most_common(1)[0][0]
-            if contador_clusters
-            else None
-        )
-        
-        max_estrutura = (
-            contador_estruturas.most_common(1)[0][0]
-            if contador_estruturas
-            else None
-        )
-        
         try:
         
             payload_meta = {
