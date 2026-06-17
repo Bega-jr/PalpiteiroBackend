@@ -131,7 +131,6 @@ def avaliar_desempenho_concurso():
         )
     
         agora = datetime.now().isoformat()
-        data_int = int(datetime.now().date().isoformat().replace("-", ""))
     
         vezes_gerado = 1
         score_medio_real = media_acertos_ensemble
@@ -314,7 +313,7 @@ def avaliar_desempenho_concurso():
                     ),
     
                 "ultima_aparicao":
-                    data_int,
+                    concurso_real,
     
                 "ultima_atualizacao_contextual":
                     agora,
