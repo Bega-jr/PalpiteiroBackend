@@ -147,7 +147,7 @@ def main():
     limite_ov_dinamico = LIMITE_OVERLAP_MEDIO
 
     # Primeiro passo: Limpa o banco preventivamente para iniciar a primeira rodada limpa
-    remover_palpites_ruins(supabase, concurso)
+    # limpeza apenas quando houver reprovação
 
     while tentativa <= MAX_REGENERACOES:
         print(f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}")
