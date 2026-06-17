@@ -127,12 +127,31 @@ def score_base(jogo, base):
     return s1, s2, s3
 
 def bonus_estrutura(mem):
+    def bonus_estrutura(mem):
+
     if not mem:
         return 1.0
-    vezes = int(mem.get("vezes_gerado", 0))
-    if vezes >= 40: return 0.93
-    if vezes <= 5: return 1.05
-    return 1.0
+
+    score_ctx = float(
+        mem.get(
+            "score_contextual",
+            0
+        )
+    )
+
+    if score_ctx >= 5.8:
+        return 1.18
+
+    if score_ctx >= 5.5:
+        return 1.12
+
+    if score_ctx >= 5.2:
+        return 1.08
+
+    if score_ctx >= 5.0:
+        return 1.03
+
+    return 0.95
 
 def bonus_fadiga(mem):
     if not mem: return 1.0
@@ -338,6 +357,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             score_potencial * 0.20
             +
             score_contextual * 0.15
+        )
+        score_final += (
+            score_previsibilidade * 0.05
         )
         
         score_final -= sum(
