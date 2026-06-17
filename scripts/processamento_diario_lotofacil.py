@@ -460,6 +460,9 @@ def main():
         # ==================================================
         # MEMÓRIA CONTEXTUAL
         # ==================================================
+        # Converter data ISO para inteiro YYYYMMDD
+        data_int = int(data.replace("-", ""))
+        
         payload_memoria = {
             "hash_estrutura": estrutura["hash_estrutura"],
             "soma_faixa": estrutura["soma_faixa"],
@@ -471,7 +474,7 @@ def main():
             "score_medio_real": round(media_acertos, 4),
             "dispersao_media": dispersao,
             "estabilidade_media": estabilidade,
-            "ultima_aparicao": data,
+            "ultima_aparicao": data_int,
             "updated_at": datetime.now().isoformat()
         }
 
@@ -500,9 +503,6 @@ def main():
         if dispersao >= 5:
             regime = "CONTRACAO_FRIAS"
             print("⚠️ Instabilidade contextual detectada. Forçando CONTRACAO_FRIAS.")
-
-        # Converter data ISO para inteiro YYYYMMDD
-        data_int = int(data.replace("-", ""))
 
         payload_regime = {
             "data_referencia": data_int,
