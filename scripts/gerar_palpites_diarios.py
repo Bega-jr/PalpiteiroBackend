@@ -968,13 +968,15 @@ if __name__ == "__main__":
                 )
             )
 
-            sb.table(
+            res = sb.table(
                 "palpites_validos"
             ).upsert(
                 payload_teste,
-                on_conflict=
-                "concurso_referencia,indice_palpite"
+                on_conflict="concurso_referencia,indice_palpite"
             ).execute()
+
+            print("\n===== DEBUG UPSERT =====")
+            print(res)
 
             print(
                 f"✅ [TESTE BUCKET] "
