@@ -127,7 +127,6 @@ def score_base(jogo, base):
     return s1, s2, s3
 
 def bonus_estrutura(mem):
-    def bonus_estrutura(mem):
 
     if not mem:
         return 1.0
@@ -202,28 +201,7 @@ def score_potencial_alto(jogo, historico, base_scores):
         (10 - abs(filtros["pares"] - 7.5)) * 0.11
     )
     return float(score)
-
-# ======================================================
-# INÍCIO DO MOTOR PRINCIPAL
-# ======================================================
-def executar_motor_geracao(concurso_alvo=None):
-    """
-    Função principal que encapsula a inteligência de IA.
-    Ela será chamada pelo Meta Validador e retornará os palpites estruturados.
-    """
-    inicio_execucao = time.time()
-    print(f"🚀 {VERSAO} - Modo: MODERADO | Potencial Alto + Tiers")
-    calcular_roi()
-    
-    supabase = get_supabase()
-    historico = carregar_historico()
-    
-    # Define o concurso alvo se não for passado pelo validador
-    if concurso_alvo is None:
-        concurso_ref = int(historico[-1]["concurso"]) + 1
-    else:
-        concurso_ref = concurso_alvo
-        
+     
 # ======================================================
 # MOTOR DE GERAÇÃO - Versão Modulada para o Meta-Validador
 # ======================================================
@@ -375,6 +353,18 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
                     0
                 )
             )
+
+        # =====================================
+        # FILTRO DE ESTRUTURAS RUINS
+        # =====================================
+        
+        if memoria_estrutura:
+        
+            if (
+                score_medio_real < 6
+                and vezes_gerado >= 3
+            ):
+                continue
     
         # =====================================
         # FEATURES
@@ -467,18 +457,24 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         # =====================================
     
         score_final = (
-            score_final * 0.55
+            score_final * 0.50
             + score_potencial * 0.20
             + score_contextual * 0.15
             + score_previsibilidade * 0.05
-            + (score_medio_real / 15.0) * 0.05
+            + (score_medio_real / 15.0) * 0.10
         )
     
         # Estruturas comprovadas ganham bônus
     
-        if score_medio_real >= 9:
-            score_final *= 1.06
-    
+        if score_medio_real >= 9.5:
+            score_final *= 1.12
+        
+        elif score_medio_real >= 9:
+            score_final *= 1.08
+        
+        elif score_medio_real >= 8.5:
+            score_final *= 1.05
+        
         elif score_medio_real >= 8:
             score_final *= 1.03
     
