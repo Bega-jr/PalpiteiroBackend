@@ -93,7 +93,11 @@ def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
     entropia = round(calcular_entropia(contador), 6)
     diversidade = calcular_score_diversidade([x["numeros"] for x in jogos])
     limite_exposicao_real = max(limite_exposicao, math.ceil(((len(jogos) * 15) / 25) * 1.20))
-    dezenas_superexpostas = [dez for dez, qtd in contador.items() if qtd >= limite_exposicao_real]
+    dezenas_superexpostas = [
+        dez
+        for dez, qtd in contador.items()
+        if qtd > limite_exposicao_real
+    ]
     risco_colapso = calcular_risco_colapso(overlap_medio, entropia, diversidade)
     nivel_risco = interpretar_risco(risco_colapso)
 
@@ -209,6 +213,10 @@ def main():
         print(f"📈 Limite Exposição: {analise['limite_exposicao_real']}")
         print(f"⚠️ Risco: {analise['nivel_risco']}")
         print(f"📌 Status: {status}")
+        print(f"🎲 Score MC Médio: {score_montecarlo_medio:.4f}")
+        print(f"🚀 Score Potencial Médio: {score_potencial_medio:.4f}")
+        print(f"🏗️ Score Estrutural Médio: {score_estrutural_medio:.4f}")
+        print(f"🧩 Cluster Dominante: {max_cluster}")
 
 
         # =====================================
