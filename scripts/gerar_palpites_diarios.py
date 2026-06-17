@@ -684,7 +684,17 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         )
     
         linhas_telegram.append(texto_linha_telegram)
-    
+        if i <= 3:
+            print("\n====================")
+            print("DEBUG FINALISTA")
+            print("====================")
+            print({
+                "cluster_id": c.get("cluster_id"),
+                "score_contextual": c.get("score_contextual"),
+                "score_previsibilidade": c.get("score_previsibilidade"),
+                "score_medio_real": c.get("score_medio_real"),
+                "estrutura": c.get("estrutura")
+            })
         dados_palpites.append({
     
             "data_referencia": hoje,
