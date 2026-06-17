@@ -277,11 +277,6 @@ def main():
                 "score_potencial_medio": round(
                     score_potencial_medio,
                     6
-                ),
-        
-                "score_estrutural_medio": round(
-                    score_estrutural_medio,
-                    6
                 )
             }
         
