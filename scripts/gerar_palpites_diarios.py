@@ -156,6 +156,29 @@ def bonus_estrutura(mem):
 
     return 0.95
 
+def bonus_confianca(mem):
+
+    if not mem:
+        return 1.00
+
+    score_real = float(
+        mem.get(
+            "score_medio_real",
+            0
+        )
+    )
+
+    if score_real >= 10:
+        return 1.12
+
+    if score_real >= 9:
+        return 1.08
+
+    if score_real >= 8:
+        return 1.04
+
+    return 1.00
+
 def bonus_fadiga(mem):
     if not mem: return 1.0
     fadiga = float(mem.get("fadiga_estrutura", 0))
@@ -314,6 +337,40 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         memoria_estrutura = memoria_cache.get(
             estrutura["hash_estrutura"]
         )
+        # =====================================
+        # FILTRO DE CONFIANÇA ESTRUTURAL
+        # v19.3
+        # =====================================
+
+        if memoria_estrutura:
+
+            score_ctx_tmp = float(
+                memoria_estrutura.get(
+                    "score_contextual",
+                    0
+                )
+            )
+
+            score_real_tmp = float(
+                memoria_estrutura.get(
+                    "score_medio_real",
+                    0
+                )
+            )
+
+            vezes_tmp = int(
+                memoria_estrutura.get(
+                    "vezes_gerado",
+                    0
+                )
+            )
+
+            if (
+                vezes_tmp >= 5
+                and score_ctx_tmp < 4.8
+                and score_real_tmp < 8
+            ):
+                continue
     
         score_contextual = 0.0
         score_previsibilidade = 0.0
@@ -485,12 +542,25 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         # Estruturas sem histórico sofrem leve penalização
     
         if vezes_gerado == 0:
-            score_final *= 0.97
+
+            score_final *= 0.99
+
+        elif vezes_gerado <= 3:
+
+            score_final *= 1.01
+
+        elif vezes_gerado <= 10:
+
+            score_final *= 1.03
     
         # Estruturas com sobrevivência real
     
         score_final *= (
             1 + taxa_sobrevivencia * 0.03
+        )
+
+        score_final *= bonus_confianca(
+            memoria_estrutura
         )
     
         # Controle de saturação
@@ -591,7 +661,19 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     finais = []
     
     # Conservadores + Equilibrados
-    finais.extend(candidatos_filtrados[:7])
+    elite_memoria = sorted(
+        candidatos_filtrados,
+        key=lambda x: (
+            x.get("score_medio_real", 0),
+            x.get("score_contextual", 0),
+            x["score"]
+        ),
+        reverse=True
+    )
+
+    finais.extend(
+        elite_memoria[:7]
+    )
     
     # Agressivos com mais variação
     resto = [c for c in candidatos_filtrados[7:] if c not in finais]
