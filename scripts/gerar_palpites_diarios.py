@@ -591,7 +591,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             default=0
         )
     
-        if overlap_max <= 8:
+        if overlap_max <= 9:
             finais.append(cand)
 
     # GARANTIA FORTE DE 10 JOGOS
