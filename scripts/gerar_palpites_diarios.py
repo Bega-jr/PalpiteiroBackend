@@ -649,7 +649,23 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     # ROI
     
     calcular_roi()
-    
+
+    print("\n===== DEBUG FINAIS =====")
+
+    if finais:
+        print(
+            json.dumps(
+                {
+                    "cluster_id": finais[0].get("cluster_id"),
+                    "estrutura": finais[0].get("estrutura"),
+                    "score_contextual": finais[0].get("score_contextual"),
+                    "score_previsibilidade": finais[0].get("score_previsibilidade"),
+                    "score_medio_real": finais[0].get("score_medio_real")
+                },
+                indent=2,
+                default=str
+            )
+        )
     # =====================================================
     # ESTRUTURAÇÃO DOS DADOS DE RETORNO
     # =====================================================
