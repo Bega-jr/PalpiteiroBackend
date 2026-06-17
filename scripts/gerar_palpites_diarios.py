@@ -258,26 +258,61 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     candidatos = []
     usados = {tuple(sorted(h["numeros"])) for h in hist}
     contador_dezenas = Counter()
+    
     pool = list(range(1, 26))
+    
     limites = {
-        "soma_min": 158, "soma_max": 232, "pares_min": 5, "pares_max": 10,
-        "primos_min": 3, "primos_max": 8, "moldura_min": 8, "moldura_max": 14,
-        "repetidos_min": 6, "repetidos_max": 12,
-        "seq_max_limite": 5, "max_linha_limite": 5
+        "soma_min": 158,
+        "soma_max": 232,
+        "pares_min": 5,
+        "pares_max": 10,
+        "primos_min": 3,
+        "primos_max": 8,
+        "moldura_min": 8,
+        "moldura_max": 14,
+        "repetidos_min": 6,
+        "repetidos_max": 12,
+        "seq_max_limite": 5,
+        "max_linha_limite": 5
     }
-
+    
     for _ in range(MAX_TENTATIVAS):
+    
         if len(candidatos) >= 3500:
             break
+    
         jogo = sorted(random.sample(pool, 15))
+    
         if tuple(jogo) in usados:
             continue
+    
         filtros = calcular_filtros(jogo, ultimo)
+    
         estrutura = extrair_estrutura(jogo)
+    
+        if not validar_autonomo(
+            filtros,
+            estrutura["linhas"],
+            limites
+        ):
+            continue
+    
+        # =====================================
+        # MEMÓRIA ESTRUTURAL
+        # =====================================
+    
         memoria_estrutura = (
             supabase
             .table("memoria_cenarios")
-            .select("*")
+            .select(
+                """
+                score_contextual,
+                score_previsibilidade,
+                score_medio_real,
+                vezes_gerado,
+                taxa_sobrevivencia
+                """
+            )
             .eq(
                 "hash_estrutura",
                 estrutura["hash_estrutura"]
@@ -286,15 +321,60 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             .execute()
             .data
         )
-        
+    
         memoria_estrutura = (
             memoria_estrutura[0]
             if memoria_estrutura
             else None
         )
-        if not validar_autonomo(filtros, estrutura["linhas"], limites):
-            continue
-
+    
+        score_contextual = 0.0
+        score_previsibilidade = 0.0
+        score_medio_real = 0.0
+        taxa_sobrevivencia = 0.0
+        vezes_gerado = 0
+    
+        if memoria_estrutura:
+    
+            score_contextual = float(
+                memoria_estrutura.get(
+                    "score_contextual",
+                    0
+                )
+            )
+    
+            score_previsibilidade = float(
+                memoria_estrutura.get(
+                    "score_previsibilidade",
+                    0
+                )
+            )
+    
+            score_medio_real = float(
+                memoria_estrutura.get(
+                    "score_medio_real",
+                    0
+                )
+            )
+    
+            taxa_sobrevivencia = float(
+                memoria_estrutura.get(
+                    "taxa_sobrevivencia",
+                    0
+                )
+            )
+    
+            vezes_gerado = int(
+                memoria_estrutura.get(
+                    "vezes_gerado",
+                    0
+                )
+            )
+    
+        # =====================================
+        # FEATURES
+        # =====================================
+    
         features = gerar_features_jogo(
             jogo=jogo,
             ultimo=ultimo,
@@ -302,86 +382,138 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             estrutura=estrutura,
             contexto=contexto
         )
-        score_mc = simular_probabilidade_jogo(jogo, historico=hist)
-        cluster_id = identificar_cluster_jogo(features)
-        if not diversidade_avancada_ok(jogo, candidatos[-40:], estrutura, cluster_id):
+    
+        score_mc = simular_probabilidade_jogo(
+            jogo,
+            historico=hist
+        )
+    
+        cluster_id = identificar_cluster_jogo(
+            features
+        )
+    
+        if not diversidade_avancada_ok(
+            jogo,
+            candidatos[-40:],
+            estrutura,
+            cluster_id
+        ):
             continue
-
+    
         if candidatos:
+    
             overlap_medio_local = np.mean([
                 len(set(jogo) & set(c["nums"]))
                 for c in candidatos[-50:]
             ])
+    
             if overlap_medio_local > 8.5:
                 continue
-
-        s1, s2, s3 = score_base(jogo, base_scores)
-        score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
-        score_potencial = score_potencial_alto(jogo, hist, base_scores)
-        score_contextual = 0
-        score_previsibilidade = 0
-
-        if memoria_estrutura:
-            score_previsibilidade = float(
-                memoria_estrutura.get(
-                    "score_previsibilidade",
-                    0
-                )
-            )
-
-        if memoria_estrutura:
-            score_contextual = float(
-                memoria_estrutura.get(
-                    "score_contextual",
-                    0
-                )
-            )
-
+    
+        # =====================================
+        # SCORE ESTATÍSTICO
+        # =====================================
+    
+        s1, s2, s3 = score_base(
+            jogo,
+            base_scores
+        )
+    
+        score_estatistico = (
+            s1 * 0.30
+            + s2 * 0.35
+            + s3 * 0.35
+        )
+    
+        score_potencial = score_potencial_alto(
+            jogo,
+            hist,
+            base_scores
+        )
+    
         score_final = calcular_score_ensemble(
             score_estatistico=score_estatistico,
             score_montecarlo=score_mc,
             fator_global=fator_global,
             fator_feedback=1.0,
             fator_regime=1.0,
-            bonus_estrutura=bonus_estrutura(memoria_estrutura),
-            bonus_fadiga=bonus_fadiga(memoria_estrutura),
-            bonus_recencia=bonus_recencia(memoria_estrutura),
-            bonus_moldura=bonus_moldura(filtros),
+            bonus_estrutura=bonus_estrutura(
+                memoria_estrutura
+            ),
+            bonus_fadiga=bonus_fadiga(
+                memoria_estrutura
+            ),
+            bonus_recencia=bonus_recencia(
+                memoria_estrutura
+            ),
+            bonus_moldura=bonus_moldura(
+                filtros
+            ),
             pesos=pesos,
-            bonus_recompensa=calcular_recompensa_evolutiva(estrutura, filtros, cluster_id)
+            bonus_recompensa=calcular_recompensa_evolutiva(
+                estrutura,
+                filtros,
+                cluster_id
+            )
         )
-
+    
+        # =====================================
+        # APRENDIZADO REAL
+        # =====================================
+    
         score_final = (
-            score_final * 0.65
-            +
-            score_potencial * 0.20
-            +
-            score_contextual * 0.15
+            score_final * 0.55
+            + score_potencial * 0.20
+            + score_contextual * 0.15
+            + score_previsibilidade * 0.05
+            + (score_medio_real / 15.0) * 0.05
         )
-        score_final += (
-            score_previsibilidade * 0.05
+    
+        # Estruturas comprovadas ganham bônus
+    
+        if score_medio_real >= 9:
+            score_final *= 1.06
+    
+        elif score_medio_real >= 8:
+            score_final *= 1.03
+    
+        # Estruturas sem histórico sofrem leve penalização
+    
+        if vezes_gerado == 0:
+            score_final *= 0.97
+    
+        # Estruturas com sobrevivência real
+    
+        score_final *= (
+            1 + taxa_sobrevivencia * 0.03
         )
-        
+    
+        # Controle de saturação
+    
         score_final -= sum(
             contador_dezenas[n] * 0.045
             for n in jogo
         )
-        
+    
         score_final = aplicar_entropia_modo(
             score_final,
             modo_variacao
         )
-
+    
         candidatos.append({
             "nums": jogo,
             "score": float(score_final),
             "score_potencial": float(score_potencial),
             "score_mc": float(score_mc),
+            "score_contextual": float(score_contextual),
+            "score_previsibilidade": float(score_previsibilidade),
+            "score_medio_real": float(score_medio_real),
             "filtros": filtros,
             "estrutura": estrutura,
             "features": features,
             "cluster_id": cluster_id
         })
+    
         for n in jogo:
             contador_dezenas[n] += 1
 
