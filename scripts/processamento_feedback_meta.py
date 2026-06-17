@@ -115,7 +115,7 @@ def avaliar_desempenho_concurso():
     try:
     
         estrutura_real = extrair_estrutura(
-            list(resultado)
+            list(numeros_sorteados)
         )
     
         hash_est = estrutura_real["hash_estrutura"]
