@@ -133,16 +133,16 @@ def avaliar_desempenho_concurso():
         agora = datetime.now().isoformat()
     
         vezes_gerado = 1
-        score_medio_real = media_concurso
+        score_medio_real = media_acertos_ensemble
     
         estabilidade_media = 1.0
         dispersao_media = dispersao
     
         taxa_sobrevivencia = (
-            1 if media_concurso >= 10 else 0
+            1 if media_acertos_ensemble >= 10 else 0
         )
     
-        score_contextual = media_concurso
+        score_contextual = media_acertos_ensemble
     
         score_previsibilidade = (
             max(
@@ -203,7 +203,7 @@ def avaliar_desempenho_concurso():
                 (
                     score_antigo * v_antigo
                 )
-                + media_concurso
+                + media_acertos_ensemble
             ) / vezes_gerado
     
             estabilidade_atual = max(
@@ -230,7 +230,7 @@ def avaliar_desempenho_concurso():
                     sobrevivencia_antiga * v_antigo
                 )
                 + (
-                    1 if media_concurso >= 10
+                    1 if media_acertos_ensemble >= 10
                     else 0
                 )
             ) / vezes_gerado
