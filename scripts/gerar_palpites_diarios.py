@@ -504,6 +504,18 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             score_final,
             modo_variacao
         )
+
+        if len(candidatos) < 5:
+            print(
+                "DEBUG MEMORIA:",
+                {
+                    "cluster_id": cluster_id,
+                    "score_contextual": score_contextual,
+                    "score_previsibilidade": score_previsibilidade,
+                    "score_medio_real": score_medio_real,
+                    "hash_estrutura": estrutura.get("hash_estrutura")
+                }
+            )
     
         candidatos.append({
             "nums": jogo,
