@@ -329,31 +329,8 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         # MEMÓRIA ESTRUTURAL
         # =====================================
     
-        memoria_estrutura = (
-            supabase
-            .table("memoria_cenarios")
-            .select(
-                """
-                score_contextual,
-                score_previsibilidade,
-                score_medio_real,
-                vezes_gerado,
-                taxa_sobrevivencia
-                """
-            )
-            .eq(
-                "hash_estrutura",
-                estrutura["hash_estrutura"]
-            )
-            .limit(1)
-            .execute()
-            .data
-        )
-    
-        memoria_estrutura = (
-            memoria_estrutura[0]
-            if memoria_estrutura
-            else None
+        memoria_estrutura = memoria_cache.get(
+            estrutura["hash_estrutura"]
         )
     
         score_contextual = 0.0
