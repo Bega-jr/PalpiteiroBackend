@@ -544,7 +544,13 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             contador_global[n] += 1
 
     # ==================== SELEÇÃO FINAL ROBUSTA ====================
-    candidatos_filtrados.sort(key=lambda x: x["score"], reverse=True)
+    candidatos_filtrados.sort(
+        key=lambda x: (
+            x["score"], 
+            x.get("score_contextual", 0)
+        ),
+        reverse=True
+    )
 
     if len(candidatos_filtrados) < 7:
         print(f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). Aplicando fallback completo.")
