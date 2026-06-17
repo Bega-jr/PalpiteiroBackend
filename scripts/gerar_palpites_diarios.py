@@ -584,6 +584,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             ),
             reverse=True
         )
+        print(
+            f"DEBUG candidatos_filtrados={len(candidatos_filtrados)}"
+        )
     
     finais = []
     
