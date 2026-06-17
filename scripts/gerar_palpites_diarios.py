@@ -253,6 +253,34 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     fator_global = obter_fator_aprendizado_global()["fator"]
     pesos = obter_pesos_ensemble()
     contexto = detectar_contexto(hist)
+    print("🧠 Carregando memória estrutural...")
+
+    memorias = (
+        supabase
+        .table("memoria_cenarios")
+        .select(
+            """
+            hash_estrutura,
+            score_contextual,
+            score_previsibilidade,
+            score_medio_real,
+            vezes_gerado,
+            taxa_sobrevivencia
+            """
+        )
+        .execute()
+        .data
+    )
+    
+    memoria_cache = {
+        m["hash_estrutura"]: m
+        for m in memorias
+    }
+    
+    print(
+        f"✅ Estruturas carregadas: "
+        f"{len(memoria_cache)}"
+    )
 
     # Geração
     candidatos = []
