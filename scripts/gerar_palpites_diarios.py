@@ -548,42 +548,49 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             contador_global[n] += 1
 
     # ==================== SELEÇÃO FINAL ROBUSTA ====================
+
     candidatos_filtrados.sort(
         key=lambda x: (
-            x["score"], 
+            x["score"],
             x.get("score_contextual", 0)
         ),
         reverse=True
     )
-
+    
     if len(candidatos_filtrados) < 7:
-    print(
-        f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). "
-        "Aplicando fallback completo."
-    )
-
-    candidatos_filtrados = sorted(
-        candidatos,
-        key=lambda x: (
-            x["score"],
-            x.get("score_contextual", 0),
-            x.get("score_medio_real", 0)
-        ),
-        reverse=True
-    )
-
+        print(
+            f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). "
+            "Aplicando fallback completo."
+        )
+    
+        candidatos_filtrados = sorted(
+            candidatos,
+            key=lambda x: (
+                x["score"],
+                x.get("score_contextual", 0),
+                x.get("score_medio_real", 0)
+            ),
+            reverse=True
+        )
+    
     finais = []
-
+    
     # Conservadores + Equilibrados
     finais.extend(candidatos_filtrados[:7])
-
+    
     # Agressivos com mais variação
     resto = [c for c in candidatos_filtrados[7:] if c not in finais]
     random.shuffle(resto)
+    
     for cand in resto:
         if len(finais) >= QTD_FINAL:
             break
-        overlap_max = max([len(set(cand["nums"]) & set(f["nums"])) for f in finais], default=0)
+    
+        overlap_max = max(
+            [len(set(cand["nums"]) & set(f["nums"])) for f in finais],
+            default=0
+        )
+    
         if overlap_max <= 8:
             finais.append(cand)
 
