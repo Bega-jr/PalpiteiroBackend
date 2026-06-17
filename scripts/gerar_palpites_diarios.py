@@ -615,6 +615,18 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             finais.append(prox)
     
     finais = finais[:QTD_FINAL]
+        dezenas_usadas = set()
+    
+    for f in finais:
+        dezenas_usadas.update(f["nums"])
+    
+    faltantes = set(range(1, 26)) - dezenas_usadas
+    
+    if faltantes:
+        print(
+            f"⚠️ Dezenas ausentes detectadas: "
+            f"{sorted(faltantes)}"
+        )
     
     if len(finais) < QTD_FINAL:
         print(
