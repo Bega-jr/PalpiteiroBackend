@@ -583,69 +583,157 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     random.shuffle(resto)
     
     for cand in resto:
+    
         if len(finais) >= QTD_FINAL:
             break
     
         overlap_max = max(
-            [len(set(cand["nums"]) & set(f["nums"])) for f in finais],
+            [
+                len(set(cand["nums"]) & set(f["nums"]))
+                for f in finais
+            ],
             default=0
         )
     
-        if overlap_max <= 9:
+        print(
+            f"DEBUG overlap={overlap_max} "
+            f"finais={len(finais)}"
+        )
+    
+        if overlap_max <= 9 or len(finais) < 8:
             finais.append(cand)
-
+    
     # GARANTIA FORTE DE 10 JOGOS
-    while len(finais) < QTD_FINAL and len(candidatos_filtrados) > len(finais):
+    
+    while (
+        len(finais) < QTD_FINAL
+        and len(candidatos_filtrados) > len(finais)
+    ):
         prox = candidatos_filtrados[len(finais)]
+    
         if prox not in finais:
             finais.append(prox)
-
+    
     finais = finais[:QTD_FINAL]
-
+    
     if len(finais) < QTD_FINAL:
-        print(f"⚠️ Ainda faltaram palpites. Gerados: {len(finais)}")
-
+        print(
+            f"⚠️ Ainda faltaram palpites. "
+            f"Gerados: {len(finais)}"
+        )
+    
     # ROI
+    
     calcular_roi()
-
-    # Estruturação dos dados de retorno para o Pai
+    
+    # =====================================================
+    # ESTRUTURAÇÃO DOS DADOS DE RETORNO
+    # =====================================================
+    
     dados_palpites = []
     linhas_telegram = []
     
     for i, c in enumerate(finais, 1):
-        tier = "conservador" if i <= 3 else "equilibrado" if i <= 7 else "agressivo"
-        
-        # Texto original mantendo Pot e MC para a mensagem do Telegram
+    
+        tier = (
+            "conservador"
+            if i <= 3
+            else "equilibrado"
+            if i <= 7
+            else "agressivo"
+        )
+    
+        score_estrutural = round(
+            (
+                c.get("score_contextual", 0) * 0.40
+                + c.get("score_previsibilidade", 0) * 0.30
+                + c.get("score_medio_real", 0) * 0.30
+            ),
+            8
+        )
+    
         texto_linha_telegram = (
             f"{i}º | {c['score']:.5f} | "
             f"Pot={c['score_potencial']:.3f} | "
             f"MC={c['score_mc']:.4f} | "
             f"{tier.upper()} | {c['nums']}"
         )
+    
         linhas_telegram.append(texto_linha_telegram)
-        
-        # Dicionário cru para o banco de dados e para a meta-validação
+    
         dados_palpites.append({
+    
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
+    
             "tipo": tier,
-            "numeros": c["nums"],  # Enviamos como lista pura, o pai converte em string/json na aprovação
+    
+            "numeros": c["nums"],
+    
             "score": round(float(c["score"]), 8),
             "score_potencial": round(float(c["score_potencial"]), 8),
             "score_montecarlo": round(float(c["score_mc"]), 8),
+    
+            "score_estrutural": score_estrutural,
+    
+            "cluster_id": c.get("cluster_id"),
+    
+            "hash_estrutura": (
+                c["estrutura"].get("hash_estrutura")
+                if c.get("estrutura")
+                else None
+            ),
+    
+            "metricas": {
+                "score_contextual": round(
+                    float(c.get("score_contextual", 0)),
+                    8
+                ),
+                "score_previsibilidade": round(
+                    float(c.get("score_previsibilidade", 0)),
+                    8
+                ),
+                "score_medio_real": round(
+                    float(c.get("score_medio_real", 0)),
+                    8
+                ),
+                "score_montecarlo": round(
+                    float(c["score_mc"]),
+                    8
+                ),
+                "score_potencial": round(
+                    float(c["score_potencial"]),
+                    8
+                )
+            },
+    
+            "filtros_aplicados": {
+                "pares": c["filtros"]["pares"],
+                "primos": c["filtros"]["primos"],
+                "moldura": c["filtros"]["moldura"],
+                "soma": c["filtros"]["soma"],
+                "repetidos": c["filtros"]["repetidos"],
+                "seq_max": c["filtros"]["seq_max"]
+            },
+    
+            "soma_total": c["filtros"]["soma"],
+            "pares": c["filtros"]["pares"],
+            "impares": 15 - c["filtros"]["pares"],
+    
             "versao_gerador": VERSAO
         })
-
-    print(f"⏱️ Tempo total da geração: {time.time() - inicio_execucao:.1f} segundos")
     
-    # RETORNO CRU: O pai recebe os dados do banco e o formato do Telegram prontos em memória!
+    print(
+        f"⏱️ Tempo total da geração: "
+        f"{time.time() - inicio_execucao:.1f} segundos"
+    )
+    
     return {
         "palpites": dados_palpites,
         "linhas_telegram": linhas_telegram,
         "concurso": concurso_ref
     }
-
 
 # ======================================================
 # ENTRYPOINT (Modo isolado para testes manuais no terminal)
