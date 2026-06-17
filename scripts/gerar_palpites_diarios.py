@@ -518,8 +518,8 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         # =====================================
     
         score_final = (
-            score_final * 0.50
-            + score_potencial * 0.20
+            score_final * 0.40
+            + score_potencial * 0.30
             + score_contextual * 0.15
             + score_previsibilidade * 0.05
             + (score_medio_real / 15.0) * 0.10
@@ -543,15 +543,15 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     
         if vezes_gerado == 0:
 
-            score_final *= 0.99
+            score_final *= 1.01
 
         elif vezes_gerado <= 3:
 
-            score_final *= 1.01
+            score_final *= 1.03
 
         elif vezes_gerado <= 10:
 
-            score_final *= 1.03
+            score_final *= 1.05
     
         # Estruturas com sobrevivência real
     
@@ -566,7 +566,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         # Controle de saturação
     
         score_final -= sum(
-            contador_dezenas[n] * 0.045
+            contador_dezenas[n] * 0.020
             for n in jogo
         )
     
@@ -697,7 +697,13 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             f"finais={len(finais)}"
         )
     
-        if overlap_max <= 9 or len(finais) < 8:
+        limite_overlap = (
+            9
+            if len(finais) < 8
+            else 11
+        )
+
+        if overlap_max <= limite_overlap:
             finais.append(cand)
     
     # GARANTIA FORTE DE 10 JOGOS
