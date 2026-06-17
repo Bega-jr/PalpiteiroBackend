@@ -323,9 +323,23 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             bonus_recompensa=calcular_recompensa_evolutiva(estrutura, filtros, cluster_id)
         )
 
-        score_final = score_final * 0.80 + score_potencial * 0.20
-        score_final -= sum(contador_dezenas[n] * 0.045 for n in jogo)
-        score_final = aplicar_entropia_modo(score_final, modo_variacao)
+        score_final = (
+            score_final * 0.65
+            +
+            score_potencial * 0.20
+            +
+            score_contextual * 0.15
+        )
+        
+        score_final -= sum(
+            contador_dezenas[n] * 0.045
+            for n in jogo
+        )
+        
+        score_final = aplicar_entropia_modo(
+            score_final,
+            modo_variacao
+        )
 
         candidatos.append({
             "nums": jogo,
