@@ -27,8 +27,12 @@ from app.services.selecao_genetica_service import selecionar_populacao_final
 from scripts.processamento_diario_lotofacil import carregar_historico, extrair_estrutura
 
 VERSAO = "v19.2-auto-aprendizado-variacao-roi"
+
 QTD_FINAL = 10
 MAX_TENTATIVAS = 45000
+
+MAX_OCORRENCIAS_GLOBAL = 7
+PESO_PENALIDADE_SATURACAO = 0.15
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
