@@ -269,7 +269,17 @@ def main():
                 "maior_cluster": max_cluster,
                 "maior_estrutura": max_estrutura,
                 
-                "qtd_palpites": len(jogos)
+                "qtd_palpites": len(jogos),
+        
+                "score_montecarlo_medio": round(
+                    score_montecarlo_medio,
+                    6
+                ),
+        
+                "score_potencial_medio": round(
+                    score_potencial_medio,
+                    6
+                )
             }
         
             supabase.table(
