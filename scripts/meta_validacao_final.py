@@ -63,7 +63,21 @@ def carregar_palpites(supabase, concurso):
             except Exception: numeros_convertidos = []
         elif isinstance(dado_bruto, list): numeros_convertidos = dado_bruto
         else: numeros_convertidos = []
-        jogos.append({"indice": r["indice_palpite"], "numeros": numeros_convertidos})
+        jogos.append({
+            "indice": r["indice_palpite"],
+            "numeros": numeros_convertidos,
+        
+            "score": r.get("score"),
+            "score_potencial": r.get("score_potencial"),
+            "score_montecarlo": r.get("score_montecarlo"),
+            "score_estrutural": r.get("score_estrutural"),
+        
+            "cluster_id": r.get("cluster_id"),
+            "hash_estrutura": r.get("hash_estrutura"),
+        
+            "metricas": r.get("metricas") or {},
+            "filtros": r.get("filtros_aplicados") or {}
+        })
     return jogos
 
 def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
@@ -187,7 +201,9 @@ def main():
                 "entropia_global": analise["entropia"], "diversidade_global": analise["diversidade"],
                 "risco_colapso": analise["risco_colapso"], "nivel_risco": analise["nivel_risco"],
                 "dezenas_superexpostas": analise["dezenas_superexpostas"], "status_validacao": status,
-                "alertas": analise["alertas"], "tentativa": tentativa, "versao": VERSAO
+                "alertas": analise["alertas"], "tentativa": tentativa, "versao": VERSAO,"maior_cluster": max_cluster,
+                "maior_estrutura": max_estrutura
+                
             }
             supabase.table("meta_validacao_execucoes").upsert(payload_meta, on_conflict="concurso_referencia").execute()
         except Exception as e:
