@@ -501,8 +501,11 @@ def main():
             regime = "CONTRACAO_FRIAS"
             print("⚠️ Instabilidade contextual detectada. Forçando CONTRACAO_FRIAS.")
 
+        # Converter data ISO para inteiro YYYYMMDD
+        data_int = int(data.replace("-", ""))
+
         payload_regime = {
-            "data_referencia": data,
+            "data_referencia": data_int,
             "concurso": int(concurso),
             "numero_ciclo": int(ciclo),
             "tipo_regime": regime,
@@ -541,7 +544,7 @@ def main():
 
         # 1. Alimenta a 'estatisticas_diarias_v2' com base no concurso processado hoje
         payload_diario_publico = {
-            "data_referencia": data,
+            "data_referencia": data_int,
             "concurso": int(concurso),
             "numero_ciclo": int(ciclo_atual),
             "media_soma": int(sum(dezenas)),
@@ -561,7 +564,7 @@ def main():
         payload_numeros_publico = []
         for _, row in df.iterrows():
             payload_numeros_publico.append({
-                "data_referencia": data,
+                "data_referencia": data_int,
                 "numero": int(row["numero"]),
                 "frequencia": int(row["frequencia"]),
                 "atraso": int(row["atraso"]),
