@@ -958,6 +958,15 @@ if __name__ == "__main__":
                 p.copy()
                 for p in resultado_teste["palpites"]
             ]
+        
+            print("\n===== DEBUG PAYLOAD =====")
+            print(
+                json.dumps(
+                    payload_teste[0],
+                    indent=2,
+                    default=str
+                )
+            )
 
             sb.table(
                 "palpites_validos"
