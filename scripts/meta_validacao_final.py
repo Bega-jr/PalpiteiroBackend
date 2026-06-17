@@ -171,6 +171,21 @@ def main():
         # Lê o que a IA acabou de persistir no banco para auditar
         jogos = carregar_palpites(supabase, concurso)
 
+        score_montecarlo_medio = statistics.mean([
+            j.get("score_montecarlo", 0) or 0
+            for j in jogos
+        ]) if jogos else 0
+        
+        score_potencial_medio = statistics.mean([
+            j.get("score_potencial", 0) or 0
+            for j in jogos
+        ]) if jogos else 0
+        
+        score_estrutural_medio = statistics.mean([
+            j.get("score_estrutural", 0) or 0
+            for j in jogos
+        ]) if jogos else 0
+
         if not jogos or len(jogos) < MIN_PALPITES_ACEITAVEIS:
             print(f"⚠️ Lote rejeitado por volume: Apenas {len(jogos)} jogos salvos. Mínimo aceitável: {MIN_PALPITES_ACEITAVEIS}")
             status = "REJEITADO_POR_FALTA_DE_DADOS"
@@ -195,19 +210,87 @@ def main():
         print(f"⚠️ Risco: {analise['nivel_risco']}")
         print(f"📌 Status: {status}")
 
+
+        # =====================================
+        # Análise complementar dos palpites
+        # =====================================
+        
+        contador_clusters = Counter(
+            j["cluster_id"]
+            for j in jogos
+            if j.get("cluster_id") is not None
+        )
+        
+        contador_estruturas = Counter(
+            j["hash_estrutura"]
+            for j in jogos
+            if j.get("hash_estrutura")
+        )
+        
+        max_cluster = (
+            contador_clusters.most_common(1)[0][0]
+            if contador_clusters
+            else None
+        )
+        
+        max_estrutura = (
+            contador_estruturas.most_common(1)[0][0]
+            if contador_estruturas
+            else None
+        )
+        
         try:
+        
             payload_meta = {
-                "concurso_referencia": concurso, "overlap_medio": analise["overlap_medio"],
-                "entropia_global": analise["entropia"], "diversidade_global": analise["diversidade"],
-                "risco_colapso": analise["risco_colapso"], "nivel_risco": analise["nivel_risco"],
-                "dezenas_superexpostas": analise["dezenas_superexpostas"], "status_validacao": status,
-                "alertas": analise["alertas"], "tentativa": tentativa, "versao": VERSAO,"maior_cluster": max_cluster,
-                "maior_estrutura": max_estrutura
-                
+        
+                "concurso_referencia": concurso,
+        
+                "overlap_medio": analise["overlap_medio"],
+                "entropia_global": analise["entropia"],
+                "diversidade_global": analise["diversidade"],
+        
+                "risco_colapso": analise["risco_colapso"],
+                "nivel_risco": analise["nivel_risco"],
+        
+                "dezenas_superexpostas": analise["dezenas_superexpostas"],
+        
+                "status_validacao": status,
+                "alertas": analise["alertas"],
+        
+                "tentativa": tentativa,
+                "versao": VERSAO,
+        
+                "maior_cluster": max_cluster,
+                "maior_estrutura": max_estrutura,
+        
+                "score_montecarlo_medio": round(
+                    score_montecarlo_medio,
+                    6
+                ),
+        
+                "score_potencial_medio": round(
+                    score_potencial_medio,
+                    6
+                ),
+        
+                "score_estrutural_medio": round(
+                    score_estrutural_medio,
+                    6
+                )
             }
-            supabase.table("meta_validacao_execucoes").upsert(payload_meta, on_conflict="concurso_referencia").execute()
+        
+            supabase.table(
+                "meta_validacao_execucoes"
+            ).upsert(
+                payload_meta,
+                on_conflict="concurso_referencia"
+            ).execute()
+        
         except Exception as e:
-            print(f"⚠️ Falha ao salvar telemetria: {e}")
+        
+            print(
+                f"⚠️ Falha ao salvar telemetria: {e}"
+            )
 
         # CRITÉRIO DE SUCESSO: Se o lote estiver saudável, mantém os dados e encerra
         if status == "OK":
