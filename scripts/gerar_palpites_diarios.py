@@ -683,55 +683,160 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     
             "numeros": c["nums"],
     
-            "score": round(float(c["score"]), 8),
-            "score_potencial": round(float(c["score_potencial"]), 8),
-            "score_montecarlo": round(float(c["score_mc"]), 8),
+            # =========================
+            # SCORES PRINCIPAIS
+            # =========================
+    
+            "score": round(
+                float(c["score"]),
+                8
+            ),
+    
+            "score_potencial": round(
+                float(c["score_potencial"]),
+                8
+            ),
+    
+            "score_montecarlo": round(
+                float(c["score_mc"]),
+                8
+            ),
     
             "score_estrutural": score_estrutural,
     
-            "cluster_id": c.get("cluster_id"),
+            # =========================
+            # ESTRUTURA
+            # =========================
+    
+            "cluster_id": c.get(
+                "cluster_id"
+            ),
     
             "hash_estrutura": (
-                c["estrutura"].get("hash_estrutura")
+                c["estrutura"].get(
+                    "hash_estrutura"
+                )
                 if c.get("estrutura")
                 else None
             ),
     
+            # =========================
+            # ESTATÍSTICAS BÁSICAS
+            # =========================
+    
+            "soma_total": c["filtros"]["soma"],
+    
+            "pares": c["filtros"]["pares"],
+    
+            "impares": (
+                15 - c["filtros"]["pares"]
+            ),
+    
+            "qtd_sequencias": c["filtros"][
+                "seq_max"
+            ],
+    
+            # =========================
+            # FLAGS FUTURAS
+            # =========================
+    
+            "usa_mais_sorteados": None,
+            "usa_menos_sorteados": None,
+    
+            # =========================
+            # MÉTRICAS COMPLETAS
+            # =========================
+    
             "metricas": {
+    
                 "score_contextual": round(
-                    float(c.get("score_contextual", 0)),
+                    float(
+                        c.get(
+                            "score_contextual",
+                            0
+                        )
+                    ),
                     8
                 ),
+    
                 "score_previsibilidade": round(
-                    float(c.get("score_previsibilidade", 0)),
+                    float(
+                        c.get(
+                            "score_previsibilidade",
+                            0
+                        )
+                    ),
                     8
                 ),
+    
                 "score_medio_real": round(
-                    float(c.get("score_medio_real", 0)),
+                    float(
+                        c.get(
+                            "score_medio_real",
+                            0
+                        )
+                    ),
                     8
                 ),
+    
                 "score_montecarlo": round(
-                    float(c["score_mc"]),
+                    float(
+                        c["score_mc"]
+                    ),
                     8
                 ),
+    
                 "score_potencial": round(
-                    float(c["score_potencial"]),
+                    float(
+                        c["score_potencial"]
+                    ),
+                    8
+                ),
+    
+                "score_final": round(
+                    float(
+                        c["score"]
+                    ),
                     8
                 )
             },
     
+            # =========================
+            # FILTROS UTILIZADOS
+            # =========================
+    
             "filtros_aplicados": {
-                "pares": c["filtros"]["pares"],
-                "primos": c["filtros"]["primos"],
-                "moldura": c["filtros"]["moldura"],
-                "soma": c["filtros"]["soma"],
-                "repetidos": c["filtros"]["repetidos"],
-                "seq_max": c["filtros"]["seq_max"]
+    
+                "pares": c["filtros"][
+                    "pares"
+                ],
+    
+                "primos": c["filtros"][
+                    "primos"
+                ],
+    
+                "moldura": c["filtros"][
+                    "moldura"
+                ],
+    
+                "soma": c["filtros"][
+                    "soma"
+                ],
+    
+                "repetidos": c["filtros"][
+                    "repetidos"
+                ],
+    
+                "seq_max": c["filtros"][
+                    "seq_max"
+                ]
             },
     
-            "soma_total": c["filtros"]["soma"],
-            "pares": c["filtros"]["pares"],
-            "impares": 15 - c["filtros"]["pares"],
+            # =========================
+            # CONTROLE
+            # =========================
+    
+            "processado": False,
     
             "versao_gerador": VERSAO
         })
