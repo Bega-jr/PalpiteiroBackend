@@ -627,7 +627,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             finais.append(prox)
     
     finais = finais[:QTD_FINAL]
-        dezenas_usadas = set()
+    dezenas_usadas = set()
     
     for f in finais:
         dezenas_usadas.update(f["nums"])
