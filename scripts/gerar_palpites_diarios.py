@@ -521,15 +521,25 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     # Filtro global
     contador_global = Counter()
     candidatos_filtrados = []
+    
     for cand in sorted(candidatos, key=lambda x: -x["score"]):
-        excesso = False
+    
+        penalidade = 0.0
+    
+        # penalização progressiva em vez de bloqueio
         for n in cand["nums"]:
-            if contador_global[n] >= 7:
-                excesso = True
-                break
-        if excesso:
-            continue
+            if contador_global[n] >= MAX_OCORRENCIAS_GLOBAL:
+                penalidade += PESO_PENALIDADE_SATURACAO
+    
+        # aplica ajuste no score (não remove candidato direto)
+        score_ajustado = cand["score"] - penalidade
+    
+        # atualiza o score no próprio objeto
+        cand["score"] = score_ajustado
+    
         candidatos_filtrados.append(cand)
+    
+        # mantém rastreio global
         for n in cand["nums"]:
             contador_global[n] += 1
 
