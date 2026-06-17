@@ -178,7 +178,7 @@ def main():
             "linhas": estrutura["linhas"],
             "tendencia": round(tendencia_memoria, 4),
             "saturacao": round(saturacao, 4),
-            "ultima_aparicao": data,
+            "ultima_aparicao": int(concurso),
             "updated_at": datetime.now().isoformat()
         }
         supabase.table("memoria_cenarios").upsert(payload, on_conflict="hash_estrutura").execute()
