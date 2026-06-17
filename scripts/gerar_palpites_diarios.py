@@ -752,48 +752,99 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
 # ======================================================
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--modo", default="moderado", choices=["conservador", "moderado", "agressivo"])
-    # Adicionamos a flag --force para o Meta-Validador poder injetar comandos de mutação se necessário
-    parser.add_argument("--force", action="store_true", help="Força a regeneração ignorando travas de banco")
+
+    parser.add_argument(
+        "--modo",
+        default="moderado",
+        choices=[
+            "conservador",
+            "moderado",
+            "agressivo"
+        ]
+    )
+
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Força a regeneração ignorando travas de banco"
+    )
+
     args = parser.parse_args()
-    
+
     try:
+
         sb = get_supabase()
-        
-        # Como o código roda de forma isolada, precisamos calcular o concurso_ref para a trava
-        from scripts.processamento_diario_lotofacil import carregar_historico
+
+        from scripts.processamento_diario_lotofacil import (
+            carregar_historico
+        )
+
         hist = carregar_historico()
-        concurso_ref = int(hist[-1]["concurso"]) + 1
-        
-        # TRAVA DE SEGURANÇA INTELIGENTE:
-        # Se NÃO tiver a flag --force E o concurso já existir no banco, ele protege o banco.
-        # Se tiver --force (enviado pelo Pai), ele limpa e avança para a IA gerar novos padrões.
-        if not args.force and concurso_ja_processado(sb, concurso_ref):
-            print(f"ℹ️ Concurso {concurso_ref} já processado no banco. Ignorando geração para segurança.")
+
+        concurso_ref = (
+            int(hist[-1]["concurso"]) + 1
+        )
+
+        if (
+            not args.force
+            and concurso_ja_processado(
+                sb,
+                concurso_ref
+            )
+        ):
+            print(
+                f"ℹ️ Concurso {concurso_ref} "
+                f"já processado no banco."
+            )
             sys.exit(0)
 
-        print("⚙️ Executando engine em modo de teste isolado...")
-        resultado_teste = executar_motor_geracao(modo_variacao=args.modo)
-        
+        print(
+            "⚙️ Executando engine "
+            "em modo de teste isolado..."
+        )
+
+        resultado_teste = executar_motor_geracao(
+            modo_variacao=args.modo
+        )
+
         if resultado_teste:
-            # Simula a gravação antiga para propósitos de teste isolado
-            payload_teste = []
-            for p in resultado_teste["palpites"]:
-                p_copy = p.copy()
-                p_copy["numeros"] = json.dumps(p_copy["numeros"]) # Formata json para salvar
-                payload_teste.append(p_copy)
-                
-            sb.table("palpites_validos").upsert(
-                payload_teste, on_conflict="concurso_referencia,indice_palpite"
+
+            payload_teste = [
+                p.copy()
+                for p in resultado_teste["palpites"]
+            ]
+
+            sb.table(
+                "palpites_validos"
+            ).upsert(
+                payload_teste,
+                on_conflict=
+                "concurso_referencia,indice_palpite"
             ).execute()
-            print(f"✅ [TESTE BUCKET] {len(payload_teste)} palpites gravados no banco.")
-            
-            # Imprime o Telegram na tela para validação visual do teste
-            print("\n📲 TELEGRAM_PAYLOAD_START")
-            print(montar_msg_telegram(resultado_teste["concurso"], resultado_teste["linhas_telegram"]))
-            print("📲 TELEGRAM_PAYLOAD_END")
-            
+
+            print(
+                f"✅ [TESTE BUCKET] "
+                f"{len(payload_teste)} "
+                f"palpites gravados no banco."
+            )
+
+            print(
+                "\n📲 TELEGRAM_PAYLOAD_START"
+            )
+
+            print(
+                montar_msg_telegram(
+                    resultado_teste["concurso"],
+                    resultado_teste["linhas_telegram"]
+                )
+            )
+
+            print(
+                "📲 TELEGRAM_PAYLOAD_END"
+            )
+
     except Exception:
         import traceback
         traceback.print_exc()
