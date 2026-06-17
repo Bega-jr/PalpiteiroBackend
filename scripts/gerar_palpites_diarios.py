@@ -553,8 +553,20 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     )
 
     if len(candidatos_filtrados) < 7:
-        print(f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). Aplicando fallback completo.")
-        candidatos_filtrados = sorted(candidatos, key=lambda x: -x["score"])
+    print(
+        f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). "
+        "Aplicando fallback completo."
+    )
+
+    candidatos_filtrados = sorted(
+        candidatos,
+        key=lambda x: (
+            x["score"],
+            x.get("score_contextual", 0),
+            x.get("score_medio_real", 0)
+        ),
+        reverse=True
+    )
 
     finais = []
 
