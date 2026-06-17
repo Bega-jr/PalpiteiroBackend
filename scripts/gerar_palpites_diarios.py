@@ -40,10 +40,11 @@ MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
 # ======================================================
 # NOVO: Funções de Suporte (ROI + Modo de Variação)
 # ======================================================
-def calcular_roi():
+def calcular_roi(quantidade_palpites=None):
     custo_jogo = 3.50
-    total_custo = QTD_FINAL * custo_jogo
-    print(f"💰 ROI Diário → R$ {total_custo:.2f} (10 jogos × R$ 3,50)")
+    qty = quantidade_palpites if quantidade_palpites is not None else QTD_FINAL
+    total_custo = qty * custo_jogo
+    print(f"💰 ROI Diário → R$ {total_custo:.2f} ({qty} jogos × R$ 3,50)")
     return total_custo
 
 def aplicar_entropia_modo(score_final, modo_variacao):
@@ -737,9 +738,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             f"Gerados: {len(finais)}"
         )
     
-    # ROI
+    # ROI - Cálculo dinâmico baseado na quantidade real de palpites
     
-    calcular_roi()
+    calcular_roi(len(finais))
 
     print("\n===== DEBUG FINAIS =====")
 
