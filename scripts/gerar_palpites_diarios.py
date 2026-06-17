@@ -300,6 +300,15 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         score_estatistico = (s1 * 0.30) + (s2 * 0.35) + (s3 * 0.35)
         score_potencial = score_potencial_alto(jogo, hist, base_scores)
         score_contextual = 0
+        score_previsibilidade = 0
+
+        if memoria_estrutura:
+            score_previsibilidade = float(
+                memoria_estrutura.get(
+                    "score_previsibilidade",
+                    0
+                )
+            )
 
         if memoria_estrutura:
             score_contextual = float(
