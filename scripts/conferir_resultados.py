@@ -14,13 +14,14 @@ from app.services.feature_store_service import gerar_features_jogo
 # Importação da função necessária para extrair a estrutura real sorteada
 from scripts.processamento_diario_lotofacil import extrair_estrutura
 
-VERSAO = "v18.1-conferencia-contextual-learning"
+VERSAO = "v18.2-conferencia-roi-evolutivo"
 
 
 # ======================================================
-# AUX
+# AUXILIARES
 # ======================================================
 def parse_numeros(valor):
+
     if not valor:
         return []
 
@@ -30,7 +31,7 @@ def parse_numeros(valor):
     if isinstance(valor, str):
         try:
             return [int(x) for x in json.loads(valor)]
-        except:
+        except Exception:
             return []
 
     return []
@@ -42,23 +43,32 @@ def montar_bloco_auditoria(
     ranking,
     concurso_atual=None
 ):
-    linhas = []
-    linhas.append("=" * 50)
-    linhas.append(f"📊 Concurso {concurso} — Auditoria de Performance")
-    linhas.append("")
-    linhas.append(f"🎯 Resultado oficial: {sorted(resultado)}")
-    linhas.append("")
-    linhas.append("📌 Resultado IA:")
-    linhas.append("")
+
+    linhas = [
+        "=" * 50,
+        f"📊 Concurso {concurso} — Auditoria de Performance",
+        "",
+        f"🎯 Resultado oficial: {sorted(resultado)}",
+        "",
+        "📌 Resultado IA:",
+        ""
+    ]
 
     for r in ranking:
-        linhas.append(f"🔹 Palpite #{r['idx']} → {r['acertos']} acertos")
+
+        linhas.append(
+            f"🔹 Palpite #{r['idx']} → {r['acertos']} acertos"
+        )
 
     if concurso_atual:
-        linhas.append("")
-        linhas.append(f"⏳ Concurso {concurso_atual} ainda sem resultado oficial")
+
+        linhas.extend([
+            "",
+            f"⏳ Concurso {concurso_atual} ainda sem resultado oficial"
+        ])
 
     linhas.append("=" * 50)
+
     return "\n".join(linhas)
 
 
@@ -70,42 +80,60 @@ def exibir_ultima_auditoria(
     mapa,
     concurso_atual
 ):
+
     ultimo = (
         supabase
         .table("palpites_validos")
-        .select("concurso_referencia,indice_palpite,acertos")
-        .eq("conferido", True)
-        .order("concurso_referencia", desc=True)
+        .select(
+            "concurso_referencia,indice_palpite,acertos"
+        )
+        .eq(
+            "conferido",
+            True
+        )
+        .order(
+            "concurso_referencia",
+            desc=True
+        )
         .limit(50)
         .execute()
         .data
     )
 
     if not ultimo:
-        print(f"⏳ Concurso {concurso_atual} ainda sem resultado oficial")
+
+        print(
+            f"⏳ Concurso {concurso_atual} ainda sem resultado oficial"
+        )
+
         return
 
-    ultimo_concurso = int(ultimo[0]["concurso_referencia"])
-
-    registros = [
-        x for x in ultimo
-        if int(x["concurso_referencia"]) == ultimo_concurso
-    ]
+    ultimo_concurso = int(
+        ultimo[0]["concurso_referencia"]
+    )
 
     if ultimo_concurso not in mapa:
-        print(f"⏳ Concurso {concurso_atual} ainda sem resultado oficial")
+
+        print(
+            f"⏳ Concurso {concurso_atual} ainda sem resultado oficial"
+        )
+
         return
 
-    resultado = mapa[ultimo_concurso]
-    ranking = []
+    registros = [
+        r
+        for r in ultimo
+        if int(r["concurso_referencia"]) == ultimo_concurso
+    ]
 
-    for r in registros:
-        ranking.append({
-            "idx": r["indice_palpite"],
-            "acertos": r["acertos"]
-        })
-
-    ranking.sort(
+    ranking = sorted(
+        [
+            {
+                "idx": r["indice_palpite"],
+                "acertos": r["acertos"]
+            }
+            for r in registros
+        ],
         key=lambda x: x["acertos"],
         reverse=True
     )
@@ -113,13 +141,120 @@ def exibir_ultima_auditoria(
     print(
         montar_bloco_auditoria(
             ultimo_concurso,
-            resultado,
+            mapa[ultimo_concurso],
             ranking,
             concurso_atual
         )
     )
 
 
+# ======================================================
+# BULK UPDATE PALPITES
+# ======================================================
+def atualizar_palpites_lote(
+    supabase,
+    payload
+):
+
+    if not payload:
+        return
+
+    (
+        supabase
+        .table("palpites_validos")
+        .upsert(
+            payload,
+            on_conflict="id"
+        )
+        .execute()
+    )
+
+
+# ======================================================
+# BULK ROI ESTRUTURAS
+# ======================================================
+def atualizar_memoria_roi(
+    supabase,
+    concurso,
+    historico_estruturas
+):
+
+    try:
+
+        payload = []
+
+        for item in historico_estruturas:
+
+            hash_est = item.get(
+                "hash_estrutura"
+            )
+
+            if not hash_est:
+                continue
+
+            acertos = item["acertos"]
+
+            roi_real = max(
+                0,
+                (acertos - 8) / 7
+            )
+
+            payload.append({
+
+                "hash_estrutura":
+                    hash_est,
+
+                "ultimo_concurso":
+                    concurso,
+
+                "acertos_reais":
+                    acertos,
+
+                "roi_real":
+                    round(
+                        roi_real,
+                        6
+                    ),
+
+                "score_contextual_real":
+                    round(
+                        float(
+                            item.get(
+                                "score_contextual_real",
+                                0
+                            )
+                        ),
+                        6
+                    ),
+
+                "updated_at":
+                    datetime.now().isoformat()
+
+            })
+
+        if payload:
+
+            (
+                supabase
+                .table(
+                    "memoria_roi_estruturas"
+                )
+                .upsert(
+                    payload,
+                    on_conflict="hash_estrutura"
+                )
+                .execute()
+            )
+
+            print(
+                f"🧠 ROI estrutural atualizado ({len(payload)})"
+            )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Erro memória ROI: {e}"
+        )
 # ======================================================
 # MAIN
 # ======================================================
@@ -183,50 +318,69 @@ def main():
         scores_estruturais = []
         historico_estruturas = []
 
+        payload_palpites = []
+        payload_feature_store = []
+
+        ultimo = (
+            list(mapa[concurso - 1])
+            if concurso - 1 in mapa
+            else []
+        )
+
         # ======================================================
-        # PROCESSA CADA PALPITE INDIVIDUAL
+        # PROCESSA CADA PALPITE
         # ======================================================
         for p in lista:
-            numeros = parse_numeros(p["numeros"])
+
+            numeros = parse_numeros(
+                p["numeros"]
+            )
 
             acertos = len(
                 set(numeros) & resultado
             )
-            historico_estruturas.append({
-                "hash_estrutura": p.get("hash_estrutura"),
-                "acertos": acertos,
-                "score_contextual_real":
-                    float(
-                        p.get(
-                            "score_contextual_real",
-                            0
-                        )
-                    )
-            })
 
             lista_acertos.append(
                 acertos
             )
 
-            if p.get("score"):
-                try:
-                    scores_estruturais.append(
-                        float(p["score"])
+            historico_estruturas.append({
+
+                "hash_estrutura":
+                    p.get(
+                        "hash_estrutura"
+                    ),
+
+                "acertos":
+                    acertos,
+
+                "score_contextual_real":
+                    float(
+                        p.get(
+                            "score_estrutural",
+                            0
+                        )
                     )
-                except:
+
+            })
+
+            if p.get("score"):
+
+                try:
+
+                    scores_estruturais.append(
+                        float(
+                            p["score"]
+                        )
+                    )
+
+                except Exception:
                     pass
 
-            # ==========================================
-            # FEATURE STORE V20
-            # ==========================================
+            # ======================================
+            # FEATURE STORE
+            # ======================================
             try:
-
-                ultimo = []
-
-                if concurso - 1 in mapa:
-                    ultimo = list(
-                        mapa[concurso - 1]
-                    )
 
                 features = gerar_features_jogo(
                     jogo=numeros,
@@ -243,104 +397,140 @@ def main():
 
             ranking.append({
 
-                "id": p["id"],
+                "id":
+                    p["id"],
 
-                "idx": p["indice_palpite"],
+                "idx":
+                    p["indice_palpite"],
 
-                "acertos": acertos
+                "acertos":
+                    acertos
 
             })
 
-            supabase.table(
-                "palpites_validos"
-            ).update({
+            # ======================================
+            # PAYLOAD PALPITES_VALIDOS
+            # ======================================
+            payload_palpites.append({
 
-                "acertos": acertos,
+                "id":
+                    p["id"],
 
-                "processado": True,
+                "acertos":
+                    acertos,
 
-                "conferido": True
+                "processado":
+                    True,
 
-            }).eq(
-                "id",
-                p["id"]
-            ).execute()
+                "conferido":
+                    True
 
-            # ==========================================
-            # FEATURE STORE_JOGOS
-            # ==========================================
-            try:
+            })
 
-                hash_jogo = "-".join(
-                    map(
-                        str,
-                        sorted(numeros)
-                    )
+            # ======================================
+            # PAYLOAD FEATURE_STORE
+            # ======================================
+            hash_jogo = "-".join(
+                map(
+                    str,
+                    sorted(numeros)
                 )
+            )
 
-                supabase.table(
-                    "feature_store_jogos"
-                ).upsert({
+            payload_feature_store.append({
 
-                    "concurso_referencia":
-                        concurso,
+                "concurso_referencia":
+                    concurso,
 
-                    "hash_jogo":
-                        hash_jogo,
+                "hash_jogo":
+                    hash_jogo,
 
-                    "numeros":
-                        numeros,
+                "numeros":
+                    numeros,
 
-                    "soma":
-                        features.get(
-                            "soma",
-                            0
-                        ),
+                "soma":
+                    features.get(
+                        "soma",
+                        0
+                    ),
 
-                    "pares":
-                        features.get(
-                            "pares",
-                            0
-                        ),
+                "pares":
+                    features.get(
+                        "pares",
+                        0
+                    ),
 
-                    "primos":
-                        features.get(
-                            "primos",
-                            0
-                        ),
+                "primos":
+                    features.get(
+                        "primos",
+                        0
+                    ),
 
-                    "moldura":
-                        features.get(
-                            "moldura",
-                            0
-                        ),
+                "moldura":
+                    features.get(
+                        "moldura",
+                        0
+                    ),
 
-                    "repetidos":
-                        features.get(
-                            "repetidos",
-                            0
-                        ),
+                "repetidos":
+                    features.get(
+                        "repetidos",
+                        0
+                    ),
 
-                    "sequencias":
-                        features.get(
-                            "seq_max",
-                            0
-                        ),
+                "sequencias":
+                    features.get(
+                        "seq_max",
+                        0
+                    ),
 
-                    "features":
-                        features
+                "features":
+                    features
 
-                },
-                on_conflict="hash_jogo"
-                ).execute()
-
-            except Exception as e_fs:
-
-                print(
-                    f"⚠️ Erro feature_store_jogos: {e_fs}"
-                )
+            })
 
             processados += 1
+
+        # ======================================================
+        # BULK PALPITES
+        # ======================================================
+        try:
+
+            atualizar_palpites_lote(
+                supabase,
+                payload_palpites
+            )
+
+        except Exception as e_bulk:
+
+            print(
+                f"⚠️ Erro bulk palpites: {e_bulk}"
+            )
+
+        # ======================================================
+        # BULK FEATURE STORE
+        # ======================================================
+        try:
+
+            if payload_feature_store:
+
+                (
+                    supabase
+                    .table(
+                        "feature_store_jogos"
+                    )
+                    .upsert(
+                        payload_feature_store,
+                        on_conflict="hash_jogo"
+                    )
+                    .execute()
+                )
+
+        except Exception as e_fs:
+
+            print(
+                f"⚠️ Erro feature_store_jogos: {e_fs}"
+            )
 
         # ======================================================
         # CONTEXTO DE REGIME
@@ -705,76 +895,20 @@ def main():
                 )
 
             # ======================================================
-            # ROI REAL DAS ESTRUTURAS UTILIZADAS
+            # ROI DAS ESTRUTURAS
             # ======================================================
-            try:
-
-                for item in historico_estruturas:
-
-                    hash_roi = item["hash_estrutura"]
-
-                    if not hash_roi:
-                        continue
-
-                    acertos_real = item["acertos"]
-
-                    roi_real = max(
-                        0,
-                        (
-                            acertos_real - 8
-                        ) / 7
-                    )
-
-                    (
-                        supabase
-                        .table("memoria_roi_estruturas")
-                        .upsert(
-                            {
-
-                                "hash_estrutura":
-                                    hash_roi,
-
-                                "ultimo_concurso":
-                                    concurso,
-
-                                "acertos_reais":
-                                    acertos_real,
-
-                                "roi_real":
-                                    round(
-                                        roi_real,
-                                        6
-                                    ),
-
-                                "score_contextual_real":
-                                    round(
-                                        item[
-                                            "score_contextual_real"
-                                        ],
-                                        6
-                                    ),
-
-                                "updated_at":
-                                    datetime.now().isoformat()
-
-                            },
-                            on_conflict="hash_estrutura"
-                        )
-                        .execute()
-                    )
-
-            except Exception as e_roi:
-
-                print(
-                    f"⚠️ Erro memória ROI: {e_roi}"
-                )
+            atualizar_memoria_roi(
+                supabase,
+                concurso,
+                historico_estruturas
+            )
 
         except Exception as e_cen:
 
             print(
-                f"⚠️ Erro ao atualizar "
-                f"memoria_cenarios: {e_cen}"
+                f"⚠️ Erro ao atualizar memoria_cenarios: {e_cen}"
             )
+
 
         # ======================================================
         # AUDITORIA
