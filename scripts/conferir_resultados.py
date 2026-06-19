@@ -894,19 +894,19 @@ def main():
                     f"Disp={dispersao_media:.2f}"
                 )
 
-            # ======================================================
-            # ROI DAS ESTRUTURAS
-            # ======================================================
-            # Chamada da função isolada para evitar que erros nela 
-            # quebrem o fluxo principal dos cenários
-            try:
-                atualizar_memoria_roi(
-                    supabase,
-                    concurso,
-                    historico_estruturas
-                )
-            except Exception as e_roi:
-                print(f"⚠️ Erro memória ROI: {e_roi}")
+                # ======================================================
+                # ROI DAS ESTRUTURAS
+                # ======================================================
+                # Chamada da função isolada para evitar que erros nela 
+                # quebrem o fluxo principal dos cenários
+                try:
+                    atualizar_memoria_roi(
+                        supabase,
+                        concurso,
+                        historico_estruturas
+                    )
+                except Exception as e_roi:
+                    print(f"⚠️ Erro memória ROI: {e_roi}")
 
         except Exception as e_cen:
             print(f"⚠️ Erro ao atualizar memoria_cenarios: {e_cen}")
