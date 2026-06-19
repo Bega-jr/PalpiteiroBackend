@@ -887,7 +887,7 @@ def main():
                     .execute()
                 )
             
-                                print(
+                print(
                     f"📈 Estrutura {hash_est} | "
                     f"Score={score_medio_real:.2f} | "
                     f"Estab={estabilidade_media:.2f} | "
