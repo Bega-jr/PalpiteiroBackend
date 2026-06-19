@@ -908,8 +908,8 @@ def main():
                 except Exception as e_roi:
                     print(f"⚠️ Erro memória ROI: {e_roi}")
 
-        except Exception as e_cen:
-            print(f"⚠️ Erro ao atualizar memoria_cenarios: {e_cen}")
+            except Exception as e_cen:
+                print(f"⚠️ Erro ao atualizar memoria_cenarios: {e_cen}")
 
 
         # ======================================================
