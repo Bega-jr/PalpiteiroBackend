@@ -127,7 +127,115 @@ def calcular_entropia(
     )
 
     return round(score / 15, 6)
+# ==================================================
+# INTELIGÊNCIA HISTÓRICA (30 concursos)
+# ==================================================
+def analisar_feedback_recente():
 
+    supabase = get_supabase()
+
+    try:
+
+        rows = (
+            supabase
+            .table("memoria_feedback_loop")
+            .select("*")
+            .order(
+                "concurso_referencia",
+                desc=True
+            )
+            .limit(30)
+            .execute()
+            .data
+        )
+
+        if not rows:
+
+            return {
+
+                "media_acertos": 9.0,
+
+                "dispersao": 3.0,
+
+                "estabilidade": 0.70,
+
+                "entropia": 0.50
+
+            }
+
+        medias = [
+            float(
+                x.get(
+                    "media_acertos_ia",
+                    0
+                )
+            )
+            for x in rows
+        ]
+
+        dispersoes = [
+            float(
+                x.get(
+                    "dispersao_media",
+                    0
+                )
+            )
+            for x in rows
+        ]
+
+        estabilidades = [
+            float(
+                x.get(
+                    "estabilidade_media",
+                    0
+                )
+            )
+            for x in rows
+        ]
+
+        entropias = [
+            float(
+                x.get(
+                    "entropia_media",
+                    0
+                )
+            )
+            for x in rows
+        ]
+
+        return {
+
+            "media_acertos":
+                np.mean(medias),
+
+            "dispersao":
+                np.mean(dispersoes),
+
+            "estabilidade":
+                np.mean(estabilidades),
+
+            "entropia":
+                np.mean(entropias)
+
+        }
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Erro feedback histórico: {e}"
+        )
+
+        return {
+
+            "media_acertos": 9,
+
+            "dispersao": 3,
+
+            "estabilidade": 0.7,
+
+            "entropia": 0.5
+
+        }
 
 # ==================================================
 # ANTI OVERFITTING
@@ -185,22 +293,22 @@ def aplicar_entropia_dinamica(
 ):
 
         # ==========================================
-    # Baixa entropia: jogos muito parecidos
-    # ==========================================
-    if score_entropia < 0.55:
-        pesos["peso_estrutura"] += 0.02
-        pesos["peso_recencia"] += 0.01
-        pesos["peso_base"] -= 0.02
-        print("🌪️ Entropia baixa: forçando diversidade")
-    # ==========================================
-    # Entropia muito alta: sistema instável
-    # ==========================================
-    elif score_entropia > 0.80:
-        pesos["peso_base"] += 0.01
-        pesos["peso_feedback"] += 0.01
-        pesos["peso_estrutura"] -= 0.01
-        print("📊 Entropia alta: reduzindo ruído estrutural")
-    return pesos
+        # Baixa entropia: jogos muito parecidos
+        # ==========================================
+        if score_entropia < 0.55:
+            pesos["peso_estrutura"] += 0.02
+            pesos["peso_recencia"] += 0.01
+            pesos["peso_base"] -= 0.02
+            print("🌪️ Entropia baixa: forçando diversidade")
+        # ==========================================
+        # Entropia muito alta: sistema instável
+        # ==========================================
+        elif score_entropia > 0.80:
+            pesos["peso_base"] += 0.01
+            pesos["peso_feedback"] += 0.01
+            pesos["peso_estrutura"] -= 0.01
+            print("📊 Entropia alta: reduzindo ruído estrutural")
+        return pesos
 
 # ==================================================
 # FEEDBACK + EVOLUÇÃO DOS PESOS (ASSINATURA INTACTA)
@@ -219,7 +327,71 @@ def atualizar_meta_learning(
 ):
     supabase = get_supabase()
     pesos = obter_pesos_ensemble()
+    feedback_30 = analisar_feedback_recente()
+    media_30 = feedback_30["media_acertos"]
+    dispersao_30 = feedback_30["dispersao"]
+    estabilidade_30 = feedback_30["estabilidade"]
+    entropia_30 = feedback_30["entropia"]
     try:
+
+
+        # ==========================================
+        # AUTO-ADAPTAÇÃO PELOS ÚLTIMOS 30 CONCURSOS
+        # ==========================================
+        if media_30 < 9:
+
+            pesos["peso_estrutura"] += 0.015
+
+            pesos["peso_feedback"] += 0.015
+
+            pesos["peso_base"] -= 0.020
+
+            print(
+                "📉 Histórico fraco: "
+                "favorecendo estrutura"
+            )
+
+        elif media_30 > 10:
+
+            pesos["peso_base"] += 0.015
+
+            pesos["peso_global"] += 0.010
+
+            pesos["peso_estrutura"] -= 0.010
+
+            print(
+                "📈 Histórico consistente"
+            )
+
+        if estabilidade_30 < 0.60:
+
+            pesos["peso_fadiga"] += 0.010
+
+            pesos["peso_recencia"] += 0.010
+
+            print(
+                "🌪️ Sistema instável"
+            )
+
+        if dispersao_30 > 4:
+
+            pesos["peso_estrutura"] += 0.010
+
+            pesos["peso_montecarlo"] += 0.010
+
+            print(
+                "🎲 Alta dispersão histórica"
+            )
+
+        if entropia_30 < 0.40:
+
+            pesos["peso_recencia"] += 0.010
+
+            pesos["peso_estrutura"] += 0.010
+
+            print(
+                "🧠 Baixa diversidade histórica"
+            )
         # ==========================================
         # AJUSTE POR MÉDIA
         # ==========================================
@@ -276,27 +448,61 @@ def atualizar_meta_learning(
         # AUDITORIA HISTÓRICA
         # ==========================================
         payload_execucao = {
+
             "concurso_referencia": concurso_ref,
+
             "peso_base": pesos["peso_base"],
+
             "peso_global": pesos["peso_global"],
+
             "peso_feedback": pesos["peso_feedback"],
+
             "peso_regime": pesos["peso_regime"],
+
             "peso_moldura": pesos["peso_moldura"],
+
             "peso_estrutura": pesos["peso_estrutura"],
+
             "peso_fadiga": pesos["peso_fadiga"],
+
             "peso_recencia": pesos["peso_recencia"],
+
             "peso_montecarlo": pesos["peso_montecarlo"],
+
             "peso_recompensa": pesos["peso_recompensa"],
+
             "tipo_regime": tipo_regime,
-            "fator_feedback": round(fator_feedback, 6),
-            "fator_global": round(fator_global, 6),
+
+            "fator_feedback": round(
+                fator_feedback,
+                6
+            ),
+
+            "fator_global": round(
+                fator_global,
+                6
+            ),
+
             "melhor_acerto": melhor_acerto,
+
             "pior_acerto": pior_acerto,
+
             "dispersao": dispersao,
+
             "entropia": score_entropia,
+
             "qtd_candidatos": qtd_palpites,
-            "score_estrutural": round(score_estrutural, 6),
-            "score_medio": round(media_acertos, 6)
+
+            "score_estrutural": round(
+                score_estrutural,
+                6
+            ),
+
+            "score_medio": round(
+                media_acertos,
+                6
+            )
+
         }
         supabase.table("meta_learning_execucoes").upsert(payload_execucao, on_conflict="concurso_referencia").execute()
         print(f"🧠 Meta-Learning v19 | Concurso {concurso_ref} | Média={media_acertos:.2f} | Best={melhor_acerto} | Spread={dispersao} | Entropia={score_entropia:.4f}")

@@ -460,9 +460,6 @@ def main():
         # ==================================================
         # MEMÓRIA CONTEXTUAL
         # ==================================================
-        # Converter data ISO para inteiro YYYYMMDD
-        data_int = int(data.replace("-", ""))
-        
         payload_memoria = {
             "hash_estrutura": estrutura["hash_estrutura"],
             "soma_faixa": estrutura["soma_faixa"],
@@ -474,7 +471,7 @@ def main():
             "score_medio_real": round(media_acertos, 4),
             "dispersao_media": dispersao,
             "estabilidade_media": estabilidade,
-            "ultima_aparicao": data_int,
+            "ultima_aparicao": data,
             "updated_at": datetime.now().isoformat()
         }
 
@@ -505,7 +502,7 @@ def main():
             print("⚠️ Instabilidade contextual detectada. Forçando CONTRACAO_FRIAS.")
 
         payload_regime = {
-            "data_referencia": data_int,
+            "data_referencia": data,
             "concurso": int(concurso),
             "numero_ciclo": int(ciclo),
             "tipo_regime": regime,
@@ -544,7 +541,7 @@ def main():
 
         # 1. Alimenta a 'estatisticas_diarias_v2' com base no concurso processado hoje
         payload_diario_publico = {
-            "data_referencia": data_int,
+            "data_referencia": data,
             "concurso": int(concurso),
             "numero_ciclo": int(ciclo_atual),
             "media_soma": int(sum(dezenas)),
@@ -564,7 +561,7 @@ def main():
         payload_numeros_publico = []
         for _, row in df.iterrows():
             payload_numeros_publico.append({
-                "data_referencia": data_int,
+                "data_referencia": data,
                 "numero": int(row["numero"]),
                 "frequencia": int(row["frequencia"]),
                 "atraso": int(row["atraso"]),

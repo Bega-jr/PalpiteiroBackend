@@ -1,13 +1,16 @@
 import sys
 import json
+import numpy as np
 from pathlib import Path
 from datetime import datetime
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
 from app.services.meta_learning_service import atualizar_meta_learning
+from app.services.feature_store_service import gerar_features_jogo
 # Importação da função necessária para extrair a estrutura real sorteada
 from scripts.processamento_diario_lotofacil import extrair_estrutura
 
@@ -184,26 +187,146 @@ def main():
         # ======================================================
         for p in lista:
             numeros = parse_numeros(p["numeros"])
-            acertos = len(set(numeros) & resultado)
-            lista_acertos.append(acertos)
+
+            acertos = len(
+                set(numeros) & resultado
+            )
+
+            lista_acertos.append(
+                acertos
+            )
 
             if p.get("score"):
                 try:
-                    scores_estruturais.append(float(p["score"]))
+                    scores_estruturais.append(
+                        float(p["score"])
+                    )
                 except:
                     pass
 
+            # ==========================================
+            # FEATURE STORE V20
+            # ==========================================
+            try:
+
+                ultimo = []
+
+                if concurso - 1 in mapa:
+                    ultimo = list(
+                        mapa[concurso - 1]
+                    )
+
+                features = gerar_features_jogo(
+                    jogo=numeros,
+                    ultimo=ultimo
+                )
+
+            except Exception as e_feat:
+
+                print(
+                    f"⚠️ Erro feature store: {e_feat}"
+                )
+
+                features = {}
+
             ranking.append({
+
                 "id": p["id"],
+
                 "idx": p["indice_palpite"],
+
                 "acertos": acertos
+
             })
 
-            supabase.table("palpites_validos").update({
+            supabase.table(
+                "palpites_validos"
+            ).update({
+
                 "acertos": acertos,
+
                 "processado": True,
+
                 "conferido": True
-            }).eq("id", p["id"]).execute()
+
+            }).eq(
+                "id",
+                p["id"]
+            ).execute()
+
+            # ==========================================
+            # FEATURE STORE_JOGOS
+            # ==========================================
+            try:
+
+                hash_jogo = "-".join(
+                    map(
+                        str,
+                        sorted(numeros)
+                    )
+                )
+
+                supabase.table(
+                    "feature_store_jogos"
+                ).upsert({
+
+                    "concurso_referencia":
+                        concurso,
+
+                    "hash_jogo":
+                        hash_jogo,
+
+                    "numeros":
+                        numeros,
+
+                    "soma":
+                        features.get(
+                            "soma",
+                            0
+                        ),
+
+                    "pares":
+                        features.get(
+                            "pares",
+                            0
+                        ),
+
+                    "primos":
+                        features.get(
+                            "primos",
+                            0
+                        ),
+
+                    "moldura":
+                        features.get(
+                            "moldura",
+                            0
+                        ),
+
+                    "repetidos":
+                        features.get(
+                            "repetidos",
+                            0
+                        ),
+
+                    "sequencias":
+                        features.get(
+                            "seq_max",
+                            0
+                        ),
+
+                    "features":
+                        features
+
+                },
+                on_conflict="hash_jogo"
+                ).execute()
+
+            except Exception as e_fs:
+
+                print(
+                    f"⚠️ Erro feature_store_jogos: {e_fs}"
+                )
 
             processados += 1
 
@@ -235,12 +358,99 @@ def main():
             pior_acerto = min(lista_acertos)
             dispersao = melhor_acerto - pior_acerto
             qtd_palpites = len(lista_acertos)
+            estabilidade = max(
+                0,
+                1 - (dispersao / 15)
+            )
+
+            entropia_media = 0
+
+            try:
+
+                if scores_estruturais:
+
+                    probs = np.array(scores_estruturais)
+
+                    probs = probs / probs.sum()
+
+                    entropia_media = float(
+                        -np.sum(
+                            probs * np.log2(
+                                probs + 1e-12
+                            )
+                        )
+                    )
+
+            except:
+
+                entropia_media = 0
             score_estrutural = 0
 
             if scores_estruturais:
                 score_estrutural = sum(scores_estruturais) / len(scores_estruturais)
 
             print("\n🧠 [Meta-Learning Contextual] Retroalimentando...")
+
+            # ======================================================
+            # MEMÓRIA DE FEEDBACK LOOP
+            # ======================================================
+            try:
+
+                fator_correcao = round(
+                    media_concurso / 10,
+                    4
+                )
+
+                (
+                    supabase
+                    .table(
+                        "memoria_feedback_loop"
+                    )
+                    .insert({
+
+                        "concurso_referencia":
+                            concurso,
+
+                        "media_acertos_ia":
+                            round(
+                                media_concurso,
+                                4
+                            ),
+
+                        "fator_correcao":
+                            fator_correcao,
+
+                        "dispersao_media":
+                            round(
+                                dispersao,
+                                6
+                            ),
+
+                        "estabilidade_media":
+                            round(
+                                estabilidade,
+                                6
+                            ),
+
+                        "entropia_media":
+                            round(
+                                entropia_media,
+                                6
+                            )
+
+                    })
+                    .execute()
+                )
+
+                print(
+                    "🧠 Feedback loop atualizado"
+                )
+
+            except Exception as e_feedback:
+
+                print(
+                    f"⚠️ Erro memoria_feedback_loop: {e_feedback}"
+                )
 
             # 1. Atualização Adaptativa Global dos Pesos do Meta-Learning
             try:

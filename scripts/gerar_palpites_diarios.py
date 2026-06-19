@@ -833,6 +833,40 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             ),
     
             "score_estrutural": score_estrutural,
+
+            # =========================
+            # CONTEXTO REAL DA ESTRUTURA
+            # =========================
+
+            "score_contextual_real": round(
+                float(
+                    c.get(
+                        "score_contextual",
+                        0
+                    )
+                ),
+                8
+            ),
+
+            "score_previsibilidade_real": round(
+                float(
+                    c.get(
+                        "score_previsibilidade",
+                        0
+                    )
+                ),
+                8
+            ),
+
+            "score_medio_real": round(
+                float(
+                    c.get(
+                        "score_medio_real",
+                        0
+                    )
+                ),
+                8
+            ),
     
             # =========================
             # ESTRUTURA

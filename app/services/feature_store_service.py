@@ -8,15 +8,20 @@ PRIMOS = {
     2, 3, 5, 7, 11,
     13, 17, 19, 23
 }
-
-
 MOLDURA = {
     1, 2, 3, 4, 5,
     6, 10, 11, 15,
     16, 20, 21, 22,
     23, 24, 25
 }
-
+FIBONACCI = {
+    1, 2, 3, 5, 8, 13, 21
+}
+CENTRO = {
+    7, 8, 9,
+    12, 13, 14,
+    17, 18, 19
+}
 
 # =========================================================
 # HELPERS
@@ -100,6 +105,58 @@ def calcular_quadrantes(nums):
 
     return [q1, q2, q3, q4]
 
+def calcular_fibonacci(nums):
+
+    return sum(
+        1
+        for n in nums
+        if n in FIBONACCI
+    )
+
+
+def calcular_centro(nums):
+
+    return sum(
+        1
+        for n in nums
+        if n in CENTRO
+    )
+
+
+def calcular_horizontalidade(linhas):
+
+    return float(
+        np.std(linhas)
+    )
+
+
+def calcular_verticalidade(colunas):
+
+    return float(
+        np.std(colunas)
+    )
+
+
+def calcular_entropia_distribuicao(lista):
+
+    total = sum(lista)
+
+    if total == 0:
+        return 0.0
+
+    probs = [
+        x / total
+        for x in lista
+        if x > 0
+    ]
+
+    return float(
+        -sum(
+            p * math.log2(p)
+            for p in probs
+        )
+    )
+
 
 # =========================================================
 # FEATURE STORE
@@ -164,59 +221,123 @@ def gerar_features_jogo(
     colunas = calcular_colunas(nums)
     quadrantes = calcular_quadrantes(nums)
     entropia = calcular_entropia(nums)
-    dispersao = float(np.std(nums))
+    dispersao = float(
+        np.std(nums)
+    )
+
     amplitude = max(nums) - min(nums)
     densidade = filtros["soma"] / 15
+    fibonacci = calcular_fibonacci(nums)
+    centro = calcular_centro(nums)
+    horizontalidade = calcular_horizontalidade(
+        estrutura["linhas"]
+    )
+
+    verticalidade = calcular_verticalidade(
+        colunas
+    )
+
+    entropia_linhas = calcular_entropia_distribuicao(
+        estrutura["linhas"]
+    )
+
+    entropia_colunas = calcular_entropia_distribuicao(
+        colunas
+    )
 
     features = {
 
         # =========================================
         # BASE
         # =========================================
-        "pares": filtros["pares"],
+        "pares":
+            filtros["pares"],
 
-        "impares": filtros["impares"],
+        "impares":
+            filtros["impares"],
 
-        "primos": filtros["primos"],
+        "primos":
+            filtros["primos"],
 
-        "moldura": filtros["moldura"],
+        "fibonacci":
+            fibonacci,
 
-        "soma": filtros["soma"],
+        "moldura":
+            filtros["moldura"],
 
-        "repetidos": filtros["repetidos"],
+        "centro":
+            centro,
 
-        "seq_max": filtros["seq_max"],
+        "soma":
+            filtros["soma"],
+
+        "repetidos":
+            filtros["repetidos"],
+
+        "seq_max":
+            filtros["seq_max"],
 
 
         # =========================================
         # ESTRUTURA
         # =========================================
-        "linhas": estrutura["linhas"],
+        "linhas":
+            estrutura["linhas"],
 
-        "colunas": colunas,
+        "colunas":
+            colunas,
 
-        "quadrantes": quadrantes,
+        "quadrantes":
+            quadrantes,
 
 
         # =========================================
         # ESTATÍSTICAS
         # =========================================
-        "entropia": round(
-            entropia,
-            6
-        ),
+        "entropia":
+            round(
+                entropia,
+                6
+            ),
 
-        "dispersao": round(
-            dispersao,
-            6
-        ),
+        "dispersao":
+            round(
+                dispersao,
+                6
+            ),
 
-        "amplitude": amplitude,
+        "amplitude":
+            amplitude,
 
-        "densidade": round(
-            densidade,
-            6
-        ),
+        "densidade":
+            round(
+                densidade,
+                6
+            ),
+
+        "horizontalidade":
+            round(
+                horizontalidade,
+                6
+            ),
+
+        "verticalidade":
+            round(
+                verticalidade,
+                6
+            ),
+
+        "entropia_linhas":
+            round(
+                entropia_linhas,
+                6
+            ),
+
+        "entropia_colunas":
+            round(
+                entropia_colunas,
+                6
+            ),
 
 
         # =========================================
