@@ -711,9 +711,9 @@ def main():
 
                 for item in historico_estruturas:
 
-                    hash_est = item["hash_estrutura"]
+                    hash_roi = item["hash_estrutura"]
 
-                    if not hash_est:
+                    if not hash_roi:
                         continue
 
                     acertos_real = item["acertos"]
@@ -732,7 +732,7 @@ def main():
                             {
 
                                 "hash_estrutura":
-                                    hash_est,
+                                    hash_roi,
 
                                 "ultimo_concurso":
                                     concurso,
@@ -768,13 +768,13 @@ def main():
                 print(
                     f"⚠️ Erro memória ROI: {e_roi}"
                 )
-            
-            except Exception as e_cen:
-            
-                print(
-                    f"⚠️ Erro ao atualizar "
-                    f"memoria_cenarios: {e_cen}"
-                )
+
+        except Exception as e_cen:
+
+            print(
+                f"⚠️ Erro ao atualizar "
+                f"memoria_cenarios: {e_cen}"
+            )
 
         # ======================================================
         # AUDITORIA
