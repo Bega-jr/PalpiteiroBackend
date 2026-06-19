@@ -268,6 +268,7 @@ def main():
         
                 "maior_cluster": max_cluster,
                 "maior_estrutura": max_estrutura,
+                "hash_estrutura_dominante": max_estrutura,
                 
                 "qtd_palpites": len(jogos),
         
@@ -280,6 +281,11 @@ def main():
                     score_potencial_medio,
                     6
                 )
+
+                "score_estrutural_medio": round(
+                    score_estrutural_medio,
+                    6
+                ),
             }
         
             supabase.table(
