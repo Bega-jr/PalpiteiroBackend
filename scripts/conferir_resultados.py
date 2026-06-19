@@ -181,6 +181,7 @@ def main():
         ranking = []
         lista_acertos = []
         scores_estruturais = []
+        historico_estruturas = []
 
         # ======================================================
         # PROCESSA CADA PALPITE INDIVIDUAL
@@ -191,6 +192,17 @@ def main():
             acertos = len(
                 set(numeros) & resultado
             )
+            historico_estruturas.append({
+                "hash_estrutura": p.get("hash_estrutura"),
+                "acertos": acertos,
+                "score_contextual_real":
+                    float(
+                        p.get(
+                            "score_contextual_real",
+                            0
+                        )
+                    )
+            })
 
             lista_acertos.append(
                 acertos
@@ -690,6 +702,71 @@ def main():
                     f"Score={score_medio_real:.2f} | "
                     f"Estab={estabilidade_media:.2f} | "
                     f"Disp={dispersao_media:.2f}"
+                )
+
+            # ======================================================
+            # ROI REAL DAS ESTRUTURAS UTILIZADAS
+            # ======================================================
+            try:
+
+                for item in historico_estruturas:
+
+                    hash_est = item["hash_estrutura"]
+
+                    if not hash_est:
+                        continue
+
+                    acertos_real = item["acertos"]
+
+                    roi_real = max(
+                        0,
+                        (
+                            acertos_real - 8
+                        ) / 7
+                    )
+
+                    (
+                        supabase
+                        .table("memoria_roi_estruturas")
+                        .upsert(
+                            {
+
+                                "hash_estrutura":
+                                    hash_est,
+
+                                "ultimo_concurso":
+                                    concurso,
+
+                                "acertos_reais":
+                                    acertos_real,
+
+                                "roi_real":
+                                    round(
+                                        roi_real,
+                                        6
+                                    ),
+
+                                "score_contextual_real":
+                                    round(
+                                        item[
+                                            "score_contextual_real"
+                                        ],
+                                        6
+                                    ),
+
+                                "updated_at":
+                                    datetime.now().isoformat()
+
+                            },
+                            on_conflict="hash_estrutura"
+                        )
+                        .execute()
+                    )
+
+            except Exception as e_roi:
+
+                print(
+                    f"⚠️ Erro memória ROI: {e_roi}"
                 )
             
             except Exception as e_cen:
