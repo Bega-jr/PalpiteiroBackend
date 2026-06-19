@@ -887,7 +887,7 @@ def main():
                     .execute()
                 )
             
-                print(
+                                print(
                     f"📈 Estrutura {hash_est} | "
                     f"Score={score_medio_real:.2f} | "
                     f"Estab={estabilidade_media:.2f} | "
@@ -897,17 +897,19 @@ def main():
             # ======================================================
             # ROI DAS ESTRUTURAS
             # ======================================================
-            atualizar_memoria_roi(
-                supabase,
-                concurso,
-                historico_estruturas
-            )
+            # Chamada da função isolada para evitar que erros nela 
+            # quebrem o fluxo principal dos cenários
+            try:
+                atualizar_memoria_roi(
+                    supabase,
+                    concurso,
+                    historico_estruturas
+                )
+            except Exception as e_roi:
+                print(f"⚠️ Erro memória ROI: {e_roi}")
 
         except Exception as e_cen:
-
-            print(
-                f"⚠️ Erro ao atualizar memoria_cenarios: {e_cen}"
-            )
+            print(f"⚠️ Erro ao atualizar memoria_cenarios: {e_cen}")
 
 
         # ======================================================
