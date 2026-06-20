@@ -384,7 +384,7 @@ def main():
         fator_correcao = 1.0
         dispersao = 0
         estabilidade = 0.0
-
+        
         try:
             palpites_passados = (
                 supabase
@@ -394,27 +394,37 @@ def main():
                 .execute()
                 .data
             )
-
+        
             if palpites_passados:
+        
                 acertos_do_dia = []
+        
                 for p in palpites_passados:
-                    jogo_limpo = [
-                        int(x)
-                        for x in json.loads(p["numeros"])
-                    ]
+        
+                    jogo_limpo = parse_numeros(
+                        p["numeros"]
+                    )
+        
                     acertos = len(
                         set(jogo_limpo)
                         &
                         set(dezenas)
                     )
+        
                     acertos_do_dia.append(acertos)
-
+        
                 media_acertos = float(
                     np.mean(acertos_do_dia)
                 )
-                dispersao = calcular_dispersao(acertos_do_dia)
-                estabilidade = calcular_estabilidade(acertos_do_dia)
-
+        
+                dispersao = calcular_dispersao(
+                    acertos_do_dia
+                )
+        
+                estabilidade = calcular_estabilidade(
+                    acertos_do_dia
+                )
+        
                 fator_correcao = (
                     0.92
                     if media_acertos < 9.0
@@ -424,24 +434,28 @@ def main():
                         else 1.00
                     )
                 )
-
+        
                 payload_feedback = {
                     "concurso_referencia": int(concurso),
-                    "media_acertos_ia": round(media_acertos, 2),
+                    "media_acertos_ia": round(
+                        media_acertos,
+                        2
+                    ),
                     "fator_correcao": fator_correcao,
                     "dispersao_media": dispersao,
-                    
-                    # CORREÇÃO 1: Substituído o caractere residual pela variável local correta
                     "estabilidade_media": estabilidade
                 }
-
-                supabase.table(
-                    "memoria_feedback_loop"
-                ).upsert(
-                    payload_feedback,
-                    on_conflict="concurso_referencia"
-                ).execute()
-
+        
+                (
+                    supabase
+                    .table("memoria_feedback_loop")
+                    .upsert(
+                        payload_feedback,
+                        on_conflict="concurso_referencia"
+                    )
+                    .execute()
+                )
+        
                 print(
                     f"📡 Feedback Loop: "
                     f"Concurso {concurso} auditado. "
@@ -449,13 +463,18 @@ def main():
                     f"Spread={dispersao} | "
                     f"Estabilidade={estabilidade:.4f}"
                 )
+        
             else:
+        
                 print(
-                    f"ℹ️ Nenhum palpite "
-                    f"encontrado para auditoria."
+                    "ℹ️ Nenhum palpite encontrado para auditoria."
                 )
+        
         except Exception as e_fb:
-            print(f"⚠️ Erro Feedback Loop: {e_fb}")
+        
+            print(
+                f"⚠️ Erro Feedback Loop: {e_fb}"
+            )
 
         # ==================================================
         # MEMÓRIA CONTEXTUAL
