@@ -139,7 +139,31 @@ def calcular_dispersao(acertos):
     return int(
         max(acertos) - min(acertos)
     )
+# ======================================================
+# PARSER UNIVERSAL DE JOGOS
+# ======================================================
 
+def parse_numeros(valor):
+
+    if valor is None:
+        return []
+
+    # formato novo (jsonb array)
+    if isinstance(valor, list):
+        return [int(x) for x in valor]
+
+    # formato antigo (jsonb string)
+    if isinstance(valor, str):
+
+        try:
+            return [
+                int(x)
+                for x in json.loads(valor)
+            ]
+        except Exception:
+            return []
+
+    return []
 
 # ======================================================
 # MEMÓRIA
