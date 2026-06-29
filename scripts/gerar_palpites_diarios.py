@@ -8,6 +8,8 @@ import time
 from collections import Counter
 from pathlib import Path
 from datetime import datetime
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
@@ -26,17 +28,166 @@ from app.services.motores_ensemble_service import calcular_score_ensemble
 from app.services.selecao_genetica_service import selecionar_populacao_final
 from scripts.processamento_diario_lotofacil import carregar_historico, extrair_estrutura
 
-VERSAO = "v19.2-auto-aprendizado-variacao-roi"
-
+VERSAO = "v19.3-portfolio-inteligente"
 QTD_FINAL = 10
 MAX_TENTATIVAS = 45000
-
 MAX_OCORRENCIAS_GLOBAL = 7
 PESO_PENALIDADE_SATURACAO = 0.03
-
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
 
+# ==========================================================
+# PORTFOLIO ENGINE
+# ==========================================================
+@dataclass
+class PortfolioState:
+    jogos: List[Dict[str, Any]] = field(default_factory=list)
+    dezenas_counter: Counter = field(default_factory=Counter)
+    cluster_counter: Counter = field(default_factory=Counter)
+    hash_counter: Counter = field(default_factory=Counter)
+    score_total: float = 0.0
+
+    def adicionar(self, candidato: Dict[str, Any]) -> None:
+        numeros = candidato.get("numeros") or candidato.get("nums", [])
+        self.jogos.append(candidato)
+        self.dezenas_counter.update(numeros)
+        self.cluster_counter[candidato.get("cluster_id", 0)] += 1
+        self.hash_counter[candidato.get("hash_estrutura", "")] += 1
+        self.score_total += candidato.get("score", 0.0)
+
+
+class PortfolioEngine:
+    def __init__(self):
+        self.config = {
+            "ELITE": {
+                "range": range(0, 3),
+                "weight_ensemble": 0.58,
+                "weight_diversity": 0.07,
+                "weight_tens_coverage": 0.12,
+                "weight_cluster": 0.10,
+                "weight_hash": 0.05,
+                "weight_roi": 0.08,
+            },
+            "BALANCEADO": {
+                "range": range(3, 7),
+                "weight_ensemble": 0.42,
+                "weight_diversity": 0.18,
+                "weight_tens_coverage": 0.18,
+                "weight_cluster": 0.10,
+                "weight_hash": 0.05,
+                "weight_roi": 0.07,
+            },
+            "EXPLORADOR": {
+                "range": range(7, 9),
+                "weight_ensemble": 0.25,
+                "weight_diversity": 0.35,
+                "weight_tens_coverage": 0.20,
+                "weight_cluster": 0.10,
+                "weight_hash": 0.05,
+                "weight_roi": 0.05,
+            },
+            "EXTREMO": {
+                "range": range(9, 999),
+                "weight_ensemble": 0.15,
+                "weight_diversity": 0.50,
+                "weight_tens_coverage": 0.25,
+                "weight_cluster": 0.05,
+                "weight_hash": 0.05,
+                "weight_roi": 0.00,
+            }
+        }
+        self.papeis = tuple(self.config.items())
+        self.set_cache: Dict[int, set] = {}
+        self.overlap_cache: Dict[tuple, int] = {}
+        self.max_overlap = 11
+
+    def obter_overlap(self, idx_a: int, idx_b: int) -> int:
+        chave = (min(idx_a, idx_b), max(idx_a, idx_b))
+        if chave not in self.overlap_cache:
+            self.overlap_cache[chave] = len(self.set_cache[idx_a] & self.set_cache[idx_b])
+        return self.overlap_cache[chave]
+
+    def obter_pesos_papel(self, indice: int) -> Dict[str, float]:
+        for _, dados in self.papeis:
+            if indice in dados["range"]:
+                return dados
+        return self.config["EXTREMO"]
+
+    def calcular_ganho_marginal(self, candidato, idx_candidato, indices_atual, dezenas_counter, cluster_counter, hash_counter, pesos):
+        score_ensemble = candidato.get("score", 0.0)
+        score_roi = candidato.get("score_potencial", 0.0)
+
+        if not indices_atual:
+            score_diversidade = 1.0
+        else:
+            soma_distancias = 0
+            for idx in indices_atual:
+                overlap = self.obter_overlap(idx_candidato, idx)
+                if overlap > self.max_overlap:
+                    return -9999.0
+                soma_distancias += (15 - overlap)
+            score_diversidade = (soma_distancias / len(indices_atual)) / 15.0
+
+        total_jogos = len(indices_atual) + 1
+        freq_ideal = (total_jogos * 15) / 25.0
+        score_dezenas = 0.0
+        for dezena in self.set_cache.get(idx_candidato, set()):
+            freq = dezenas_counter[dezena]
+            if freq < freq_ideal - 0.5:
+                score_dezenas += 1.4
+            elif freq < freq_ideal + 1.5:
+                score_dezenas += 1.0
+            else:
+                score_dezenas += 0.5
+        score_dezenas /= 15
+
+        score_cluster = 1 / (cluster_counter.get(candidato.get("cluster_id", 0), 0) + 1)
+        score_hash = 1 / (hash_counter.get(candidato.get("hash_estrutura", ""), "") + 1)
+
+        return (
+            score_ensemble * pesos["weight_ensemble"] +
+            score_diversidade * pesos["weight_diversity"] +
+            score_dezenas * pesos["weight_tens_coverage"] +
+            score_cluster * pesos["weight_cluster"] +
+            score_hash * pesos["weight_hash"] +
+            score_roi * pesos["weight_roi"]
+        )
+
+    def selecionar_portfolio(self, candidatos: List[Dict], tamanho: int = 10):
+        if not candidatos:
+            return []
+        
+        self.set_cache = {idx: set(c.get("numeros", c.get("nums", []))) for idx, c in enumerate(candidatos)}
+        self.overlap_cache.clear()
+
+        estado = PortfolioState()
+        indices_escolhidos = set()
+
+        while len(estado.jogos) < tamanho and len(indices_escolhidos) < len(candidatos):
+            pesos = self.obter_pesos_papel(len(estado.jogos))
+            melhor_idx = None
+            melhor_score = -float('inf')
+
+            for idx, candidato in enumerate(candidatos):
+                if idx in indices_escolhidos:
+                    continue
+                ganho = self.calcular_ganho_marginal(
+                    candidato, idx, list(indices_escolhidos),
+                    estado.dezenas_counter, estado.cluster_counter,
+                    estado.hash_counter, pesos
+                )
+                if ganho > melhor_score:
+                    melhor_score = ganho
+                    melhor_idx = idx
+
+            if melhor_idx is None:
+                break
+
+            escolhido = candidatos[melhor_idx]
+            estado.adicionar(escolhido)
+            indices_escolhidos.add(melhor_idx)
+
+        return estado.jogos
 # ======================================================
 # NOVO: Funções de Suporte (ROI + Modo de Variação)
 # ======================================================
@@ -59,6 +210,8 @@ def aplicar_entropia_modo(score_final, modo_variacao):
 # ======================================================
 # FUNÇÕES ORIGINAIS (mantidas 100% iguais)
 # ======================================================
+
+
 def media_segura(v, fallback=0.5):
     validos = [x for x in v if x is not None]
     return float(np.mean(validos)) if validos else fallback
@@ -236,21 +389,18 @@ def score_potencial_alto(jogo, historico, base_scores):
 def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     inicio_execucao = time.time()
     supabase = get_supabase()
-    print(f"🚀 {VERSAO} - Modo: {modo_variacao.upper()} | Potencial Alto + Tiers")
-
+    print(f"🚀 {VERSAO} - Modo: {modo_variacao.upper()} | Potencial Alto + Portfolio Engine")
+    
     fuso = pytz.timezone("America/Sao_Paulo")
     hoje = datetime.now(fuso).date().isoformat()
     hist = carregar_historico()
     ultimo = hist[-1]["numeros"]
-    
-    # Se o validador enviou o concurso correto, usamos ele. Se não, calculamos.
+   
     if concurso_alvo is None:
         concurso_ref = int(hist[-1]["concurso"]) + 1
     else:
         concurso_ref = concurso_alvo
 
-    # Se rodado de forma avulsa e já processado, interrompe.
-    # (Quando rodado pelo pai, o pai limpa a tabela antes, então este if não vai travar).
     if concurso_alvo is None and concurso_ja_processado(supabase, concurso_ref):
         print(f"ℹ️ Concurso {concurso_ref} já processado.")
         return []
@@ -259,7 +409,18 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     fator_global = obter_fator_aprendizado_global()["fator"]
     pesos = obter_pesos_ensemble()
     contexto = detectar_contexto(hist)
+    
     print("🧠 Carregando memória estrutural...")
+    memorias = (
+        supabase
+        .table("memoria_cenarios")
+        .select("hash_estrutura, score_contextual, score_previsibilidade, score_medio_real, vezes_gerado, taxa_sobrevivencia")
+        .execute()
+        .data
+    )
+   
+    memoria_cache = {m["hash_estrutura"]: m for m in memorias}
+    print(f"✅ Estruturas carregadas: {len(memoria_cache)}")
 
     memorias = (
         supabase
@@ -630,134 +791,29 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         for n in cand["nums"]:
             contador_global[n] += 1
 
-    # ==================== SELEÇÃO FINAL ROBUSTA ====================
+    # ==================== SELEÇÃO FINAL COM PORTFOLIO ENGINE ====================
+    print("🔀 Aplicando Portfolio Engine Inteligente (ELITE → EXTREMO)...")
 
-    candidatos_filtrados.sort(
-        key=lambda x: (
-            x["score"],
-            x.get("score_contextual", 0)
-        ),
-        reverse=True
-    )
-    
-    if len(candidatos_filtrados) < 7:
-        print(
-            f"⚠️ Poucos candidatos ({len(candidatos_filtrados)}). "
-            "Aplicando fallback completo."
-        )
-    
-        candidatos_filtrados = sorted(
-            candidatos,
-            key=lambda x: (
-                x["score"],
-                x.get("score_contextual", 0),
-                x.get("score_medio_real", 0)
-            ),
+    for cand in candidatos_filtrados:
+        if "nums" in cand and "numeros" not in cand:
+            cand["numeros"] = cand.pop("nums")
+
+    engine = PortfolioEngine()
+    portfolio_final = engine.selecionar_portfolio(candidatos_filtrados, QTD_FINAL)
+
+    if len(portfolio_final) < QTD_FINAL:
+        print(f"⚠️ Portfolio Engine retornou {len(portfolio_final)} jogos. Usando fallback.")
+        portfolio_final = sorted(
+            candidatos_filtrados,
+            key=lambda x: (x.get("score", 0), x.get("score_medio_real", 0)),
             reverse=True
-        )
-        print(
-            f"DEBUG candidatos_filtrados={len(candidatos_filtrados)}"
-        )
-    
-    finais = []
-    
-    # Conservadores + Equilibrados
-    elite_memoria = sorted(
-        candidatos_filtrados,
-        key=lambda x: (
-            x.get("score_medio_real", 0),
-            x.get("score_contextual", 0),
-            x["score"]
-        ),
-        reverse=True
-    )
+        )[:QTD_FINAL]
 
-    finais.extend(
-        elite_memoria[:7]
-    )
-    
-    # Agressivos com mais variação
-    resto = [c for c in candidatos_filtrados[7:] if c not in finais]
-    random.shuffle(resto)
-    
-    for cand in resto:
-    
-        if len(finais) >= QTD_FINAL:
-            break
-    
-        overlap_max = max(
-            [
-                len(set(cand["nums"]) & set(f["nums"]))
-                for f in finais
-            ],
-            default=0
-        )
-    
-        print(
-            f"DEBUG overlap={overlap_max} "
-            f"finais={len(finais)}"
-        )
-    
-        limite_overlap = (
-            9
-            if len(finais) < 8
-            else 11
-        )
-
-        if overlap_max <= limite_overlap:
-            finais.append(cand)
-    
-    # GARANTIA FORTE DE 10 JOGOS
-    
-    while (
-        len(finais) < QTD_FINAL
-        and len(candidatos_filtrados) > len(finais)
-    ):
-        prox = candidatos_filtrados[len(finais)]
-    
-        if prox not in finais:
-            finais.append(prox)
-    
-    finais = finais[:QTD_FINAL]
-    dezenas_usadas = set()
-    
-    for f in finais:
-        dezenas_usadas.update(f["nums"])
-    
-    faltantes = set(range(1, 26)) - dezenas_usadas
-    
-    if faltantes:
-        print(
-            f"⚠️ Dezenas ausentes detectadas: "
-            f"{sorted(faltantes)}"
-        )
-    
-    if len(finais) < QTD_FINAL:
-        print(
-            f"⚠️ Ainda faltaram palpites. "
-            f"Gerados: {len(finais)}"
-        )
-    
-    # ROI - Cálculo dinâmico baseado na quantidade real de palpites
-    
+    finais = portfolio_final
+    # ==================== CÁLCULO ROI ====================
     calcular_roi(len(finais))
+    print(f"✅ Portfolio Engine concluiu com {len(finais)} jogos")
 
-    print("\n===== DEBUG FINAIS =====")
-
-    if finais:
-        print(
-            json.dumps(
-                {
-                    "cluster_id": finais[0].get("cluster_id"),
-                    "estrutura": finais[0].get("estrutura"),
-                    "score_contextual": finais[0].get("score_contextual"),
-                    "score_previsibilidade": finais[0].get("score_previsibilidade"),
-                    "score_medio_real": finais[0].get("score_medio_real")
-                },
-                indent=2,
-                default=str
-            )
-        )
     # =====================================================
     # ESTRUTURAÇÃO DOS DADOS DE RETORNO
     # =====================================================
@@ -811,7 +867,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     
             "tipo": tier,
     
-            "numeros": c["nums"],
+            "numeros": numeros_jogo = c.get("numeros") or c.get("nums", [])
     
             # =========================
             # SCORES PRINCIPAIS
