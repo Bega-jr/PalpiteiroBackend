@@ -1,68 +1,44 @@
 import logging
 import random
 import time
-
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
-
+import numpy as np  # para desvio padrão
 
 # ==========================================================
 # ESTADO DO PORTFÓLIO
 # ==========================================================
-
 @dataclass
 class PortfolioState:
-    """
-    Estado incremental do portfólio.
-
-    Mantém todos os acumuladores durante a seleção,
-    evitando recálculos completos a cada iteração.
-    """
-
     jogos: List[Dict[str, Any]] = field(default_factory=list)
-
     dezenas_counter: Counter = field(default_factory=Counter)
     cluster_counter: Counter = field(default_factory=Counter)
     hash_counter: Counter = field(default_factory=Counter)
-
     score_total: float = 0.0
 
     def adicionar(self, candidato: Dict[str, Any]) -> None:
-        """
-        Atualiza todo o estado incremental após selecionar
-        um novo candidato.
-        """
-
         self.jogos.append(candidato)
-
         self.dezenas_counter.update(candidato["numeros"])
-
         self.cluster_counter[candidato["cluster_id"]] += 1
-
         self.hash_counter[candidato["hash_estrutura"]] += 1
-
         self.score_total += candidato.get("score", 0.0)
 
 
 # ==========================================================
 # LOG
 # ==========================================================
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
-
 logger = logging.getLogger("LotofacilPortfolioEngine")
 
 
 # ==========================================================
 # CONFIGURAÇÃO DOS PAPÉIS
 # ==========================================================
-
 DEFAULT_PORTFOLIO_CONFIG = {
-
     "ELITE": {
         "range": range(0, 3),
         "weight_ensemble": 0.50,
@@ -72,7 +48,6 @@ DEFAULT_PORTFOLIO_CONFIG = {
         "weight_hash": 0.10,
         "weight_roi": 0.10,
     },
-
     "BALANCEADO": {
         "range": range(3, 7),
         "weight_ensemble": 0.35,
@@ -82,7 +57,6 @@ DEFAULT_PORTFOLIO_CONFIG = {
         "weight_hash": 0.10,
         "weight_roi": 0.10,
     },
-
     "EXPLORADOR": {
         "range": range(7, 9),
         "weight_ensemble": 0.20,
@@ -92,7 +66,6 @@ DEFAULT_PORTFOLIO_CONFIG = {
         "weight_hash": 0.10,
         "weight_roi": 0.05,
     },
-
     "EXTREMO": {
         "range": range(9, 999),
         "weight_ensemble": 0.05,
@@ -102,129 +75,54 @@ DEFAULT_PORTFOLIO_CONFIG = {
         "weight_hash": 0.10,
         "weight_roi": 0.00,
     }
-
 }
+
 
 # ==========================================================
 # ENGINE
 # ==========================================================
-
 class PortfolioEngine:
-
     def __init__(self, config: Dict[str, Dict[str, Any]] | None = None):
-
-        # Configuração
         self.config = config or DEFAULT_PORTFOLIO_CONFIG
-
-        # Facilita iteração dos papéis
         self.papeis = tuple(self.config.items())
 
-        # Cache dos conjuntos das dezenas
         self.set_cache: Dict[int, set[int]] = {}
-
-        # Cache dos overlaps
         self.overlap_cache: Dict[tuple[int, int], int] = {}
 
-        # Cache futuro para scores marginais
-        self.score_cache: Dict[Any, float] = {}
-
-        # RNG para desempates reproduzíveis
         self.random = random.Random()
+        self.max_overlap = 12  # limite máximo de números em comum
 
-        # Limite máximo de overlap permitido
-        self.max_overlap = 12
-
-        # Métricas internas (expansão futura)
-        self.metricas = {
-
-            "score_ensemble": 0.0,
-            "score_diversidade": 0.0,
-            "score_cobertura": 0.0,
-            "score_cluster": 0.0,
-            "score_hash": 0.0,
-            "score_roi": 0.0
-
-        }
-
-        # Telemetria
         self.telemetry = {
-
             "execution_time_ms": 0,
-
             "iterations": 0,
-
             "candidates_evaluated": 0,
-
             "score_medio": 0,
-
             "score_minimo": 0,
-
             "score_maximo": 0,
-
             "desvio_padrao_score": 0,
-
             "overlap_medio": 0,
-
             "clusters_usados": 0,
-
             "hashes_unicos": 0,
-
             "dezenas_cobertas": 0,
-
             "frequencia_maxima": 0,
-
             "frequencia_minima": 0,
-
             "portfolio_score": 0
-
         }
-
-    # ======================================================
-    # CACHE DE OVERLAP
-    # ======================================================
 
     def obter_overlap(self, idx_a: int, idx_b: int) -> int:
-
-        chave = (idx_a, idx_b) if idx_a < idx_b else (idx_b, idx_a)
-
+        chave = (min(idx_a, idx_b), max(idx_a, idx_b))
         if chave not in self.overlap_cache:
-
             self.overlap_cache[chave] = len(
-                self.set_cache[idx_a] &
-                self.set_cache[idx_b]
+                self.set_cache[idx_a] & self.set_cache[idx_b]
             )
-
         return self.overlap_cache[chave]
 
-    # ======================================================
-    # DISTÂNCIA ENTRE JOGOS
-    # ======================================================
-
-    @staticmethod
-    def calcular_distancia(a: set[int], b: set[int]) -> int:
-        """
-        Distância baseada no overlap.
-
-        15 -> totalmente diferentes
-         0 -> idênticos
-        """
-        return 15 - len(a & b)
-
-    # ======================================================
-    # PESOS CONFORME PAPEL
-    # ======================================================
-
     def obter_pesos_papel(self, indice: int) -> Dict[str, float]:
-
         for _, dados in self.papeis:
-
             if indice in dados["range"]:
                 return dados
-
         return self.config["EXTREMO"]
-    # ==========================================================
-    # SCORE MARGINAL
-    # ==========================================================
+
     def calcular_ganho_marginal(
         self,
         candidato: Dict[str, Any],
@@ -235,186 +133,93 @@ class PortfolioEngine:
         hash_counter: Counter,
         pesos: Dict[str, float]
     ) -> float:
-    
-        # --------------------------------------------------
-        # SCORE BASE
-        # --------------------------------------------------
+        # Score base
         score_ensemble = candidato.get("score", 0.0)
-    
-        score_roi = candidato.get(
-            "roi_estimado",
-            candidato.get("score_potencial", 0.0)
-        )
-    
-        # --------------------------------------------------
-        # DIVERSIDADE
-        # --------------------------------------------------
-    
+        score_roi = candidato.get("roi_estimado", candidato.get("score_potencial", 0.0))
+
+        # Diversidade
         if not indices_portfolio_atual:
-    
             score_diversidade = 1.0
-    
         else:
-    
             soma_distancias = 0
-    
             for idx_existente in indices_portfolio_atual:
-    
-                overlap = self.obter_overlap(
-                    idx_candidato,
-                    idx_existente
-                )
-    
+                overlap = self.obter_overlap(idx_candidato, idx_existente)
+                if overlap > self.max_overlap:
+                    return -9999.0  # rejeita completamente
                 soma_distancias += (15 - overlap)
-    
-            score_diversidade = (
-                soma_distancias /
-                len(indices_portfolio_atual)
-            ) / 15.0
-    
-        # --------------------------------------------------
-        # COBERTURA DAS 25 DEZENAS
-        # --------------------------------------------------
-    
+            score_diversidade = (soma_distancias / len(indices_portfolio_atual)) / 15.0
+
+        # Cobertura das dezenas
         total_jogos = len(indices_portfolio_atual) + 1
         frequencia_ideal = (total_jogos * 15) / 25
         score_dezenas = 0.0
-    
+
         for dezena in self.set_cache[idx_candidato]:
-    
             freq = dezenas_counter[dezena]
-    
             if freq < frequencia_ideal:
-    
                 score_dezenas += 1.0
-    
             else:
-    
-                score_dezenas += 1 / (freq + 1)
-    
+                score_dezenas += 1.0 / (freq + 1)
+
         score_dezenas /= 15
-    
-        # --------------------------------------------------
-        # CLUSTER
-        # --------------------------------------------------
-    
-        cluster = candidato.get("cluster_id")
-    
-        score_cluster = 1 / (
-            cluster_counter[cluster] + 1
-        )
-    
-        # --------------------------------------------------
-        # HASH ESTRUTURAL
-        # --------------------------------------------------
-    
-        hash_estrutura = candidato.get("hash_estrutura")
-    
-        score_hash = 1 / (
-            hash_counter[hash_estrutura] + 1
-        )
-    
-        # --------------------------------------------------
-        # SCORE FINAL
-        # --------------------------------------------------
-    
+
+        # Cluster e Hash
+        score_cluster = 1 / (cluster_counter[candidato.get("cluster_id")] + 1)
+        score_hash = 1 / (hash_counter[candidato.get("hash_estrutura")] + 1)
+
+        # Score final ponderado
         return (
-    
-            score_ensemble * pesos["weight_ensemble"]
-    
-            +
-    
-            score_diversidade * pesos["weight_diversity"]
-    
-            +
-    
-            score_dezenas * pesos["weight_tens_coverage"]
-    
-            +
-    
-            score_cluster * pesos["weight_cluster"]
-    
-            +
-    
-            score_hash * pesos["weight_hash"]
-    
-            +
-    
+            score_ensemble * pesos["weight_ensemble"] +
+            score_diversidade * pesos["weight_diversity"] +
+            score_dezenas * pesos["weight_tens_coverage"] +
+            score_cluster * pesos["weight_cluster"] +
+            score_hash * pesos["weight_hash"] +
             score_roi * pesos["weight_roi"]
-    
         )
 
-
-        def selecao_greedy_inteligente(
-            self,
-            candidatos: List[Dict[str, Any]],
-            tamanho_portfolio: int
-        ) -> List[Dict[str, Any]]:
-
+    def selecao_greedy_inteligente(
+        self,
+        candidatos: List[Dict[str, Any]],
+        tamanho_portfolio: int
+    ) -> List[Dict[str, Any]]:
+        
         start_time = time.perf_counter()
-
-        logger.info(
-            "Iniciando seleção de portfólio (%d candidatos)",
-            len(candidatos)
-        )
+        logger.info("Iniciando seleção de portfólio (%d candidatos)", len(candidatos))
 
         if not candidatos or tamanho_portfolio <= 0:
             return []
 
-        # -------------------------------------------------------
         # Pré-processamento
-        # -------------------------------------------------------
-
         self.overlap_cache.clear()
         self.set_cache.clear()
-
         for idx, candidato in enumerate(candidatos):
             self.set_cache[idx] = set(candidato["numeros"])
 
         estado = PortfolioState()
-
         indices_escolhidos = set()
         indices_portfolio = []
 
-        # -------------------------------------------------------
-        # Primeiro jogo = maior score do Ensemble
-        # -------------------------------------------------------
-
+        # Primeiro jogo = maior score
         primeiro_idx = max(
             range(len(candidatos)),
-            key=lambda i: candidatos[i]["score"]
+            key=lambda i: candidatos[i].get("score", 0)
         )
-
         primeiro = candidatos[primeiro_idx]
-
         estado.adicionar(primeiro)
-
         indices_escolhidos.add(primeiro_idx)
         indices_portfolio.append(primeiro_idx)
 
-        logger.info(
-            "Primeiro jogo escolhido | Score %.4f",
-            primeiro["score"]
-        )
+        logger.info("Primeiro jogo escolhido | Score %.4f", primeiro.get("score", 0))
 
-        # -------------------------------------------------------
-        # Seleção Greedy
-        # -------------------------------------------------------
-
-        while (
-            len(estado.jogos) < tamanho_portfolio
-            and len(indices_escolhidos) < len(candidatos)
-        ):
-
+        # Seleção greedy
+        while len(estado.jogos) < tamanho_portfolio and len(indices_escolhidos) < len(candidatos):
             self.telemetry["iterations"] += 1
-
             pesos = self.obter_pesos_papel(len(estado.jogos))
 
             melhor_idx = None
-            melhor_score = -1
+            melhor_score = -float('inf')
 
             for idx, candidato in enumerate(candidatos):
-
                 if idx in indices_escolhidos:
                     continue
 
@@ -438,106 +243,66 @@ class PortfolioEngine:
                 break
 
             escolhido = candidatos[melhor_idx]
-
             estado.adicionar(escolhido)
-
             indices_escolhidos.add(melhor_idx)
             indices_portfolio.append(melhor_idx)
 
             logger.info(
                 "Iteração %d | Escolhido=%d | Ganho=%.4f",
-                self.telemetry["iterations"],
-                melhor_idx,
-                melhor_score
+                self.telemetry["iterations"], melhor_idx, melhor_score
             )
 
-        # -------------------------------------------------------
-        # Telemetria
-        # -------------------------------------------------------
-
+        # Finaliza telemetria
         end_time = time.perf_counter()
-
-        self.calcular_telemetria_final(
-            estado,
-            start_time,
-            end_time
-        )
+        self.calcular_telemetria_final(estado, start_time, end_time)
 
         return estado.jogos
 
-    # ==========================================================
-    # TELEMETRIA
-    # ==========================================================
-
-    def calcular_telemetria_final(
-        self,
-        estado: PortfolioState,
-        inicio: float,
-        fim: float
-    ):
-
+    def calcular_telemetria_final(self, estado: PortfolioState, inicio: float, fim: float):
         self.telemetry["execution_time_ms"] = (fim - inicio) * 1000
 
         if not estado.jogos:
             return
 
-        scores = [j["score"] for j in estado.jogos]
+        scores = [j.get("score", 0) for j in estado.jogos]
 
-        self.telemetry["score_medio"] = sum(scores) / len(scores)
-        self.telemetry["score_minimo"] = min(scores)
-        self.telemetry["score_maximo"] = max(scores)
-
-        self.telemetry["clusters_usados"] = len(estado.cluster_counter)
-        self.telemetry["hashes_unicos"] = len(estado.hash_counter)
-        self.telemetry["dezenas_cobertas"] = len(estado.dezenas_counter)
-
-        self.telemetry["frequencia_maxima"] = (
-            max(estado.dezenas_counter.values())
-            if estado.dezenas_counter
-            else 0
-        )
-
-        self.telemetry["frequencia_minima"] = (
-            min(estado.dezenas_counter.values())
-            if estado.dezenas_counter
-            else 0
-        )
+        self.telemetry.update({
+            "score_medio": sum(scores) / len(scores),
+            "score_minimo": min(scores),
+            "score_maximo": max(scores),
+            "desvio_padrao_score": float(np.std(scores)) if len(scores) > 1 else 0.0,
+            "clusters_usados": len(estado.cluster_counter),
+            "hashes_unicos": len(estado.hash_counter),
+            "dezenas_cobertas": len(estado.dezenas_counter),
+            "frequencia_maxima": max(estado.dezenas_counter.values()) if estado.dezenas_counter else 0,
+            "frequencia_minima": min(estado.dezenas_counter.values()) if estado.dezenas_counter else 0,
+        })
 
         # Overlap médio
         overlaps = []
-
         for i in range(len(estado.jogos)):
             for j in range(i + 1, len(estado.jogos)):
+                overlap = len(set(estado.jogos[i]["numeros"]) & set(estado.jogos[j]["numeros"]))
+                overlaps.append(overlap)
 
-                a = set(estado.jogos[i]["numeros"])
-                b = set(estado.jogos[j]["numeros"])
+        self.telemetry["overlap_medio"] = sum(overlaps) / len(overlaps) if overlaps else 0
 
-                overlaps.append(len(a & b))
-
-        self.telemetry["overlap_medio"] = (
-            sum(overlaps) / len(overlaps)
-            if overlaps
-            else 0
-        )
-
+        # Score geral do portfólio
         self.telemetry["portfolio_score"] = (
-            self.telemetry["score_medio"] * 0.40
-            + ((15 - self.telemetry["overlap_medio"]) / 15) * 0.60
+            self.telemetry["score_medio"] * 0.40 +
+            ((15 - self.telemetry["overlap_medio"]) / 15) * 0.60
         )
 
         logger.info(
-            "Portfólio concluído | %d jogos | Score %.4f",
-            len(estado.jogos),
-            self.telemetry["portfolio_score"]
+            "Portfólio concluído | %d jogos | Score Geral %.4f",
+            len(estado.jogos), self.telemetry["portfolio_score"]
         )
 
 
 # ==========================================================
 # TESTE LOCAL
 # ==========================================================
-
 if __name__ == "__main__":
-
     exemplos = [
         {
             "numeros": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
@@ -563,18 +328,15 @@ if __name__ == "__main__":
     ]
 
     engine = PortfolioEngine()
-
     portfolio = engine.selecao_greedy_inteligente(
         candidatos=exemplos,
         tamanho_portfolio=2
     )
 
     print("\n===== PORTFÓLIO =====")
-
     for i, jogo in enumerate(portfolio, 1):
         print(f"{i}: score={jogo['score']:.3f} -> {jogo['numeros']}")
 
     print("\n===== TELEMETRIA =====")
-
     for k, v in engine.telemetry.items():
         print(f"{k}: {v}")
