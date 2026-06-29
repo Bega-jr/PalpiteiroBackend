@@ -1,8 +1,11 @@
 import logging
+import random
 import time
+
 from collections import Counter
-from typing import List, Dict, Any
 from dataclasses import dataclass, field
+from typing import Any, Dict, List
+
 
 # ==========================================================
 # ESTADO DO PORTFÓLIO
@@ -12,35 +15,54 @@ from dataclasses import dataclass, field
 class PortfolioState:
     """
     Estado incremental do portfólio.
-    Mantém todos os acumuladores para evitar
-    recálculos durante a seleção Greedy.
+
+    Mantém todos os acumuladores durante a seleção,
+    evitando recálculos completos a cada iteração.
     """
-    jogos: List[Dict] = field(default_factory=list)
+
+    jogos: List[Dict[str, Any]] = field(default_factory=list)
+
     dezenas_counter: Counter = field(default_factory=Counter)
     cluster_counter: Counter = field(default_factory=Counter)
     hash_counter: Counter = field(default_factory=Counter)
+
     score_total: float = 0.0
 
-    def adicionar(self, candidato: Dict):
+    def adicionar(self, candidato: Dict[str, Any]) -> None:
+        """
+        Atualiza todo o estado incremental após selecionar
+        um novo candidato.
+        """
+
         self.jogos.append(candidato)
+
         self.dezenas_counter.update(candidato["numeros"])
+
         self.cluster_counter[candidato["cluster_id"]] += 1
+
         self.hash_counter[candidato["hash_estrutura"]] += 1
+
         self.score_total += candidato.get("score", 0.0)
+
+
 # ==========================================================
 # LOG
 # ==========================================================
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
 logger = logging.getLogger("LotofacilPortfolioEngine")
 
+
 # ==========================================================
-# CONFIGURAÇÃO DOS PAPÉIS DO PORTFÓLIO
+# CONFIGURAÇÃO DOS PAPÉIS
 # ==========================================================
+
 DEFAULT_PORTFOLIO_CONFIG = {
+
     "ELITE": {
         "range": range(0, 3),
         "weight_ensemble": 0.50,
@@ -80,73 +102,126 @@ DEFAULT_PORTFOLIO_CONFIG = {
         "weight_hash": 0.10,
         "weight_roi": 0.00,
     }
+
 }
+
 # ==========================================================
 # ENGINE
 # ==========================================================
+
 class PortfolioEngine:
-    def __init__(self, config=None):
+
+    def __init__(self, config: Dict[str, Dict[str, Any]] | None = None):
+
+        # Configuração
         self.config = config or DEFAULT_PORTFOLIO_CONFIG
 
-        # cache dos conjuntos
-        self.set_cache = {}
+        # Facilita iteração dos papéis
+        self.papeis = tuple(self.config.items())
 
-        # cache dos overlaps
-        self.overlap_cache = {}
+        # Cache dos conjuntos das dezenas
+        self.set_cache: Dict[int, set[int]] = {}
 
-        # telemetria
-        self.telemetry = {
-            "execution_time_ms": 0,
-            "iterations": 0,
-            "candidates_evaluated": 0,
-            "score_medio": 0,
-            "score_minimo": 0,
-            "score_maximo": 0,
-            "desvio_padrao_score": 0,
-            "overlap_medio": 0,
-            "clusters_usados": 0,
-            "hashes_unicos": 0,
-            "dezenas_cobertas": 0,
-            "frequencia_maxima": 0,
-            "frequencia_minima": 0,
-            "portfolio_score": 0
+        # Cache dos overlaps
+        self.overlap_cache: Dict[tuple[int, int], int] = {}
+
+        # Cache futuro para scores marginais
+        self.score_cache: Dict[Any, float] = {}
+
+        # RNG para desempates reproduzíveis
+        self.random = random.Random()
+
+        # Limite máximo de overlap permitido
+        self.max_overlap = 12
+
+        # Métricas internas (expansão futura)
+        self.metricas = {
+
+            "score_ensemble": 0.0,
+            "score_diversidade": 0.0,
+            "score_cobertura": 0.0,
+            "score_cluster": 0.0,
+            "score_hash": 0.0,
+            "score_roi": 0.0
+
         }
+
+        # Telemetria
+        self.telemetry = {
+
+            "execution_time_ms": 0,
+
+            "iterations": 0,
+
+            "candidates_evaluated": 0,
+
+            "score_medio": 0,
+
+            "score_minimo": 0,
+
+            "score_maximo": 0,
+
+            "desvio_padrao_score": 0,
+
+            "overlap_medio": 0,
+
+            "clusters_usados": 0,
+
+            "hashes_unicos": 0,
+
+            "dezenas_cobertas": 0,
+
+            "frequencia_maxima": 0,
+
+            "frequencia_minima": 0,
+
+            "portfolio_score": 0
+
+        }
+
     # ======================================================
+    # CACHE DE OVERLAP
+    # ======================================================
+
     def obter_overlap(self, idx_a: int, idx_b: int) -> int:
-        """
-        Retorna o overlap utilizando cache.
-        """
+
         chave = (idx_a, idx_b) if idx_a < idx_b else (idx_b, idx_a)
-        if chave in self.overlap_cache:
-            return self.overlap_cache[chave]
-        overlap = len(self.set_cache[idx_a] & self.set_cache[idx_b])
-        self.overlap_cache[chave] = overlap
-        return overlap
+
+        if chave not in self.overlap_cache:
+
+            self.overlap_cache[chave] = len(
+                self.set_cache[idx_a] &
+                self.set_cache[idx_b]
+            )
+
+        return self.overlap_cache[chave]
+
     # ======================================================
-    def calcular_distancia(self, a: set, b: set) -> int:
+    # DISTÂNCIA ENTRE JOGOS
+    # ======================================================
+
+    @staticmethod
+    def calcular_distancia(a: set[int], b: set[int]) -> int:
         """
         Distância baseada no overlap.
-        15 = totalmente diferentes
-         0 = iguais
+
+        15 -> totalmente diferentes
+         0 -> idênticos
         """
         return 15 - len(a & b)
-    # ==========================================================
-    # PAPEL DO JOGO NO PORTFÓLIO
-    # ==========================================================
-    
+
+    # ======================================================
+    # PESOS CONFORME PAPEL
+    # ======================================================
+
     def obter_pesos_papel(self, indice: int) -> Dict[str, float]:
-        """
-        Retorna o conjunto de pesos conforme a posição
-        do jogo dentro do portfólio.
-        """
-    
-        for _, dados in self.config.items():
-    
+
+        for _, dados in self.papeis:
+
             if indice in dados["range"]:
                 return dados
-    
+
         return self.config["EXTREMO"]
-      
     # ==========================================================
     # SCORE MARGINAL
     # ==========================================================
@@ -271,10 +346,10 @@ class PortfolioEngine:
 
 
         def selecao_greedy_inteligente(
-        self,
-        candidatos: List[Dict[str, Any]],
-        tamanho_portfolio: int
-    ) -> List[Dict[str, Any]]:
+            self,
+            candidatos: List[Dict[str, Any]],
+            tamanho_portfolio: int
+        ) -> List[Dict[str, Any]]:
 
         start_time = time.perf_counter()
 
