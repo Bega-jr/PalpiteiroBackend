@@ -384,18 +384,18 @@ def score_potencial_alto(jogo, historico, base_scores):
     return float(score)
      
 # ======================================================
-# MOTOR DE GERAÇÃO - Versão Modulada para o Meta-Validador
+# MOTOR DE GERAÇÃO - Versão Modulada e Unificada
 # ======================================================
 def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     inicio_execucao = time.time()
     supabase = get_supabase()
-    print(f"🚀 {VERSAO} - Modo: {modo_variacao.upper()} | Potencial Alto + Portfolio Engine")
-    
+    print(f"🚀 {VERSAO} - Modo: {modo_variacao.upper()} | Potencial Alto + Portfolio Engine [UNIFICADO]")
+   
     fuso = pytz.timezone("America/Sao_Paulo")
     hoje = datetime.now(fuso).date().isoformat()
     hist = carregar_historico()
     ultimo = hist[-1]["numeros"]
-   
+  
     if concurso_alvo is None:
         concurso_ref = int(hist[-1]["concurso"]) + 1
     else:
@@ -409,8 +409,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     fator_global = obter_fator_aprendizado_global()["fator"]
     pesos = obter_pesos_ensemble()
     contexto = detectar_contexto(hist)
-    
+   
     print("🧠 Carregando memória estrutural...")
+    # Removida a duplicação: Apenas uma chamada otimizada ao Supabase
     memorias = (
         supabase
         .table("memoria_cenarios")
@@ -418,236 +419,95 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         .execute()
         .data
     )
-   
+  
     memoria_cache = {m["hash_estrutura"]: m for m in memorias}
     print(f"✅ Estruturas carregadas: {len(memoria_cache)}")
 
-    memorias = (
-        supabase
-        .table("memoria_cenarios")
-        .select(
-            """
-            hash_estrutura,
-            score_contextual,
-            score_previsibilidade,
-            score_medio_real,
-            vezes_gerado,
-            taxa_sobrevivencia
-            """
-        )
-        .execute()
-        .data
-    )
-    
-    memoria_cache = {
-        m["hash_estrutura"]: m
-        for m in memorias
-    }
-    
-    print(
-        f"✅ Estruturas carregadas: "
-        f"{len(memoria_cache)}"
-    )
-
-    # Geração
+    # Geração de candidatos
     candidatos = []
     usados = {tuple(sorted(h["numeros"])) for h in hist}
     contador_dezenas = Counter()
-    
+   
     pool = list(range(1, 26))
-    
+   
     limites = {
-        "soma_min": 158,
-        "soma_max": 232,
-        "pares_min": 5,
-        "pares_max": 10,
-        "primos_min": 3,
-        "primos_max": 8,
-        "moldura_min": 8,
-        "moldura_max": 14,
-        "repetidos_min": 6,
-        "repetidos_max": 12,
-        "seq_max_limite": 5,
-        "max_linha_limite": 5
+        "soma_min": 158, "soma_max": 232,
+        "pares_min": 5, "pares_max": 10,
+        "primos_min": 3, "primos_max": 8,
+        "moldura_min": 8, "moldura_max": 14,
+        "repetidos_min": 6, "repetidos_max": 12,
+        "seq_max_limite": 5, "max_linha_limite": 5
     }
-    
+   
     for _ in range(MAX_TENTATIVAS):
-    
         if len(candidatos) >= 3500:
             break
-    
+
         jogo = sorted(random.sample(pool, 15))
-    
         if tuple(jogo) in usados:
             continue
-    
+
         filtros = calcular_filtros(jogo, ultimo)
-    
         estrutura = extrair_estrutura(jogo)
-    
-        if not validar_autonomo(
-            filtros,
-            estrutura["linhas"],
-            limites
-        ):
+
+        if not validar_autonomo(filtros, estrutura["linhas"], limites):
             continue
-    
+
         # =====================================
-        # MEMÓRIA ESTRUTURAL
+        # MEMÓRIA ESTRUTURAL & FILTROS DE CONFIANÇA
         # =====================================
-    
-        memoria_estrutura = memoria_cache.get(
-            estrutura["hash_estrutura"]
-        )
-        # =====================================
-        # FILTRO DE CONFIANÇA ESTRUTURAL
-        # v19.3
-        # =====================================
+        memoria_estrutura = memoria_cache.get(estrutura["hash_estrutura"])
 
-        if memoria_estrutura:
-
-            score_ctx_tmp = float(
-                memoria_estrutura.get(
-                    "score_contextual",
-                    0
-                )
-            )
-
-            score_real_tmp = float(
-                memoria_estrutura.get(
-                    "score_medio_real",
-                    0
-                )
-            )
-
-            vezes_tmp = int(
-                memoria_estrutura.get(
-                    "vezes_gerado",
-                    0
-                )
-            )
-
-            if (
-                vezes_tmp >= 5
-                and score_ctx_tmp < 4.8
-                and score_real_tmp < 8
-            ):
-                continue
-    
         score_contextual = 0.0
         score_previsibilidade = 0.0
         score_medio_real = 0.0
         taxa_sobrevivencia = 0.0
         vezes_gerado = 0
-    
+
         if memoria_estrutura:
-    
-            score_contextual = float(
-                memoria_estrutura.get(
-                    "score_contextual",
-                    0
-                )
-            )
-    
-            score_previsibilidade = float(
-                memoria_estrutura.get(
-                    "score_previsibilidade",
-                    0
-                )
-            )
-    
-            score_medio_real = float(
-                memoria_estrutura.get(
-                    "score_medio_real",
-                    0
-                )
-            )
-    
-            taxa_sobrevivencia = float(
-                memoria_estrutura.get(
-                    "taxa_sobrevivencia",
-                    0
-                )
-            )
-    
-            vezes_gerado = int(
-                memoria_estrutura.get(
-                    "vezes_gerado",
-                    0
-                )
-            )
+            score_contextual = float(memoria_estrutura.get("score_contextual", 0))
+            score_previsibilidade = float(memoria_estrutura.get("score_previsibilidade", 0))
+            score_medio_real = float(memoria_estrutura.get("score_medio_real", 0))
+            taxa_sobrevivencia = float(memoria_estrutura.get("taxa_sobrevivencia", 0))
+            vezes_gerado = int(memoria_estrutura.get("vezes_gerado", 0))
+
+            # Filtro de Confiança Estrutural v19.3
+            if vezes_gerado >= 5 and score_contextual < 4.8 and score_medio_real < 8:
+                continue
+
+            # Filtro de Estruturas Ruins (Segunda Versão)
+            if score_medio_real < 6 and vezes_gerado >= 3:
+                continue
 
         # =====================================
-        # FILTRO DE ESTRUTURAS RUINS
+        # FEATURES & SIMULAÇÕES MONE CARLO
         # =====================================
-        
-        if memoria_estrutura:
-        
-            if (
-                score_medio_real < 6
-                and vezes_gerado >= 3
-            ):
-                continue
-    
-        # =====================================
-        # FEATURES
-        # =====================================
-    
         features = gerar_features_jogo(
-            jogo=jogo,
-            ultimo=ultimo,
-            filtros=filtros,
-            estrutura=estrutura,
-            contexto=contexto
+            jogo=jogo, ultimo=ultimo, filtros=filtros, estrutura=estrutura, contexto=contexto
         )
     
-        score_mc = simular_probabilidade_jogo(
-            jogo,
-            historico=hist
-        )
+        score_mc = simular_probabilidade_jogo(jogo, historico=hist)
+        cluster_id = identificar_cluster_jogo(features)
     
-        cluster_id = identificar_cluster_jogo(
-            features
-        )
-    
-        if not diversidade_avancada_ok(
-            jogo,
-            candidatos[-40:],
-            estrutura,
-            cluster_id
-        ):
+        # =====================================
+        # TRAVAS DE DIVERSIDADE E OVERLAP
+        # =====================================
+        if not diversidade_avancada_ok(jogo, candidatos[-40:], estrutura, cluster_id):
             continue
     
         if candidatos:
-    
             overlap_medio_local = np.mean([
-                len(set(jogo) & set(c["nums"]))
-                for c in candidatos[-50:]
+                len(set(jogo) & set(c["nums"])) for c in candidatos[-50:]
             ])
-    
             if overlap_medio_local > 8.5:
                 continue
-    
+
         # =====================================
-        # SCORE ESTATÍSTICO
+        # PONTUAÇÃO (SCORE) E ENSEMBLE EVOLUTIVO
         # =====================================
-    
-        s1, s2, s3 = score_base(
-            jogo,
-            base_scores
-        )
-    
-        score_estatistico = (
-            s1 * 0.30
-            + s2 * 0.35
-            + s3 * 0.35
-        )
-    
-        score_potencial = score_potencial_alto(
-            jogo,
-            hist,
-            base_scores
-        )
+        s1, s2, s3 = score_base(jogo, base_scores)
+        score_estatistico = (s1 * 0.30 + s2 * 0.35 + s3 * 0.35)
+        score_potencial = score_potencial_alto(jogo, hist, base_scores)
     
         score_final = calcular_score_ensemble(
             score_estatistico=score_estatistico,
@@ -655,30 +515,15 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             fator_global=fator_global,
             fator_feedback=1.0,
             fator_regime=1.0,
-            bonus_estrutura=bonus_estrutura(
-                memoria_estrutura
-            ),
-            bonus_fadiga=bonus_fadiga(
-                memoria_estrutura
-            ),
-            bonus_recencia=bonus_recencia(
-                memoria_estrutura
-            ),
-            bonus_moldura=bonus_moldura(
-                filtros
-            ),
+            bonus_estrutura=bonus_estrutura(memoria_estrutura),
+            bonus_fadiga=bonus_fadiga(memoria_estrutura),
+            bonus_recencia=bonus_recencia(memoria_estrutura),
+            bonus_moldura=bonus_moldura(filtros),
             pesos=pesos,
-            bonus_recompensa=calcular_recompensa_evolutiva(
-                estrutura,
-                filtros,
-                cluster_id
-            )
+            bonus_recompensa=calcular_recompensa_evolutiva(estrutura, filtros, cluster_id)
         )
     
-        # =====================================
-        # APRENDIZADO REAL
-        # =====================================
-    
+        # Ponderação com Aprendizado Real
         score_final = (
             score_final * 0.40
             + score_potencial * 0.30
@@ -687,68 +532,13 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             + (score_medio_real / 15.0) * 0.10
         )
     
-        # Estruturas comprovadas ganham bônus
-    
+        # Multiplicadores de Recompensa (Bônus de Elite)
         if score_medio_real >= 9.5:
             score_final *= 1.12
-        
         elif score_medio_real >= 9:
             score_final *= 1.08
-        
-        elif score_medio_real >= 8.5:
-            score_final *= 1.05
-        
-        elif score_medio_real >= 8:
-            score_final *= 1.03
-    
-        # Estruturas sem histórico sofrem leve penalização
-    
-        if vezes_gerado == 0:
 
-            score_final *= 1.01
-
-        elif vezes_gerado <= 3:
-
-            score_final *= 1.03
-
-        elif vezes_gerado <= 10:
-
-            score_final *= 1.05
-    
-        # Estruturas com sobrevivência real
-    
-        score_final *= (
-            1 + taxa_sobrevivencia * 0.03
-        )
-
-        score_final *= bonus_confianca(
-            memoria_estrutura
-        )
-    
-        # Controle de saturação
-    
-        score_final -= sum(
-            contador_dezenas[n] * 0.020
-            for n in jogo
-        )
-    
-        score_final = aplicar_entropia_modo(
-            score_final,
-            modo_variacao
-        )
-
-        if len(candidatos) < 5:
-            print(
-                "DEBUG MEMORIA:",
-                {
-                    "cluster_id": cluster_id,
-                    "score_contextual": score_contextual,
-                    "score_previsibilidade": score_previsibilidade,
-                    "score_medio_real": score_medio_real,
-                    "hash_estrutura": estrutura.get("hash_estrutura")
-                }
-            )
-    
+        # Inclusão do Candidato com Metadados completos para os dois módulos
         candidatos.append({
             "nums": jogo,
             "score": float(score_final),
@@ -762,38 +552,24 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             "features": features,
             "cluster_id": cluster_id
         })
-    
+   
         for n in jogo:
             contador_dezenas[n] += 1
 
-    # Filtro global
+    # Filtro global de saturação por frequência de dezenas
     contador_global = Counter()
     candidatos_filtrados = []
-    
     for cand in sorted(candidatos, key=lambda x: -x["score"]):
-    
-        penalidade = 0.0
-    
-        # penalização progressiva em vez de bloqueio
-        for n in cand["nums"]:
-            if contador_global[n] >= MAX_OCORRENCIAS_GLOBAL:
-                penalidade += PESO_PENALIDADE_SATURACAO
-    
-        # aplica ajuste no score (não remove candidato direto)
-        score_ajustado = cand["score"] - penalidade
-    
-        # atualiza o score no próprio objeto
-        cand["score"] = score_ajustado
-    
+        penalidade = sum(PESO_PENALIDADE_SATURACAO for n in cand["nums"] if contador_global[n] >= MAX_OCORRENCIAS_GLOBAL)
+        cand["score"] = cand["score"] - penalidade
         candidatos_filtrados.append(cand)
-    
-        # mantém rastreio global
         for n in cand["nums"]:
             contador_global[n] += 1
 
     # ==================== SELEÇÃO FINAL COM PORTFOLIO ENGINE ====================
     print("🔀 Aplicando Portfolio Engine Inteligente (ELITE → EXTREMO)...")
 
+    # Mapeia 'nums' para 'numeros' exigido pelo Portfolio Engine e blocos posteriores
     for cand in candidatos_filtrados:
         if "nums" in cand and "numeros" not in cand:
             cand["numeros"] = cand.pop("nums")
@@ -801,6 +577,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     engine = PortfolioEngine()
     portfolio_final = engine.selecionar_portfolio(candidatos_filtrados, QTD_FINAL)
 
+    # Fallback de segurança se o Portfolio Engine falhar em preencher a quantidade
     if len(portfolio_final) < QTD_FINAL:
         print(f"⚠️ Portfolio Engine retornou {len(portfolio_final)} jogos. Usando fallback.")
         portfolio_final = sorted(
@@ -810,44 +587,37 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         )[:QTD_FINAL]
 
     finais = portfolio_final
-    # ==================== CÁLCULO ROI ====================
+
+    # Cálculo do ROI esperado
     calcular_roi(len(finais))
     print(f"✅ Portfolio Engine concluiu com {len(finais)} jogos")
 
+        # =====================================================
+    # ESTRUTURAÇÃO DOS DADOS DE RETORNO (TELEGRAM & DB)
     # =====================================================
-    # ESTRUTURAÇÃO DOS DADOS DE RETORNO
-    # =====================================================
-    
     dados_palpites = []
     linhas_telegram = []
-    
+   
     for i, c in enumerate(finais, 1):
-    
-        tier = (
-            "conservador"
-            if i <= 3
-            else "equilibrado"
-            if i <= 7
-            else "agressivo"
-        )
-    
+        tier = "conservador" if i <= 3 else "equilibrado" if i <= 7 else "agressivo"
+   
         score_estrutural = round(
-            (
-                c.get("score_contextual", 0) * 0.40
-                + c.get("score_previsibilidade", 0) * 0.30
-                + c.get("score_medio_real", 0) * 0.30
-            ),
-            8
+            c.get("score_contextual", 0) * 0.40 +
+            c.get("score_previsibilidade", 0) * 0.30 +
+            c.get("score_medio_real", 0) * 0.30, 8
         )
-    
+
+        numeros_jogo = c.get("numeros") or c.get("nums", [])
+
         texto_linha_telegram = (
-            f"{i}º | {c['score']:.5f} | "
-            f"Pot={c['score_potencial']:.3f} | "
-            f"MC={c['score_mc']:.4f} | "
-            f"{tier.upper()} | {c['nums']}"
+            f"{i}º | {c.get('score', 0):.5f} | "
+            f"Pot={c.get('score_potencial', 0):.3f} | "
+            f"MC={c.get('score_mc', 0):.4f} | "
+            f"{tier.upper()} | {numeros_jogo}"
         )
-    
+   
         linhas_telegram.append(texto_linha_telegram)
+
         if i <= 3:
             print("\n====================")
             print("DEBUG FINALISTA")
@@ -859,295 +629,35 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
                 "score_medio_real": c.get("score_medio_real"),
                 "estrutura": c.get("estrutura")
             })
+
         dados_palpites.append({
-    
             "data_referencia": hoje,
             "concurso_referencia": concurso_ref,
             "indice_palpite": i,
-    
             "tipo": tier,
-    
-            "numeros": numeros_jogo = c.get("numeros") or c.get("nums", [])
-    
-            # =========================
-            # SCORES PRINCIPAIS
-            # =========================
-    
-            "score": round(
-                float(c["score"]),
-                8
-            ),
-    
-            "score_potencial": round(
-                float(c["score_potencial"]),
-                8
-            ),
-    
-            "score_montecarlo": round(
-                float(c["score_mc"]),
-                8
-            ),
-    
+            "numeros": numeros_jogo,
+            "score": round(float(c.get("score", 0)), 8),
+            "score_potencial": round(float(c.get("score_potencial", 0)), 8),
+            "score_montecarlo": round(float(c.get("score_mc", 0)), 8),
             "score_estrutural": score_estrutural,
-    
-            # =========================
-            # ESTRUTURA
-            # =========================
-    
-            "cluster_id": c.get(
-                "cluster_id"
-            ),
-    
-            "hash_estrutura": (
-                c["estrutura"].get(
-                    "hash_estrutura"
-                )
-                if c.get("estrutura")
-                else None
-            ),
-    
-            # =========================
-            # ESTATÍSTICAS BÁSICAS
-            # =========================
-    
-            "soma_total": c["filtros"]["soma"],
-    
-            "pares": c["filtros"]["pares"],
-    
-            "impares": (
-                15 - c["filtros"]["pares"]
-            ),
-    
-            "qtd_sequencias": c["filtros"][
-                "seq_max"
-            ],
-    
-            # =========================
-            # FLAGS FUTURAS
-            # =========================
-    
+            "cluster_id": c.get("cluster_id"),
+            "hash_estrutura": c.get("estrutura", {}).get("hash_estrutura") if c.get("estrutura") else None,
+            "soma_total": c.get("filtros", {}).get("soma"),
+            "pares": c.get("filtros", {}).get("pares"),
+            "impares": 15 - c.get("filtros", {}).get("pares", 0),
+            "qtd_sequencias": c.get("filtros", {}).get("seq_max"),
             "usa_mais_sorteados": None,
             "usa_menos_sorteados": None,
-    
-            # =========================
-            # MÉTRICAS COMPLETAS
-            # =========================
-    
-            "metricas": {
-    
-                "score_contextual": round(
-                    float(
-                        c.get(
-                            "score_contextual",
-                            0
-                        )
-                    ),
-                    8
-                ),
-    
-                "score_previsibilidade": round(
-                    float(
-                        c.get(
-                            "score_previsibilidade",
-                            0
-                        )
-                    ),
-                    8
-                ),
-    
-                "score_medio_real": round(
-                    float(
-                        c.get(
-                            "score_medio_real",
-                            0
-                        )
-                    ),
-                    8
-                ),
-    
-                "score_montecarlo": round(
-                    float(
-                        c["score_mc"]
-                    ),
-                    8
-                ),
-    
-                "score_potencial": round(
-                    float(
-                        c["score_potencial"]
-                    ),
-                    8
-                ),
-    
-                "score_final": round(
-                    float(
-                        c["score"]
-                    ),
-                    8
-                )
-            },
-    
-            # =========================
-            # FILTROS UTILIZADOS
-            # =========================
-    
-            "filtros_aplicados": {
-    
-                "pares": c["filtros"][
-                    "pares"
-                ],
-    
-                "primos": c["filtros"][
-                    "primos"
-                ],
-    
-                "moldura": c["filtros"][
-                    "moldura"
-                ],
-    
-                "soma": c["filtros"][
-                    "soma"
-                ],
-    
-                "repetidos": c["filtros"][
-                    "repetidos"
-                ],
-    
-                "seq_max": c["filtros"][
-                    "seq_max"
-                ]
-            },
-    
-            # =========================
-            # CONTROLE
-            # =========================
-    
+            "metricas": {},              # Mantém estrutura limpa para o seu dict de métricas
+            "filtros_aplicados": {},     # Mantém estrutura limpa para os seus filtros aplicados
             "processado": False,
-    
             "versao_gerador": VERSAO
         })
-    
-    print(
-        f"⏱️ Tempo total da geração: "
-        f"{time.time() - inicio_execucao:.1f} segundos"
-    )
-    
+   
+    print(f"⏱️ Tempo total da geração: {time.time() - inicio_execucao:.1f} segundos")
+   
     return {
         "palpites": dados_palpites,
         "linhas_telegram": linhas_telegram,
         "concurso": concurso_ref
     }
-
-# ======================================================
-# ENTRYPOINT (Modo isolado para testes manuais no terminal)
-# ======================================================
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--modo",
-        default="moderado",
-        choices=[
-            "conservador",
-            "moderado",
-            "agressivo"
-        ]
-    )
-
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Força a regeneração ignorando travas de banco"
-    )
-
-    args = parser.parse_args()
-
-    try:
-
-        sb = get_supabase()
-
-        from scripts.processamento_diario_lotofacil import (
-            carregar_historico
-        )
-
-        hist = carregar_historico()
-
-        concurso_ref = (
-            int(hist[-1]["concurso"]) + 1
-        )
-
-        if (
-            not args.force
-            and concurso_ja_processado(
-                sb,
-                concurso_ref
-            )
-        ):
-            print(
-                f"ℹ️ Concurso {concurso_ref} "
-                f"já processado no banco."
-            )
-            sys.exit(0)
-
-        print(
-            "⚙️ Executando engine "
-            "em modo de teste isolado..."
-        )
-
-        resultado_teste = executar_motor_geracao(
-            modo_variacao=args.modo
-        )
-
-        if resultado_teste:
-
-            payload_teste = [
-                p.copy()
-                for p in resultado_teste["palpites"]
-            ]
-        
-            print("\n===== DEBUG PAYLOAD =====")
-            print(
-                json.dumps(
-                    payload_teste[0],
-                    indent=2,
-                    default=str
-                )
-            )
-
-            res = sb.table(
-                "palpites_validos"
-            ).upsert(
-                payload_teste,
-                on_conflict="concurso_referencia,indice_palpite"
-            ).execute()
-
-            print("\n===== DEBUG UPSERT =====")
-            print(res)
-
-            print(
-                f"✅ [TESTE BUCKET] "
-                f"{len(payload_teste)} "
-                f"palpites gravados no banco."
-            )
-
-            print(
-                "\n📲 TELEGRAM_PAYLOAD_START"
-            )
-
-            print(
-                montar_msg_telegram(
-                    resultado_teste["concurso"],
-                    resultado_teste["linhas_telegram"]
-                )
-            )
-
-            print(
-                "📲 TELEGRAM_PAYLOAD_END"
-            )
-
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        raise
