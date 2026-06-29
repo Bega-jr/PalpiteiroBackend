@@ -566,20 +566,24 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         for n in cand["nums"]:
             contador_global[n] += 1
 
-    # ==================== SELEÇÃO FINAL COM PORTFOLIO ENGINE ====================
+        # ==================== SELEÇÃO FINAL COM PORTFOLIO ENGINE ====================
     print("🔀 Aplicando Portfolio Engine Inteligente (ELITE → EXTREMO)...")
 
-    # Mapeia 'nums' para 'numeros' exigido pelo Portfolio Engine e blocos posteriores
+    # Converte para formato padrão do engine
     for cand in candidatos_filtrados:
         if "nums" in cand and "numeros" not in cand:
             cand["numeros"] = cand.pop("nums")
 
+    # === CHAMADA DO PORTFOLIO ENGINE ===
     engine = PortfolioEngine()
-    portfolio_final = engine.selecionar_portfolio(candidatos_filtrados, QTD_FINAL)
+    portfolio_final = engine.selecionar_portfolio(
+        candidatos=candidatos_filtrados,
+        tamanho=QTD_FINAL
+    )
 
-    # Fallback de segurança se o Portfolio Engine falhar em preencher a quantidade
+    # Fallback caso o engine não consiga 10 jogos
     if len(portfolio_final) < QTD_FINAL:
-        print(f"⚠️ Portfolio Engine retornou {len(portfolio_final)} jogos. Usando fallback.")
+        print(f"⚠️ Portfolio Engine retornou apenas {len(portfolio_final)} jogos. Usando fallback.")
         portfolio_final = sorted(
             candidatos_filtrados,
             key=lambda x: (x.get("score", 0), x.get("score_medio_real", 0)),
@@ -588,25 +592,35 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
 
     finais = portfolio_final
 
-    # Cálculo do ROI esperado
+    # ==================== CÁLCULO ROI ====================
     calcular_roi(len(finais))
     print(f"✅ Portfolio Engine concluiu com {len(finais)} jogos")
 
-        # =====================================================
-    # ESTRUTURAÇÃO DOS DADOS DE RETORNO (TELEGRAM & DB)
     # =====================================================
+    # ESTRUTURAÇÃO DOS DADOS DE RETORNO (seu código original mantido intacto)
+    # =====================================================
+   
     dados_palpites = []
     linhas_telegram = []
    
     for i, c in enumerate(finais, 1):
-        tier = "conservador" if i <= 3 else "equilibrado" if i <= 7 else "agressivo"
+   
+        tier = (
+            "conservador" if i <= 3
+            else "equilibrado" if i <= 7
+            else "agressivo"
+        )
    
         score_estrutural = round(
-            c.get("score_contextual", 0) * 0.40 +
-            c.get("score_previsibilidade", 0) * 0.30 +
-            c.get("score_medio_real", 0) * 0.30, 8
+            (
+                c.get("score_contextual", 0) * 0.40
+                + c.get("score_previsibilidade", 0) * 0.30
+                + c.get("score_medio_real", 0) * 0.30
+            ),
+            8
         )
-
+   
+        # Correção segura para pegar os números
         numeros_jogo = c.get("numeros") or c.get("nums", [])
 
         texto_linha_telegram = (
@@ -636,20 +650,44 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             "indice_palpite": i,
             "tipo": tier,
             "numeros": numeros_jogo,
+
             "score": round(float(c.get("score", 0)), 8),
             "score_potencial": round(float(c.get("score_potencial", 0)), 8),
             "score_montecarlo": round(float(c.get("score_mc", 0)), 8),
             "score_estrutural": score_estrutural,
+
             "cluster_id": c.get("cluster_id"),
-            "hash_estrutura": c.get("estrutura", {}).get("hash_estrutura") if c.get("estrutura") else None,
+            "hash_estrutura": (
+                c.get("estrutura", {}).get("hash_estrutura")
+                if c.get("estrutura") else None
+            ),
+
             "soma_total": c.get("filtros", {}).get("soma"),
             "pares": c.get("filtros", {}).get("pares"),
             "impares": 15 - c.get("filtros", {}).get("pares", 0),
             "qtd_sequencias": c.get("filtros", {}).get("seq_max"),
+
             "usa_mais_sorteados": None,
             "usa_menos_sorteados": None,
-            "metricas": {},              # Mantém estrutura limpa para o seu dict de métricas
-            "filtros_aplicados": {},     # Mantém estrutura limpa para os seus filtros aplicados
+
+            "metricas": {
+                "score_contextual": round(float(c.get("score_contextual", 0)), 8),
+                "score_previsibilidade": round(float(c.get("score_previsibilidade", 0)), 8),
+                "score_medio_real": round(float(c.get("score_medio_real", 0)), 8),
+                "score_montecarlo": round(float(c.get("score_mc", 0)), 8),
+                "score_potencial": round(float(c.get("score_potencial", 0)), 8),
+                "score_final": round(float(c.get("score", 0)), 8)
+            },
+
+            "filtros_aplicados": {
+                "pares": c.get("filtros", {}).get("pares"),
+                "primos": c.get("filtros", {}).get("primos"),
+                "moldura": c.get("filtros", {}).get("moldura"),
+                "soma": c.get("filtros", {}).get("soma"),
+                "repetidos": c.get("filtros", {}).get("repetidos"),
+                "seq_max": c.get("filtros", {}).get("seq_max")
+            },
+
             "processado": False,
             "versao_gerador": VERSAO
         })
