@@ -189,7 +189,7 @@ class PortfolioEngine:
         score_cluster = 1.0 / (freq_cluster + 1)
 
         # --- HASH ESTRUTURAL ---
-        hash_est = candidato.get("hash_structure")
+        hash_est = candidato.get("hash_estrutura")
         freq_hash = hash_counter[hash_est]
         score_hash = 1.0 / (freq_hash + 1)
 
@@ -241,7 +241,7 @@ class PortfolioEngine:
         
         global_dezenas_counter.update(primeiro_candidato["numeros"])
         global_cluster_counter[primeiro_candidato["cluster_id"]] += 1
-        global_hash_counter[primeiro_candidato["hash_structure"]] += 1
+        global_hash_counter[primeiro_candidato["hash_estrutura"]] += 1
 
         logger.info(f"Jogo 1 [ELITE] fixado pelo maior Score Ensemble: {primeiro_candidato['score']:.4f}")
 
@@ -328,12 +328,12 @@ class PortfolioEngine:
 if __name__ == "__main__":
     # Dicionários complexos simulando a saída real do gerador do projeto
     palpites_palpiteiro = [
-        {"numeros":, "score": 1.45, "score_potencial": 0.85, "cluster_id": 1, "hash_structure": "STRUC_A"},
-        {"numeros":, "score": 1.10, "score_potencial": 0.60, "cluster_id": 1, "hash_structure": "STRUC_B"},
-        {"numeros":, "score": 1.30, "score_potencial": 0.90, "cluster_id": 2, "hash_structure": "STRUC_A"},
-        {"numeros":, "score": 1.25, "score_potencial": 0.75, "cluster_id": 3, "hash_structure": "STRUC_C"},
-        {"numeros":, "score": 0.95, "score_potencial": 0.40, "cluster_id": 4, "hash_structure": "STRUC_D"},
-        {"numeros":, "score": 1.05, "score_potencial": 0.55, "cluster_id": 2, "hash_structure": "STRUC_E"},
+        {"numeros":, "score": 1.45, "score_potencial": 0.85, "cluster_id": 1, "hash_estrutura": "STRUC_A"},
+        {"numeros":, "score": 1.10, "score_potencial": 0.60, "cluster_id": 1, "hash_estrutura": "STRUC_B"},
+        {"numeros":, "score": 1.30, "score_potencial": 0.90, "cluster_id": 2, "hash_estrutura": "STRUC_A"},
+        {"numeros":, "score": 1.25, "score_potencial": 0.75, "cluster_id": 3, "hash_estrutura": "STRUC_C"},
+        {"numeros":, "score": 0.95, "score_potencial": 0.40, "cluster_id": 4, "hash_estrutura": "STRUC_D"},
+        {"numeros":, "score": 1.05, "score_potencial": 0.55, "cluster_id": 2, "hash_estrutura": "STRUC_E"},
     ]
 
     engine = PortfolioEngine()
