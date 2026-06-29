@@ -75,6 +75,17 @@ DEFAULT_PORTFOLIO_CONFIG = {
 
 }
 class PortfolioEngine:
+    def obter_overlap(self, idx_a: int, idx_b: int) -> int:
+    """Busca no cache ou calcula o overlap binário entre dois candidatos via índice."""
+    chave = (idx_a, idx_b) if idx_a < idx_b else (idx_b, idx_a) # Mais rápido que sorted()
+
+    if chave in self.overlap_cache:
+        return self.overlap_cache[chave]
+
+    overlap = len(self.set_cache[idx_a] & self.set_cache[idx_b])
+    self.overlap_cache[chave] = overlap
+    return overlap
+
     """
     Engine ultra-otimizada para seleção de portfólios da Lotofácil.
     Abordagem puramente baseada em conjuntos (sets), contadores e avaliação incremental marginal.
@@ -131,57 +142,52 @@ class PortfolioEngine:
                 return dados
         return self.config_papeis["EXTREMO"] # Fallback de segurança
 
-    def calcular_ganho_marginal(self, 
+        def calcular_ganho_marginal(self, 
                                 candidato: Dict[str, Any], 
-                                conjunto_cand: set,
-                                portfolio_atual: List[Dict[str, Any]], 
+                                idx_candidato: int,                  # Novo: Índice para o cache
+                                indices_portfolio_atual: List[int],  # Novo: Índices já escolhidos
                                 dezenas_counter: Counter, 
                                 cluster_counter: Counter, 
                                 hash_counter: Counter, 
                                 pesos: Dict[str, float]) -> float:
-        """
-        Ajuste 11: Calcula apenas o impacto marginal da adição do candidato.
-        Evita recalcular o histórico completo, resultando em altíssima performance.
-        """
-        # --- 1. Score Ensemble & ROI (Ajuste 2, 8 e 9) ---
+        
         score_ensemble = candidato.get("score", 0.0)
-        # Simulando ou acessando o método do Palpiteiro solicitado no Ajuste 9
         score_roi = candidato.get("score_potencial", 0.0) 
 
-        # --- 2. Diversidade Marginal (Ajuste 4) ---
-        if not portfolio_atual:
+        # --- DIVERSIAL MARGINAL CONSUMINDO O CACHE DE OVERLAP ---
+        if not indices_portfolio_atual:
             score_diversidade = 1.0
         else:
-            # Distância interpretável média em relação aos já selecionados (normalizada de 0 a 1)
-            distancia_acumulada = sum(15 - len(conjunto_cand & jogo["_set_numeros"]) for jogo in portfolio_atual)
-            score_diversidade = (distancia_acumulada / len(portfolio_atual)) / 15.0
+            # Substituído pelo método com cache de overlap e distância interpretável
+            distancia_acumulada = sum(15 - self.obter_overlap(idx_candidato, idx_ja_escolhido) 
+                                      for idx_ja_escolhido in indices_portfolio_atual)
+            score_diversidade = (distancia_acumulada / len(indices_portfolio_atual)) / 15.0
 
-        # --- 3. Cobertura de Dezenas Marginal via Frequência (Ajuste 5) ---
-        # Penaliza dezenas que já apareceram muito e bonifica dezenas sub-representadas
-        total_jogos = len(portfolio_atual) + 1
+        # --- COBERTURA DE DEZENAS ---
+        total_jogos = len(indices_portfolio_atual) + 1
         frequencia_alvo = (total_jogos * 15) / 25
         score_dezenas_acumulado = 0.0
         
-        for num in conjunto_cand:
+        # Consome o set_cache em vez de recriar sets
+        for num in self.set_cache[idx_candidato]:
             freq_atual = dezenas_counter[num]
-            # Se a dezena ainda não estourou a média estatística ideal do grupo, ganha bônus
             if freq_atual < frequencia_alvo:
                 score_dezenas_acumulado += 1.0
             else:
-                score_dezenas_acumulado += (1.0 / (freq_atual + 1)) # Penalidade suave por saturação
+                score_dezenas_acumulado += (1.0 / (freq_atual + 1))
         score_dezenas = score_dezenas_acumulado / 15
 
-        # --- 4. Cobertura de Cluster Marginal (Ajuste 6) ---
+        # --- COBERTURA DE CLUSTER ---
         cluster_id = candidato.get("cluster_id")
         freq_cluster = cluster_counter[cluster_id]
-        score_cluster = 1.0 / (freq_cluster + 1) # Penaliza se o cluster já estiver saturado no grupo
+        score_cluster = 1.0 / (freq_cluster + 1)
 
-        # --- 5. Hash Estrutural Marginal (Ajuste 7) ---
+        # --- HASH ESTRUTURAL ---
         hash_est = candidato.get("hash_structure")
         freq_hash = hash_counter[hash_est]
-        score_hash = 1.0 / (freq_hash + 1) # Penaliza repetição do mesmo padrão estrito de desenho
+        score_hash = 1.0 / (freq_hash + 1)
 
-        # --- Combinação Ponderada das Métricas Baseado no Papel Atual (Ajuste 8 e 10) ---
+        # --- COMBINAÇÃO PONDERADA ---
         score_marginal = (
             (score_ensemble * pesos["weight_ensemble"]) +
             (score_diversidade * pesos["weight_diversity"]) +
@@ -191,6 +197,7 @@ class PortfolioEngine:
             (score_roi * pesos["weight_roi"])
         )
         return score_marginal
+
 
     def selecao_greedy_inteligente(self, candidatos: List[Dict[str, Any]], tamanho_portfolio: int) -> List[Dict[str, Any]]:
         """
