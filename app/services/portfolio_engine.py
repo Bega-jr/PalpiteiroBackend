@@ -228,17 +228,18 @@ class PortfolioEngine:
         primeiro_candidato = max(candidatos, key=lambda x: x["score"])
         primeiro_idx = candidatos.index(primeiro_candidato)
         
+                # Lista auxiliar para rastrear a ordem dos índices escolhidos para o cache
+        indices_portfolio_sequencial = [primeiro_idx]
         portfolio_selecionado.append(primeiro_candidato)
         indices_escolhidos.add(primeiro_idx)
         
-        # Atualiza os contadores com o primeiro jogo inserido
         global_dezenas_counter.update(primeiro_candidato["numeros"])
         global_cluster_counter[primeiro_candidato["cluster_id"]] += 1
         global_hash_counter[primeiro_candidato["hash_structure"]] += 1
 
         logger.info(f"Jogo 1 [ELITE] fixado pelo maior Score Ensemble: {primeiro_candidato['score']:.4f}")
 
-        # Laço Incremental (Ajuste 11)
+        # Laço Incremental
         while len(portfolio_selecionado) < tamanho_portfolio and len(indices_escolhidos) < len(candidatos):
             self.telemetry["iterations"] += 1
             
@@ -254,11 +255,11 @@ class PortfolioEngine:
                 
                 self.telemetry["candidates_evaluated"] += 1
                 
-                # Avaliação marginal ultra veloz sem mexer no portfólio real
+                # Chamada atualizada com os índices mapeados
                 ganho = self.calcular_ganho_marginal(
                     candidato=cand,
-                    conjunto_cand=cand["_set_numeros"],
-                    portfolio_atual=portfolio_selecionado,
+                    idx_candidato=idx,
+                    indices_portfolio_atual=indices_portfolio_sequencial,
                     dezenas_counter=global_dezenas_counter,
                     cluster_counter=global_cluster_counter,
                     hash_counter=global_hash_counter,
@@ -273,8 +274,8 @@ class PortfolioEngine:
                 escolhido = candidatos[melhor_idx]
                 portfolio_selecionado.append(escolhido)
                 indices_escolhidos.add(melhor_idx)
+                indices_portfolio_sequencial.append(melhor_idx) # Salva o índice no histórico
 
-                # Atualização incremental dos estados dos contadores
                 global_dezenas_counter.update(escolhido["numeros"])
                 global_cluster_counter[escolhido["cluster_id"]] += 1
                 global_hash_counter[escolhido["hash_structure"]] += 1
@@ -282,6 +283,7 @@ class PortfolioEngine:
                 logger.info(f"Jogo {len(portfolio_selecionado)} adicionado | Index: {melhor_idx} | Ganho Marginal: {melhor_ganho:.4f}")
             else:
                 break
+
 
         # Processamento final da telemetria (Ajuste 12)
         end_time = time.perf_counter()
