@@ -377,7 +377,7 @@ def main():
             )
         )
 
-        # ======================================================
+                # ======================================================
         # FEEDBACK LOOP
         # ======================================================
         media_acertos = 0.0
@@ -398,10 +398,14 @@ def main():
             if palpites_passados:
                 acertos_do_dia = []
                 for p in palpites_passados:
-                    jogo_limpo = [
-                        int(x)
-                        for x in json.loads(p["numeros"])
-                    ]
+                    # CORREÇÃO INTELIGENTE: Verifica se precisa ou não de decodificação JSON
+                    if isinstance(p["numeros"], list):
+                        jogo_bruto = p["numeros"]
+                    else:
+                        jogo_bruto = json.loads(p["numeros"])
+                        
+                    jogo_limpo = [int(x) for x in jogo_bruto]
+                    
                     acertos = len(
                         set(jogo_limpo)
                         &
@@ -430,8 +434,6 @@ def main():
                     "media_acertos_ia": round(media_acertos, 2),
                     "fator_correcao": fator_correcao,
                     "dispersao_media": dispersao,
-                    
-                    # CORREÇÃO 1: Substituído o caractere residual pela variável local correta
                     "estabilidade_media": estabilidade
                 }
 
@@ -515,8 +517,7 @@ def main():
                     for i in range(1, min(15, len(historico)))
                 ])
             ),
-            
-            # CORREÇÃO 2: Extrai a média das linhas obtendo um número decimal puro aceito pela coluna numeric
+            # CORREÇÃO CRÍTICA: Extrai a média das linhas obtendo um número decimal puro aceito pela coluna numeric
             "contexto_seq": float(np.mean(estrutura["linhas"]))
         }
 
