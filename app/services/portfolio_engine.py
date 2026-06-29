@@ -26,47 +26,87 @@ class PortfolioState:
 
 
 # ==========================================================
-# CONFIGURAÇÃO (AJUSTADA PARA ROI + COBERTURA)
+# LOG
+# ==========================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+logger = logging.getLogger("LotofacilPortfolioEngine")
+
+
+# ==========================================================
+# CONFIGURAÇÃO DOS PAPÉIS (AJUSTADA PARA SEU NOVO LAYOUT)
 # ==========================================================
 DEFAULT_PORTFOLIO_CONFIG = {
-    "ELITE": {
-        "range": range(0, 4),
-        "weight_ensemble": 0.55,
-        "weight_diversity": 0.08,
+    "ELITE": {           # Jogos 1-3 → Máxima probabilidade
+        "range": range(0, 3),
+        "weight_ensemble": 0.58,
+        "weight_diversity": 0.07,
         "weight_tens_coverage": 0.12,
         "weight_cluster": 0.10,
         "weight_hash": 0.05,
-        "weight_roi": 0.10,
+        "weight_roi": 0.08,
     },
-    "BALANCEADO": {
-        "range": range(4, 8),
-        "weight_ensemble": 0.40,
-        "weight_diversity": 0.20,
-        "weight_tens_coverage": 0.15,
+    "BALANCEADO": {      # Jogos 4-7 → Cobertura estatística
+        "range": range(3, 7),
+        "weight_ensemble": 0.42,
+        "weight_diversity": 0.18,
+        "weight_tens_coverage": 0.18,
         "weight_cluster": 0.10,
         "weight_hash": 0.05,
-        "weight_roi": 0.10,
+        "weight_roi": 0.07,
     },
-    "EXTREMO": {
-        "range": range(8, 999),
-        "weight_ensemble": 0.20,
-        "weight_diversity": 0.45,
+    "EXPLORADOR": {      # Jogos 8-9 → Padrões pouco utilizados
+        "range": range(7, 9),
+        "weight_ensemble": 0.25,
+        "weight_diversity": 0.35,
         "weight_tens_coverage": 0.20,
-        "weight_cluster": 0.05,
+        "weight_cluster": 0.10,
         "weight_hash": 0.05,
         "weight_roi": 0.05,
+    },
+    "EXTREMO": {         # Jogo 10 → Máxima cobertura + baixa sobreposição
+        "range": range(9, 999),
+        "weight_ensemble": 0.15,
+        "weight_diversity": 0.50,
+        "weight_tens_coverage": 0.25,
+        "weight_cluster": 0.05,
+        "weight_hash": 0.05,
+        "weight_roi": 0.00,
     }
 }
 
 
+# ==========================================================
+# ENGINE PRINCIPAL
+# ==========================================================
 class PortfolioEngine:
-    def __init__(self, config=None):
+    def __init__(self, config: Optional[Dict] = None):
         self.config = config or DEFAULT_PORTFOLIO_CONFIG
         self.papeis = tuple(self.config.items())
+        
         self.set_cache: Dict[int, set[int]] = {}
         self.overlap_cache: Dict[tuple, int] = {}
         self.random = random.Random()
-        self.max_overlap = 11
+        self.max_overlap = 11                    # Ajustado para bom equilíbrio
+
+        self.telemetry = {
+            "execution_time_ms": 0.0,
+            "iterations": 0,
+            "candidates_evaluated": 0,
+            "score_medio": 0.0,
+            "score_minimo": 0.0,
+            "score_maximo": 0.0,
+            "desvio_padrao_score": 0.0,
+            "overlap_medio": 0.0,
+            "clusters_usados": 0,
+            "hashes_unicos": 0,
+            "dezenas_cobertas": 0,
+            "frequencia_maxima": 0,
+            "frequencia_minima": 0,
+            "portfolio_score": 0.0
+        }
 
     def obter_overlap(self, idx_a: int, idx_b: int) -> int:
         chave = (min(idx_a, idx_b), max(idx_a, idx_b))
@@ -80,12 +120,21 @@ class PortfolioEngine:
                 return dados
         return self.config["EXTREMO"]
 
-    def calcular_ganho_marginal(self, candidato, idx_candidato, indices_portfolio_atual,
-                                dezenas_counter, cluster_counter, hash_counter, pesos):
+    def calcular_ganho_marginal(
+        self,
+        candidato: Dict[str, Any],
+        idx_candidato: int,
+        indices_portfolio_atual: List[int],
+        dezenas_counter: Counter,
+        cluster_counter: Counter,
+        hash_counter: Counter,
+        pesos: Dict[str, float]
+    ) -> float:
         
         score_ensemble = candidato.get("score", 0.0)
         score_roi = candidato.get("roi_estimado", candidato.get("score_potencial", 0.0))
 
+        # Diversidade
         if not indices_portfolio_atual:
             score_diversidade = 1.0
         else:
@@ -97,20 +146,21 @@ class PortfolioEngine:
                 soma_distancias += (15 - overlap)
             score_diversidade = (soma_distancias / len(indices_portfolio_atual)) / 15.0
 
-        # Cobertura com viés para concentração
+        # Cobertura de dezenas
         total_jogos = len(indices_portfolio_atual) + 1
         freq_ideal = (total_jogos * 15) / 25.0
         score_dezenas = 0.0
         for dezena in self.set_cache[idx_candidato]:
             freq = dezenas_counter[dezena]
-            if freq < freq_ideal - 0.3:
-                score_dezenas += 1.35
-            elif freq <= freq_ideal + 1.2:
+            if freq < freq_ideal - 0.5:
+                score_dezenas += 1.4
+            elif freq < freq_ideal + 1.5:
                 score_dezenas += 1.0
             else:
-                score_dezenas += 0.55
+                score_dezenas += 0.5
         score_dezenas /= 15
 
+        # Cluster e Hash
         score_cluster = 1 / (cluster_counter[candidato.get("cluster_id", 0)] + 1)
         score_hash = 1 / (hash_counter[candidato.get("hash_estrutura", "")] + 1)
 
@@ -126,17 +176,17 @@ class PortfolioEngine:
     def selecao_greedy_inteligente(
         self,
         candidatos: List[Dict[str, Any]],
-        tamanho_portfolio: int,
-        ultimos_palpites: List[Dict[str, Any]] = None
+        tamanho_portfolio: int = 10,
+        ultimos_palpites: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
         
         start_time = time.perf_counter()
-        logger.info(f"Iniciando seleção com {len(candidatos)} candidatos | Tamanho: {tamanho_portfolio}")
+        logger.info(f"Iniciando seleção de portfólio ({len(candidatos)} candidatos)")
 
-        if not candidatos:
+        if not candidatos or tamanho_portfolio <= 0:
             return []
 
-        # Pré-processamento
+        # Cache de sets
         self.overlap_cache.clear()
         self.set_cache.clear()
         for idx, cand in enumerate(candidatos):
@@ -146,22 +196,22 @@ class PortfolioEngine:
         indices_escolhidos = set()
 
         # ====================== INCLUI OS 2 ÚLTIMOS PALPITES ======================
-        palpites_iniciais = ultimos_palpites[:2] if ultimos_palpites else []
-        
-        for i, palpite in enumerate(palpites_iniciais):
-            if not palpite or "numeros" not in palpite:
-                continue
-            # Busca o índice correspondente nos candidatos
-            for idx, cand in enumerate(candidatos):
-                if set(cand["numeros"]) == set(palpite["numeros"]):
-                    estado.adicionar(cand)
-                    indices_escolhidos.add(idx)
-                    logger.info(f"Palpite anterior {i+1} incluído obrigatoriamente")
-                    break
+        if ultimos_palpites:
+            for i, palpite in enumerate(ultimos_palpites[:2]):
+                if not palpite or "numeros" not in palpite:
+                    continue
+                for idx, cand in enumerate(candidatos):
+                    if set(cand["numeros"]) == set(palpite["numeros"]):
+                        estado.adicionar(cand)
+                        indices_escolhidos.add(idx)
+                        logger.info(f"Último palpite {i+1} incluído como âncora")
+                        break
 
-        # Preenche o restante
+        # Preenche o restante respeitando os papéis
         while len(estado.jogos) < tamanho_portfolio and len(indices_escolhidos) < len(candidatos):
+            self.telemetry["iterations"] += 1
             pesos = self.obter_pesos_papel(len(estado.jogos))
+
             melhor_idx = None
             melhor_score = -float('inf')
 
@@ -169,10 +219,15 @@ class PortfolioEngine:
                 if idx in indices_escolhidos:
                     continue
 
+                self.telemetry["candidates_evaluated"] += 1
                 ganho = self.calcular_ganho_marginal(
-                    candidato, idx, list(indices_escolhidos),
-                    estado.dezenas_counter, estado.cluster_counter,
-                    estado.hash_counter, pesos
+                    candidato=candidato,
+                    idx_candidato=idx,
+                    indices_portfolio_atual=list(indices_escolhidos),
+                    dezenas_counter=estado.dezenas_counter,
+                    cluster_counter=estado.cluster_counter,
+                    hash_counter=estado.hash_counter,
+                    pesos=pesos
                 )
 
                 if ganho > melhor_score:
@@ -186,34 +241,79 @@ class PortfolioEngine:
             estado.adicionar(escolhido)
             indices_escolhidos.add(melhor_idx)
 
+        # Finaliza
         end_time = time.perf_counter()
         self.calcular_telemetria_final(estado, start_time, end_time)
         return estado.jogos
 
     def calcular_telemetria_final(self, estado: PortfolioState, inicio: float, fim: float):
-        # (mesmo método da versão anterior - mantido igual)
-        self.telemetry = getattr(self, 'telemetry', {})
-        # ... preencher telemetry (pode copiar da versão anterior completa)
-        logger.info(f"Portfólio finalizado com {len(estado.jogos)} jogos")
+        self.telemetry["execution_time_ms"] = (fim - inicio) * 1000
+
+        if not estado.jogos:
+            return
+
+        scores = [j.get("score", 0.0) for j in estado.jogos]
+
+        self.telemetry.update({
+            "score_medio": sum(scores) / len(scores),
+            "score_minimo": min(scores),
+            "score_maximo": max(scores),
+            "desvio_padrao_score": float(np.std(scores)) if len(scores) > 1 else 0.0,
+            "clusters_usados": len(estado.cluster_counter),
+            "hashes_unicos": len(estado.hash_counter),
+            "dezenas_cobertas": len(estado.dezenas_counter),
+            "frequencia_maxima": max(estado.dezenas_counter.values()) if estado.dezenas_counter else 0,
+            "frequencia_minima": min(estado.dezenas_counter.values()) if estado.dezenas_counter else 0,
+        })
+
+        # Overlap médio
+        overlaps = []
+        for i in range(len(estado.jogos)):
+            for j in range(i + 1, len(estado.jogos)):
+                overlap = len(set(estado.jogos[i]["numeros"]) & set(estado.jogos[j]["numeros"]))
+                overlaps.append(overlap)
+
+        self.telemetry["overlap_medio"] = sum(overlaps) / len(overlaps) if overlaps else 0.0
+
+        self.telemetry["portfolio_score"] = (
+            self.telemetry["score_medio"] * 0.40 +
+            ((15 - self.telemetry["overlap_medio"]) / 15) * 0.60
+        )
+
+        logger.info(
+            "Portfólio concluído | %d jogos | Score Geral: %.4f | Overlap Médio: %.2f",
+            len(estado.jogos), self.telemetry["portfolio_score"], self.telemetry["overlap_medio"]
+        )
 
 
 # ==========================================================
-# EXEMPLO DE USO
+# TESTE / USO
 # ==========================================================
 if __name__ == "__main__":
-    # Seus candidatos (gerados pelo seu modelo)
-    candidatos = [...]  # sua lista aqui
+    # Exemplo de uso
+    engine = PortfolioEngine()
 
-    ultimos_palpites = [
-        {"numeros": [1,3,5,7,9,11,13,15,17,19,21,22,23,24,25], "score": 1.55, ...},
-        {"numeros": [2,4,6,8,10,12,14,16,18,20,21,22,23,24,25], "score": 1.48, ...}
+    # Seus candidatos vindos do modelo preditivo
+    candidatos = [
+        # ... seus jogos aqui
     ]
 
-    engine = PortfolioEngine()
+    ultimos_palpites = [
+        # Coloque aqui seus 2 últimos palpites
+        {"numeros": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15], "score": 1.45, "cluster_id": 1, "hash_estrutura": "A"},
+        {"numeros": [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19], "score": 1.52, "cluster_id": 2, "hash_estrutura": "B"}
+    ]
+
     portfolio = engine.selecao_greedy_inteligente(
         candidatos=candidatos,
         tamanho_portfolio=10,
         ultimos_palpites=ultimos_palpites
     )
 
-    print(f"Portfólio gerado com {len(portfolio)} jogos")
+    print("\n===== PORTFÓLIO FINAL =====")
+    for i, jogo in enumerate(portfolio, 1):
+        print(f"Jogo {i:2d} | Score {jogo.get('score', 0):.3f} | {sorted(jogo['numeros'])}")
+
+    print("\n===== TELEMETRIA =====")
+    for k, v in engine.telemetry.items():
+        print(f"{k}: {v}")
