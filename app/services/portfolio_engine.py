@@ -152,7 +152,13 @@ class PortfolioEngine:
                                 pesos: Dict[str, float]) -> float:
         
         score_ensemble = candidato.get("score", 0.0)
-        score_roi = candidato.get("score_potencial", 0.0) 
+        score_roi = candidato.get(
+            "roi_estimado",
+            candidato.get(
+                "score_potencial",
+                0
+            )
+        ) 
 
         # --- DIVERSIAL MARGINAL CONSUMINDO O CACHE DE OVERLAP ---
         if not indices_portfolio_atual:
