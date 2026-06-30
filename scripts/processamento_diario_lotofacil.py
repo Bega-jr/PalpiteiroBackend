@@ -468,8 +468,8 @@ def main():
             "pares": int(estrutura["pares"]),
             "primos": int(estrutura["primos"]),
             
-            # CORREÇÃO CRÍTICA: Converte a lista do Python para uma string JSON estruturada válida para o banco
-            "linhas": json.dumps(estrutura["linhas"]), 
+            # CORREÇÃO CRÍTICA: Agora envia no formato nativo que o Postgres aceita para integer[]
+            "linhas": array_formatado_postgres, 
             
             "tendencia": round(float(tendencia_memoria), 4),
             "saturacao": round(float(saturacao), 4),
