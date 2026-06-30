@@ -547,24 +547,32 @@ def main():
         df_sorted_score = df.sort_values("score", ascending=False)
         df_sorted_atraso = df.sort_values("atraso", ascending=False)
 
+        # Converte as listas Python para o formato string "{x,y,z}" exigido pelo tipo ARRAY do Postgres
+        atrasados_pg = f"{{{','.join(map(str, faltantes_ciclo))}}}"
+        quentes_pg = f"{{{','.join(map(str, df_sorted_score.head(5)['numero'].tolist()))}}}"
+        frios_pg = f"{{{','.join(map(str, df_sorted_score.tail(5)['numero'].tolist()))}}}"
+        ranking_pg = f"{{{','.join(map(str, df_sorted_atraso.head(5)['numero'].tolist()))}}}"
+
         # 1. Alimenta a 'estatisticas_diarias_v2' com base no concurso processado hoje
         payload_diario_publico = {
-            "data_referencia": str(data),  
+            "data_referencia": str(data),  # Chave primária definitiva
             "concurso": int(concurso),
             "numero_ciclo": int(ciclo_atual),
             "media_soma": int(sum(dezenas)),
             "media_pares": int(estrutura["pares"]),
             "media_impares": int(15 - estrutura["pares"]),
             "media_primos": int(estrutura["primos"]),
-            "numeros_atrasados": [int(n) for n in faltantes_ciclo],
-            "numeros_quentes": [int(n) for n in df_sorted_score.head(5)["numero"].tolist()],
-            "numeros_frios": [int(n) for n in df_sorted_score.tail(5)["numero"].tolist()],
-            "atrasados_ranking": [int(n) for n in df_sorted_atraso.head(5)["numero"].tolist()]
+            
+            # Envios convertidos estritamente para o tipo de array nativo do banco
+            "numeros_atrasados": atrasados_pg,
+            "numeros_quentes": quentes_pg,
+            "numeros_frios": frios_pg,
+            "atrasados_ranking": ranking_pg
         }
         
-        # CORREÇÃO COMPOSTA: Define o conflito baseado nas duas colunas-chave da tabela
+        # UPSERT validado pelo schema real do banco de dados
         supabase.table("estatisticas_diarias_v2").upsert(
-            payload_diario_publico, on_conflict="concurso,data_referencia"
+            payload_diario_publico, on_conflict="data_referencia"
         ).execute()
 
         # 2. Alimenta a 'estatisticas_numeros' que renderiza a tabela de dezenas individuais do site
@@ -583,6 +591,7 @@ def main():
         ).execute()
 
         print(f"✅ [Sincronia Concluída] Estatísticas estáticas atualizadas para o Concurso {concurso}.")
+
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
