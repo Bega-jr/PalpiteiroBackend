@@ -565,16 +565,17 @@ def main():
         payload_numeros_publico = []
         for _, row in df.iterrows():
             payload_numeros_publico.append({
-                "data_referencia": data,
+                "data_referencia": str(data),
                 "numero": int(row["numero"]),
                 "frequencia": int(row["frequencia"]),
                 "atraso": int(row["atraso"]),
                 "score": round(float(row["score"]), 6)
             })
+            
         supabase.table("estatisticas_numeros").upsert(
             payload_numeros_publico, on_conflict="data_referencia,numero"
         ).execute()
-
+        
         print(f"✅ [Sincronia Concluída] Estatísticas estáticas atualizadas para o Concurso {concurso}.")
 
     except Exception as e:
