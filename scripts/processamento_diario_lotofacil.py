@@ -460,20 +460,23 @@ def main():
             print(f"⚠️ Erro Feedback Loop: {e_fb}")
 
         # ==================================================
-        # MEMÓRIA CONTEXTUAL
+        # MEMÓRIA CONTEXTUAL (CORRIGIDO)
         # ==================================================
         payload_memoria = {
-            "hash_estrutura": estrutura["hash_estrutura"],
-            "soma_faixa": estrutura["soma_faixa"],
-            "pares": estrutura["pares"],
-            "primos": estrutura["primos"],
-            "linhas": estrutura["linhas"],
-            "tendencia": round(tendencia_memoria, 4),
-            "saturacao": round(saturacao, 4),
-            "score_medio_real": round(media_acertos, 4),
-            "dispersao_media": dispersao,
-            "estabilidade_media": estabilidade,
-            "ultima_aparicao": data,
+            "hash_estrutura": str(estrutura["hash_estrutura"]),
+            "soma_faixa": int(estrutura["soma_faixa"]),
+            "pares": int(estrutura["pares"]),
+            "primos": int(estrutura["primos"]),
+            
+            # CORREÇÃO CRÍTICA: Converte a lista do Python para uma string JSON estruturada válida para o banco
+            "linhas": json.dumps(estrutura["linhas"]), 
+            
+            "tendencia": round(float(tendencia_memoria), 4),
+            "saturacao": round(float(saturacao), 4),
+            "score_medio_real": round(float(media_acertos), 4),
+            "dispersao_media": int(dispersao),
+            "estabilidade_media": float(estabilidade),
+            "ultima_aparicao": str(data),
             "updated_at": datetime.now().isoformat()
         }
 
@@ -485,6 +488,7 @@ def main():
         ).execute()
 
         print("🔄 Memória estrutural updated via UPSERT seguro")
+
 
         # ==================================================
         # REGIME CONTEXTUAL
