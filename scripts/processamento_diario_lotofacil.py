@@ -542,7 +542,7 @@ def main():
 
         # 1. Alimenta a 'estatisticas_diarias_v2' com base no concurso processado hoje
         payload_diario_publico = {
-            "data_referencia": data,
+            "data_referencia": str(data),
             "concurso": int(concurso),
             "numero_ciclo": int(ciclo_atual),
             "media_soma": int(sum(dezenas)),
@@ -554,9 +554,12 @@ def main():
             "numeros_frios": [int(n) for n in df_sorted_score.tail(5)["numero"].tolist()],
             "atrasados_ranking": [int(n) for n in df_sorted_atraso.head(5)["numero"].tolist()]
         }
+        
+        # CORREÇÃO CRÍTICA: Mudança de 'data_referencia' para 'concurso' no on_conflict
         supabase.table("estatisticas_diarias_v2").upsert(
-            payload_diario_publico, on_conflict="data_referencia"
+            payload_diario_publico, on_conflict="concurso"
         ).execute()
+
 
         # 2. Alimenta a 'estatisticas_numeros' que renderiza a tabela de dezenas individuais do site
         payload_numeros_publico = []
