@@ -459,8 +459,8 @@ def main():
         except Exception as e_fb:
             print(f"⚠️ Erro Feedback Loop: {e_fb}")
 
-                # ==================================================
-        # MEMÓRIA CONTEXTUAL (CORRIGIDO)
+        # ==================================================
+        # MEMÓRIA CONTEXTUAL (CORREÇÃO DEFINITIVA)
         # ==================================================
         payload_memoria = {
             "hash_estrutura": str(estrutura["hash_estrutura"]),
@@ -468,7 +468,7 @@ def main():
             "pares": int(estrutura["pares"]),
             "primos": int(estrutura["primos"]),
             
-            # Garante que envia uma lista de inteiros pura: [3, 3, 5, 3, 1]
+            # Formato de lista de inteiros nativos que seu banco aceita
             "linhas": [int(x) for x in estrutura["linhas"]], 
             
             "tendencia": round(float(tendencia_memoria), 4),
@@ -476,7 +476,10 @@ def main():
             "score_medio_real": round(float(media_acertos), 4),
             "dispersao_media": int(dispersao),
             "estabilidade_media": float(estabilidade),
-            "ultima_aparicao": str(data),
+            
+            # CORREÇÃO CRÍTICA: Troca a data pelo número inteiro do concurso (ex: 3722)
+            "ultima_aparicao": int(concurso), 
+            
             "updated_at": datetime.now().isoformat()
         }
 
@@ -488,6 +491,7 @@ def main():
         ).execute()
 
         print("🔄 Memória estrutural updated via UPSERT seguro")
+
 
         # ==================================================
         # REGIME CONTEXTUAL
