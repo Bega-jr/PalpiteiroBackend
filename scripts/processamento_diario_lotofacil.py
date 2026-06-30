@@ -549,7 +549,7 @@ def main():
 
         # 1. Alimenta a 'estatisticas_diarias_v2' com base no concurso processado hoje
         payload_diario_publico = {
-            "data_referencia": str(data),
+            "data_referencia": str(data),  
             "concurso": int(concurso),
             "numero_ciclo": int(ciclo_atual),
             "media_soma": int(sum(dezenas)),
@@ -562,11 +562,10 @@ def main():
             "atrasados_ranking": [int(n) for n in df_sorted_atraso.head(5)["numero"].tolist()]
         }
         
-        # CORREÇÃO CRÍTICA: Mudança de 'data_referencia' para 'concurso' no on_conflict
+        # CORREÇÃO COMPOSTA: Define o conflito baseado nas duas colunas-chave da tabela
         supabase.table("estatisticas_diarias_v2").upsert(
-            payload_diario_publico, on_conflict="concurso"
+            payload_diario_publico, on_conflict="concurso,data_referencia"
         ).execute()
-
 
         # 2. Alimenta a 'estatisticas_numeros' que renderiza a tabela de dezenas individuais do site
         payload_numeros_publico = []
@@ -582,8 +581,9 @@ def main():
         supabase.table("estatisticas_numeros").upsert(
             payload_numeros_publico, on_conflict="data_referencia,numero"
         ).execute()
-        
+
         print(f"✅ [Sincronia Concluída] Estatísticas estáticas atualizadas para o Concurso {concurso}.")
+
 
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
