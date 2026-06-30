@@ -584,7 +584,6 @@ def main():
 
         print(f"✅ [Sincronia Concluída] Estatísticas estáticas atualizadas para o Concurso {concurso}.")
 
-
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
         sys.exit(1)
