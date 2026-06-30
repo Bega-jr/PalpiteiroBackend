@@ -377,7 +377,7 @@ def main():
             )
         )
 
-                # ======================================================
+        # ======================================================
         # FEEDBACK LOOP
         # ======================================================
         media_acertos = 0.0
@@ -459,7 +459,7 @@ def main():
         except Exception as e_fb:
             print(f"⚠️ Erro Feedback Loop: {e_fb}")
 
-        # ==================================================
+                # ==================================================
         # MEMÓRIA CONTEXTUAL (CORRIGIDO)
         # ==================================================
         payload_memoria = {
@@ -468,8 +468,8 @@ def main():
             "pares": int(estrutura["pares"]),
             "primos": int(estrutura["primos"]),
             
-            # CORREÇÃO CRÍTICA: Agora envia no formato nativo que o Postgres aceita para integer[]
-            "linhas": array_formatado_postgres, 
+            # Garante que envia uma lista de inteiros pura: [3, 3, 5, 3, 1]
+            "linhas": [int(x) for x in estrutura["linhas"]], 
             
             "tendencia": round(float(tendencia_memoria), 4),
             "saturacao": round(float(saturacao), 4),
@@ -488,7 +488,6 @@ def main():
         ).execute()
 
         print("🔄 Memória estrutural updated via UPSERT seguro")
-
 
         # ==================================================
         # REGIME CONTEXTUAL
