@@ -8,6 +8,15 @@ from supabase import create_client, Client
 # =========================
 BASE_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 
+# 💡 Adicione esta constante de headers logo abaixo da BASE_URL
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://loterias.caixa.gov.br/",
+    "Origin": "https://loterias.caixa.gov.br"
+}
+
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 
