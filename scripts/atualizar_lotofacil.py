@@ -7,7 +7,7 @@ from supabase import create_client, Client
 # CONFIG
 # =========================
 # 💡 Nova URL alternativa (Loterias API) que aceita requisições do GitHub Actions
-BASE_URL = "https://loteriascaixa-api.com.br"
+BASE_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
