@@ -36,17 +36,17 @@ QTD_COMPARACAO = 20
 QTD_ELITE_MEMORIA = 10  # Aumentado levemente para priorizar estruturas com histórico real de hits altos
 
 # Mantidos inicialmente para isolar o efeito do aumento de palpites.
-MAX_TENTATIVAS = 55000
-MAX_CANDIDATOS = 4500
+MAX_TENTATIVAS = 70000
+MAX_CANDIDATOS = 6000
 CUSTO_POR_APOSTA = 3.50
 
-MAX_OCORRENCIAS_GLOBAL = 7
-PESO_PENALIDADE_SATURACAO = 0.025
+MAX_OCORRENCIAS_GLOBAL = 8
+PESO_PENALIDADE_SATURACAO = 0.020
 
 # ---- Matriz + Cobertura (v19.6) ----
 TAMANHO_MATRIZ = 20          # 18–21 é o sweet spot clássico
-PROPORCAO_MATRIZ = 0.68      # ~68% dos candidatos vêm da matriz
-COBERTURA_MINIMA_MATRIZ = 0.92  # tentar cobrir quase todas as dezenas da matriz no portfolio final
+PROPORCAO_MATRIZ = 0.72      # ~72% dos candidatos vêm da matriz
+COBERTURA_MINIMA_MATRIZ = 0.90
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
@@ -605,9 +605,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             )
 
             if (
-                vezes_tmp >= 5
-                and score_ctx_tmp < 4.8
-                and score_real_tmp < 8
+                vezes_tmp >= 8
+                and score_ctx_tmp < 4.5
+                and score_real_tmp < 7.5
             ):
                 continue
     
@@ -661,8 +661,8 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         if memoria_estrutura:
         
             if (
-                score_medio_real < 6
-                and vezes_gerado >= 3
+                score_medio_real < 5.5
+                and vezes_gerado >= 5
             ):
                 continue
     
@@ -702,7 +702,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
                 for c in candidatos[-50:]
             ])
     
-            if overlap_medio_local > 8.5:
+            if overlap_medio_local > 9.2:
                 continue
     
         # =====================================
@@ -1073,11 +1073,6 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     
             "score_potencial": round(
                 float(c["score_potencial"]),
-                8
-            ),
-
-            "score_hits_reais": round(
-                float(c.get("score_hits_reais", 0)),
                 8
             ),
     
