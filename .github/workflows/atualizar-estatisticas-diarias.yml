@@ -3,7 +3,7 @@ name: Pipeline Lotofácil 2026 - IA Evolutiva v19.2
 on:
   schedule:
     
-    - cron: "0 9 * * *"
+    - cron: "0 21 * * *"
 
   workflow_dispatch:
 
