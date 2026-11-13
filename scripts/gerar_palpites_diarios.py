@@ -26,22 +26,27 @@ from app.services.motores_ensemble_service import calcular_score_ensemble
 from app.services.selecao_genetica_service import selecionar_populacao_final
 from scripts.processamento_diario_lotofacil import carregar_historico, extrair_estrutura
 
-VERSAO = "v19.4-30-palpites-roi-monitorado"
+VERSAO = "v19.6-matriz-cobertura"
 
 # Quantidade de palpites selecionados por execução.
 # Os 20 primeiros formam o grupo-base; os 10 restantes permitem
 # medir o ganho marginal do aumento de volume.
 QTD_FINAL = 30
 QTD_COMPARACAO = 20
-QTD_ELITE_MEMORIA = 9
+QTD_ELITE_MEMORIA = 10  # Aumentado levemente para priorizar estruturas com histórico real de hits altos
 
 # Mantidos inicialmente para isolar o efeito do aumento de palpites.
-MAX_TENTATIVAS = 45000
-MAX_CANDIDATOS = 3500
+MAX_TENTATIVAS = 55000
+MAX_CANDIDATOS = 4500
 CUSTO_POR_APOSTA = 3.50
 
 MAX_OCORRENCIAS_GLOBAL = 7
-PESO_PENALIDADE_SATURACAO = 0.03
+PESO_PENALIDADE_SATURACAO = 0.025
+
+# ---- Matriz + Cobertura (v19.6) ----
+TAMANHO_MATRIZ = 20          # 18–21 é o sweet spot clássico
+PROPORCAO_MATRIZ = 0.68      # ~68% dos candidatos vêm da matriz
+COBERTURA_MINIMA_MATRIZ = 0.92  # tentar cobrir quase todas as dezenas da matriz no portfolio final
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
@@ -78,13 +83,13 @@ def calcular_roi(quantidade_palpites=None):
     return total_custo
 
 def aplicar_entropia_modo(score_final, modo_variacao):
-    """Aplica variação conforme o modo escolhido"""
+    """Aplica variação controlada. v19.5: entropia um pouco menor para preservar sinal de 13/14."""
     if modo_variacao == "agressivo":
-        return score_final * random.uniform(0.82, 1.18)
+        return score_final * random.uniform(0.85, 1.15)
     elif modo_variacao == "conservador":
-        return score_final * random.uniform(0.97, 1.03)
+        return score_final * random.uniform(0.98, 1.02)
     else:  # moderado
-        return score_final * random.uniform(0.96, 1.04)
+        return score_final * random.uniform(0.97, 1.03)
 
 # ======================================================
 # FUNÇÕES ORIGINAIS (mantidas 100% iguais)
@@ -226,47 +231,238 @@ def bonus_moldura(filtros):
     if qtd <= 7: return 0.95
     return 1.0
 
-def montar_msg_telegram(concurso_ref, linhas_palpites):
+def montar_msg_telegram(concurso_ref, linhas_palpites, matriz=None, cobertura=None):
     linhas = [
-        "🟢 Pipeline Lotofácil v19.4 concluído!",
+        "🟢 Pipeline Lotofácil v19.6-matriz-cobertura concluído!",
         "",
         f"🎯 Palpites gerados para o concurso {concurso_ref}",
+        "📦 Geração por Matriz Reduzida + Cobertura inteligente",
+        "📈 Foco em potencial real de 13/14 pontos",
         ""
     ]
+    if matriz:
+        linhas.append(f"🔢 Matriz ({len(matriz)}): {matriz}")
+    if cobertura is not None:
+        linhas.append(f"📊 Cobertura da matriz: {cobertura*100:.1f}%")
+        linhas.append("")
     linhas.extend(linhas_palpites)
     return "\n".join(linhas)
 
 def score_potencial_alto(jogo, historico, base_scores):
+    """
+    v19.5: Score focado em potencial real de 13/14 pontos.
+    - Janela recente (40) com peso maior + janela longa (120)
+    - Recompensa explícita por hits >= 13 e >= 14 no histórico
+    - Penaliza jogos que raramente passam de 11-12
+    - Mantém equilíbrio com quentes/frias e filtros estruturais
+    """
     jogo_set = set(jogo)
-    hits_historicos = []
-    for concurso in historico[-80:]:
+    hits_recentes = []
+    hits_longos = []
+    hits_13_plus = 0
+    hits_14_plus = 0
+    total_avaliados = 0
+
+    # Janela recente (mais relevante para regime atual)
+    for concurso in historico[-40:]:
+        resultado = set(concurso["numeros"])
+        hits = len(jogo_set & resultado)
+        total_avaliados += 1
+        if hits >= 11:
+            hits_recentes.append(hits)
+        if hits >= 13:
+            hits_13_plus += 1
+        if hits >= 14:
+            hits_14_plus += 1
+
+    # Janela longa (estabilidade)
+    for concurso in historico[-120:]:
         resultado = set(concurso["numeros"])
         hits = len(jogo_set & resultado)
         if hits >= 11:
-            hits_historicos.append(hits)
-    fator_historico = 1.0
-    if hits_historicos:
-        media_hits = np.mean(hits_historicos)
-        max_hits = max(hits_historicos)
-        fator_historico = (media_hits * 0.6) + (max_hits * 0.4)
-    quentes = [n for n in jogo if base_scores.get((n,), 0) > 0.65]
-    frias = [n for n in jogo if base_scores.get((n,), 0) < 0.45]
+            hits_longos.append(hits)
+
+    # Fator histórico ponderado (recente tem mais peso)
+    fator_recente = 1.0
+    if hits_recentes:
+        media_r = np.mean(hits_recentes)
+        max_r = max(hits_recentes)
+        # Bônus extra se já atingiu 13+ na janela recente
+        bonus_alto = 0.15 if max_r >= 13 else (0.08 if max_r >= 12 else 0.0)
+        fator_recente = (media_r * 0.55) + (max_r * 0.35) + bonus_alto
+
+    fator_longo = 1.0
+    if hits_longos:
+        media_l = np.mean(hits_longos)
+        max_l = max(hits_longos)
+        fator_longo = (media_l * 0.6) + (max_l * 0.4)
+
+    fator_historico = (fator_recente * 0.70) + (fator_longo * 0.30)
+
+    # Taxa de hits altos (normalizada)
+    taxa_13 = hits_13_plus / max(total_avaliados, 1)
+    taxa_14 = hits_14_plus / max(total_avaliados, 1)
+    bonus_taxa_alta = (taxa_13 * 1.8) + (taxa_14 * 3.5)  # 14 vale muito mais
+
+    quentes = [n for n in jogo if base_scores.get((n,), 0) > 0.62]
+    frias = [n for n in jogo if base_scores.get((n,), 0) < 0.42]
     filtros = calcular_filtros(jogo, historico[-1]["numeros"])
+
+    # Soma ideal da Lotofácil costuma ficar entre ~170-210
+    desvio_soma = abs(filtros["soma"] - 195) / 40.0
+    score_soma = max(0.0, 1.0 - desvio_soma)
+
     score = (
-        fator_historico * 0.55 +
-        (len(quentes) * 0.13 + len(frias) * 0.09) +
-        (filtros["soma"] / 195) * 0.12 +
-        (10 - abs(filtros["pares"] - 7.5)) * 0.11
+        fator_historico * 0.42 +
+        bonus_taxa_alta * 0.22 +
+        (len(quentes) * 0.10 + len(frias) * 0.06) +
+        score_soma * 0.12 +
+        (10 - abs(filtros["pares"] - 7.5)) * 0.08
     )
     return float(score)
-     
+
+
+def score_historico_acertos(jogo, historico):
+    """
+    Novo em v19.5: mede diretamente quantos acertos altos
+    o conjunto de dezenas já produziu no passado recente.
+    Retorna um valor normalizado ~0.0 a ~2.5.
+    """
+    jogo_set = set(jogo)
+    pontos = 0.0
+    contagem = 0
+
+    for concurso in historico[-60:]:
+        hits = len(jogo_set & set(concurso["numeros"]))
+        contagem += 1
+        if hits >= 14:
+            pontos += 4.0
+        elif hits >= 13:
+            pontos += 2.2
+        elif hits >= 12:
+            pontos += 1.0
+        elif hits >= 11:
+            pontos += 0.35
+
+    if contagem == 0:
+        return 0.8
+    return float(pontos / contagem)
+
+
+# ======================================================
+# MATRIZ REDUZIDA + COBERTURA (v19.6)
+# ======================================================
+def calcular_atraso_dezenas(historico, janela=40):
+    """Retorna dict {dezena: atraso} nos últimos 'janela' concursos."""
+    atraso = {}
+    for n in range(1, 26):
+        cont = 0
+        for concurso in reversed(historico[-janela:]):
+            if n in concurso["numeros"]:
+                break
+            cont += 1
+        atraso[n] = cont
+    return atraso
+
+
+def calcular_frequencia_ponderada(historico, janela=50):
+    """Frequência com peso maior nos concursos mais recentes."""
+    pesos = np.linspace(0.4, 1.0, min(janela, len(historico)))
+    freq = Counter()
+    for i, concurso in enumerate(historico[-janela:]):
+        w = pesos[i] if i < len(pesos) else 1.0
+        for n in concurso["numeros"]:
+            freq[n] += w
+    return freq
+
+
+def construir_matriz_reduzida(historico, base_scores, tamanho=TAMANHO_MATRIZ):
+    """
+    Constrói uma matriz de 18–21 dezenas priorizando:
+    - Frequência ponderada recente
+    - Atraso moderado (não extremo)
+    - Score individual da base_scores
+    - Equilíbrio de paridade e moldura
+    """
+    freq = calcular_frequencia_ponderada(historico, janela=45)
+    atraso = calcular_atraso_dezenas(historico, janela=35)
+
+    scores_dezena = {}
+    for n in range(1, 26):
+        f = freq.get(n, 0)
+        a = atraso.get(n, 0)
+        s = base_scores.get((n,), 0.5)
+
+        # Atraso ideal: nem zero (muito quente) nem muito alto
+        score_atraso = 1.0 - abs(a - 4.5) / 12.0
+        score_atraso = max(0.15, score_atraso)
+
+        scores_dezena[n] = (
+            f * 0.38 +
+            s * 0.32 +
+            score_atraso * 0.22 +
+            (0.08 if n in MOLDURA else 0.04)
+        )
+
+    # Ordena e pega as top + um pouco de exploração
+    ordenadas = sorted(scores_dezena.items(), key=lambda x: -x[1])
+    top = [n for n, _ in ordenadas[:tamanho - 3]]
+    # Adiciona 2–3 dezenas de exploração (médio-atraso ou score médio)
+    exploradoras = [n for n, _ in ordenadas[tamanho - 3: tamanho + 4]
+                    if n not in top]
+    random.shuffle(exploradoras)
+    matriz = sorted(top + exploradoras[:3])[:tamanho]
+
+    # Garante um mínimo de equilíbrio de paridade
+    pares = sum(1 for n in matriz if n % 2 == 0)
+    if pares < 7 or pares > 13:
+        # troca a dezena mais fraca por uma do outro grupo
+        candidatos_troca = [n for n in range(1, 26) if n not in matriz]
+        random.shuffle(candidatos_troca)
+        for cand in candidatos_troca:
+            novo = sorted([x for x in matriz if x != matriz[-1]] + [cand])
+            novos_pares = sum(1 for n in novo if n % 2 == 0)
+            if 8 <= novos_pares <= 12:
+                matriz = novo
+                break
+
+    return sorted(matriz)
+
+
+def cobertura_matriz(jogos, matriz):
+    """Retorna a fração de dezenas da matriz cobertas pelo conjunto de jogos."""
+    if not jogos or not matriz:
+        return 0.0
+    usadas = set()
+    for j in jogos:
+        usadas.update(j)
+    return len(usadas & set(matriz)) / len(matriz)
+
+
+def score_cobertura_portfolio(candidato, finais, matriz):
+    """
+    Score auxiliar que favorece candidatos que trazem dezenas
+    da matriz ainda pouco cobertas pelo portfolio atual.
+    """
+    if not matriz:
+        return 0.0
+    cobertas = set()
+    for f in finais:
+        cobertas.update(f["nums"] if isinstance(f, dict) else f)
+    faltantes = set(matriz) - cobertas
+    if not faltantes:
+        return 0.15
+    traz = len(set(candidato) & faltantes)
+    return (traz / max(len(faltantes), 1)) * 1.4 + (traz * 0.08)
+
+
 # ======================================================
 # MOTOR DE GERAÇÃO - Versão Modulada para o Meta-Validador
 # ======================================================
 def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     inicio_execucao = time.time()
     supabase = get_supabase()
-    print(f"🚀 {VERSAO} - Modo: {modo_variacao.upper()} | Potencial Alto + Tiers")
+    print(f"🚀 {VERSAO} - Modo: {modo_variacao.upper()} | Matriz + Cobertura + Foco 13/14")
 
     fuso = pytz.timezone("America/Sao_Paulo")
     hoje = datetime.now(fuso).date().isoformat()
@@ -318,6 +514,13 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         f"{len(memoria_cache)}"
     )
 
+    # =====================================================
+    # MATRIZ REDUZIDA (v19.6)
+    # =====================================================
+    matriz = construir_matriz_reduzida(hist, base_scores, tamanho=TAMANHO_MATRIZ)
+    matriz_set = set(matriz)
+    print(f"📦 Matriz reduzida ({len(matriz)} dezenas): {matriz}")
+
     # Geração
     candidatos = []
     usados = {tuple(sorted(h["numeros"])) for h in hist}
@@ -345,7 +548,12 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         if len(candidatos) >= MAX_CANDIDATOS:
             break
     
-        jogo = sorted(random.sample(pool, 15))
+        # v19.6: maioria dos candidatos sai da matriz reduzida
+        usar_matriz = random.random() < PROPORCAO_MATRIZ
+        if usar_matriz and len(matriz) >= 15:
+            jogo = sorted(random.sample(matriz, 15))
+        else:
+            jogo = sorted(random.sample(pool, 15))
     
         if tuple(jogo) in usados:
             continue
@@ -517,10 +725,14 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             hist,
             base_scores
         )
+
+        # Novo score explícito de acertos históricos (foco 13/14)
+        score_hits_reais = score_historico_acertos(jogo, hist)
     
         score_final = calcular_score_ensemble(
             score_estatistico=score_estatistico,
             score_montecarlo=score_mc,
+            score_potencial=score_potencial,  # agora passa explicitamente
             fator_global=fator_global,
             fator_feedback=1.0,
             fator_regime=1.0,
@@ -545,59 +757,48 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         )
     
         # =====================================
-        # APRENDIZADO REAL
+        # APRENDIZADO REAL - v19.5 (rebalanceado)
+        # Mais peso em potencial + hits históricos reais
+        # Menos peso em scores internos que não correlacionam bem com 13/14
         # =====================================
     
         score_final = (
-            score_final * 0.40
-            + score_potencial * 0.30
-            + score_contextual * 0.15
-            + score_previsibilidade * 0.05
-            + (score_medio_real / 15.0) * 0.10
+            score_final * 0.28
+            + score_potencial * 0.32
+            + score_hits_reais * 0.18
+            + score_contextual * 0.10
+            + score_previsibilidade * 0.04
+            + (score_medio_real / 15.0) * 0.08
         )
     
-        # Estruturas comprovadas ganham bônus
-    
-        if score_medio_real >= 9.5:
-            score_final *= 1.12
-        
-        elif score_medio_real >= 9:
-            score_final *= 1.08
-        
+        # Estruturas comprovadas com histórico de hits altos ganham bônus forte
+        if score_medio_real >= 10.0:
+            score_final *= 1.15
+        elif score_medio_real >= 9.5:
+            score_final *= 1.11
+        elif score_medio_real >= 9.0:
+            score_final *= 1.07
         elif score_medio_real >= 8.5:
-            score_final *= 1.05
-        
-        elif score_medio_real >= 8:
-            score_final *= 1.03
+            score_final *= 1.04
+        elif score_medio_real >= 8.0:
+            score_final *= 1.02
     
-        # Estruturas sem histórico sofrem leve penalização
-    
+        # Estruturas novas ou pouco testadas recebem bônus leve de exploração
         if vezes_gerado == 0:
-
-            score_final *= 1.01
-
-        elif vezes_gerado <= 3:
-
-            score_final *= 1.03
-
-        elif vezes_gerado <= 10:
-
-            score_final *= 1.05
+            score_final *= 1.02
+        elif vezes_gerado <= 4:
+            score_final *= 1.035
+        elif vezes_gerado <= 12:
+            score_final *= 1.04
     
-        # Estruturas com sobrevivência real
-    
-        score_final *= (
-            1 + taxa_sobrevivencia * 0.03
-        )
+        # Sobrevivência real
+        score_final *= (1 + taxa_sobrevivencia * 0.035)
 
-        score_final *= bonus_confianca(
-            memoria_estrutura
-        )
+        score_final *= bonus_confianca(memoria_estrutura)
     
-        # Controle de saturação
-    
+        # Controle de saturação (mais suave)
         score_final -= sum(
-            contador_dezenas[n] * 0.020
+            contador_dezenas[n] * 0.018
             for n in jogo
         )
     
@@ -622,6 +823,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             "nums": jogo,
             "score": float(score_final),
             "score_potencial": float(score_potencial),
+            "score_hits_reais": float(score_hits_reais),
             "score_mc": float(score_mc),
             "score_contextual": float(score_contextual),
             "score_previsibilidade": float(score_previsibilidade),
@@ -692,13 +894,18 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
 
     finais = []
 
-    # Primeiro grupo: estruturas com melhor histórico de memória.
+    # =====================================================
+    # SELEÇÃO FINAL v19.6 — Elite de hits + Cobertura da Matriz
+    # =====================================================
+    # 1) Elite por qualidade real (hits históricos + potencial)
     elite_memoria = sorted(
         candidatos_filtrados,
         key=lambda x: (
-            x.get("score_medio_real", 0),
-            x.get("score_contextual", 0),
-            x["score"]
+            x.get("score_medio_real", 0) * 1.4 +
+            x.get("score_potencial", 0) * 1.1 +
+            x.get("score_hits_reais", 0) * 1.3 +
+            x.get("score_contextual", 0) * 0.6 +
+            x["score"] * 0.5
         ),
         reverse=True
     )
@@ -706,47 +913,45 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     elite_selecionada = elite_memoria[:QTD_ELITE_MEMORIA]
     finais.extend(elite_selecionada)
 
-    # Demais palpites: prioriza diversidade sem alterar os scores
-    # nem os pesos do ensemble/aprendizado.
+    # 2) Demais jogos: maximiza cobertura da matriz + diversidade
     ids_elite = {id(c) for c in finais}
-    resto = [
-        c for c in candidatos_filtrados
-        if id(c) not in ids_elite
-    ]
-    random.shuffle(resto)
+    resto = [c for c in candidatos_filtrados if id(c) not in ids_elite]
+
+    # Ordena o resto por contribuição de cobertura + score
+    def chave_cobertura(c):
+        cov = score_cobertura_portfolio(c["nums"], finais, matriz)
+        return (
+            cov * 1.6 +
+            c.get("score_potencial", 0) * 0.9 +
+            c.get("score_hits_reais", 0) * 0.8 +
+            c["score"] * 0.5
+        )
+
+    resto.sort(key=chave_cobertura, reverse=True)
 
     for cand in resto:
-
         if len(finais) >= QTD_FINAL:
             break
 
         overlap_max = max(
-            (
-                len(set(cand["nums"]) & set(f["nums"]))
-                for f in finais
-            ),
+            (len(set(cand["nums"]) & set(f["nums"])) for f in finais),
             default=0
         )
 
-        limite_overlap = (
-            9
-            if len(finais) < 8
-            else 11
-        )
+        limite_overlap = 9 if len(finais) < 10 else 11
 
-        if overlap_max <= limite_overlap:
+        # Aceita se não sobrepõe demais OU se traz cobertura nova importante
+        traz_cobertura = score_cobertura_portfolio(cand["nums"], finais, matriz) > 0.35
+
+        if overlap_max <= limite_overlap or (overlap_max <= 12 and traz_cobertura):
             finais.append(cand)
 
-    # Preenchimento de segurança:
-    # percorre a lista inteira; evita o loop infinito que ocorria
-    # quando o candidato apontado já estava em finais.
+    # 3) Preenchimento de segurança
     if len(finais) < QTD_FINAL:
         ids_finais = {id(c) for c in finais}
-
         for prox in candidatos_filtrados:
             if len(finais) >= QTD_FINAL:
                 break
-
             if id(prox) not in ids_finais:
                 finais.append(prox)
                 ids_finais.add(id(prox))
@@ -760,18 +965,20 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             f"Candidatos únicos disponíveis: {len(candidatos_filtrados)}."
         )
 
+    # Métricas de cobertura da matriz
     dezenas_usadas = set()
-    
     for f in finais:
         dezenas_usadas.update(f["nums"])
-    
-    faltantes = set(range(1, 26)) - dezenas_usadas
-    
-    if faltantes:
-        print(
-            f"⚠️ Dezenas ausentes detectadas: "
-            f"{sorted(faltantes)}"
-        )
+
+    cob_matriz = cobertura_matriz([f["nums"] for f in finais], matriz)
+    faltantes_matriz = sorted(set(matriz) - dezenas_usadas)
+    faltantes_geral = sorted(set(range(1, 26)) - dezenas_usadas)
+
+    print(f"📊 Cobertura da matriz: {cob_matriz*100:.1f}% ({len(matriz) - len(faltantes_matriz)}/{len(matriz)})")
+    if faltantes_matriz:
+        print(f"   Dezenas da matriz ainda não cobertas: {faltantes_matriz}")
+    if faltantes_geral:
+        print(f"⚠️ Dezenas ausentes no portfolio: {faltantes_geral}")
     
     if len(finais) < QTD_FINAL:
         print(
@@ -828,6 +1035,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         texto_linha_telegram = (
             f"{i}º | {c['score']:.5f} | "
             f"Pot={c['score_potencial']:.3f} | "
+            f"Hits={c.get('score_hits_reais', 0):.2f} | "
             f"MC={c['score_mc']:.4f} | "
             f"{tier.upper()} | {c['nums']}"
         )
@@ -865,6 +1073,11 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     
             "score_potencial": round(
                 float(c["score_potencial"]),
+                8
+            ),
+
+            "score_hits_reais": round(
+                float(c.get("score_hits_reais", 0)),
                 8
             ),
     
@@ -997,6 +1210,13 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
                     ),
                     8
                 ),
+
+                "score_hits_reais": round(
+                    float(
+                        c.get("score_hits_reais", 0)
+                    ),
+                    8
+                ),
     
                 "score_final": round(
                     float(
@@ -1054,7 +1274,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     return {
         "palpites": dados_palpites,
         "linhas_telegram": linhas_telegram,
-        "concurso": concurso_ref
+        "concurso": concurso_ref,
+        "matriz": matriz,
+        "cobertura_matriz": cob_matriz
     }
 
 # ======================================================
@@ -1158,7 +1380,9 @@ if __name__ == "__main__":
             print(
                 montar_msg_telegram(
                     resultado_teste["concurso"],
-                    resultado_teste["linhas_telegram"]
+                    resultado_teste["linhas_telegram"],
+                    matriz=resultado_teste.get("matriz"),
+                    cobertura=resultado_teste.get("cobertura_matriz")
                 )
             )
 
