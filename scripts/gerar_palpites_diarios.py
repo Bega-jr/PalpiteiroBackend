@@ -26,7 +26,7 @@ from app.services.motores_ensemble_service import calcular_score_ensemble
 from app.services.selecao_genetica_service import selecionar_populacao_final
 from scripts.processamento_diario_lotofacil import carregar_historico, extrair_estrutura
 
-VERSAO = "v19.6-matriz-cobertura"
+VERSAO = "v19.7-perfis-cobertura-total"
 
 # Quantidade de palpites selecionados por execução.
 # Os 20 primeiros formam o grupo-base; os 10 restantes permitem
@@ -36,8 +36,9 @@ QTD_COMPARACAO = 20
 QTD_ELITE_MEMORIA = 10  # Aumentado levemente para priorizar estruturas com histórico real de hits altos
 
 # Mantidos inicialmente para isolar o efeito do aumento de palpites.
-MAX_TENTATIVAS = 70000
-MAX_CANDIDATOS = 6000
+MAX_TENTATIVAS = 450000
+MAX_CANDIDATOS = 900
+MIN_CANDIDATOS_POOL = 300
 CUSTO_POR_APOSTA = 3.50
 
 MAX_OCORRENCIAS_GLOBAL = 8
@@ -47,6 +48,9 @@ PESO_PENALIDADE_SATURACAO = 0.020
 TAMANHO_MATRIZ = 20          # 18–21 é o sweet spot clássico
 PROPORCAO_MATRIZ = 0.72      # ~72% dos candidatos vêm da matriz
 COBERTURA_MINIMA_MATRIZ = 0.90
+
+# Metas iniciais dos perfis; a classificação é calculada pelos indicadores.
+METAS_PERFIS = {"conservador": 9, "equilibrado": 12, "agressivo": 9}
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
@@ -233,7 +237,7 @@ def bonus_moldura(filtros):
 
 def montar_msg_telegram(concurso_ref, linhas_palpites, matriz=None, cobertura=None):
     linhas = [
-        "🟢 Pipeline Lotofácil v19.6-matriz-cobertura concluído!",
+        "🟢 Pipeline Lotofácil v19.7-perfis-cobertura-total concluído!",
         "",
         f"🎯 Palpites gerados para o concurso {concurso_ref}",
         "📦 Geração por Matriz Reduzida + Cobertura inteligente",
@@ -456,6 +460,219 @@ def score_cobertura_portfolio(candidato, finais, matriz):
     return (traz / max(len(faltantes), 1)) * 1.4 + (traz * 0.08)
 
 
+
+# ======================================================
+# CLASSIFICAÇÃO OBJETIVA DOS PERFIS (v19.7)
+# ======================================================
+def _percentis(valores):
+    """Normaliza valores em percentis [0, 1], preservando empates."""
+    if not valores:
+        return []
+    ordenados = sorted(float(v) for v in valores)
+    n = len(ordenados)
+    if n == 1 or ordenados[0] == ordenados[-1]:
+        return [0.5] * n
+    saida = []
+    for valor in valores:
+        abaixo = sum(1 for x in ordenados if x < float(valor))
+        iguais = sum(1 for x in ordenados if x == float(valor))
+        saida.append((abaixo + (iguais - 1) / 2) / (n - 1))
+    return saida
+
+
+def calcular_indicadores_perfis(candidatos):
+    """Calcula estabilidade, aderência, exploração e diversidade no pool."""
+    if not candidatos:
+        return
+
+    # Frequência de estruturas e clusters no universo de candidatos.
+    freq_hash = Counter(
+        c.get("estrutura", {}).get("hash_estrutura") for c in candidatos
+    )
+    freq_cluster = Counter(str(c.get("cluster_id")) for c in candidatos)
+
+    estabilidade_raw = [
+        0.45 * float(c.get("score_contextual", 0))
+        + 0.25 * float(c.get("score_previsibilidade", 0))
+        + 0.30 * float(c.get("score_medio_real", 0))
+        for c in candidatos
+    ]
+    aderencia_raw = [
+        0.40 * float(c.get("score", 0))
+        + 0.30 * float(c.get("score_potencial", 0))
+        + 0.20 * float(c.get("score_hits_reais", 0))
+        + 0.10 * float(c.get("score_mc", 0))
+        for c in candidatos
+    ]
+    exploracao_raw = [
+        1.0 / (1.0 + max(0, int(c.get("vezes_gerado", 0))))
+        for c in candidatos
+    ]
+    diversidade_raw = [
+        0.60 / max(1, freq_cluster[str(c.get("cluster_id"))])
+        + 0.40 / max(1, freq_hash.get(c.get("estrutura", {}).get("hash_estrutura"), 1))
+        for c in candidatos
+    ]
+
+    estabilidade = _percentis(estabilidade_raw)
+    aderencia = _percentis(aderencia_raw)
+    exploracao = _percentis(exploracao_raw)
+    diversidade = _percentis(diversidade_raw)
+
+    for i, c in enumerate(candidatos):
+        est = estabilidade[i]
+        ade = aderencia[i]
+        exp = exploracao[i]
+        div = diversidade[i]
+
+        # Os perfis expressam prioridades diferentes, não probabilidades de acerto.
+        centralidade = max(
+            0.0,
+            1.0 - (abs(est - 0.5) + abs(ade - 0.5)
+                   + abs(exp - 0.5) + abs(div - 0.5)) / 2.0
+        )
+        scores = {
+            "conservador": 0.45 * est + 0.40 * ade + 0.10 * div + 0.05 * exp,
+            # Equilibrado premia desempenho intermediário e ausência de extremos.
+            "equilibrado": (
+                0.175 * est + 0.175 * ade + 0.175 * exp
+                + 0.175 * div + 0.30 * centralidade
+            ),
+            "agressivo": 0.15 * est + 0.20 * ade + 0.35 * exp + 0.30 * div,
+        }
+        c["indicadores_perfil"] = {
+            "estabilidade": round(est, 6),
+            "aderencia": round(ade, 6),
+            "exploracao": round(exp, 6),
+            "diversidade": round(div, 6),
+            "centralidade": round(centralidade, 6),
+        }
+        c["scores_perfil"] = {
+            k: round(v, 6) for k, v in scores.items()
+        }
+        c["perfil"] = max(scores, key=scores.get)
+        c["score_perfil"] = float(scores[c["perfil"]])
+
+
+def selecionar_portfolio_perfis(candidatos, metas=None):
+    """Seleciona os perfis pelas pontuações e exige cobertura das 25 dezenas."""
+    metas = metas or METAS_PERFIS
+    calcular_indicadores_perfis(candidatos)
+
+    grupos = {
+        perfil: [c for c in candidatos if c.get("perfil") == perfil]
+        for perfil in metas
+    }
+    faltas = {
+        perfil: meta - len(grupos.get(perfil, []))
+        for perfil, meta in metas.items()
+        if len(grupos.get(perfil, [])) < meta
+    }
+    if faltas:
+        resumo = {k: len(v) for k, v in grupos.items()}
+        raise RuntimeError(
+            f"Pool insuficiente para cumprir as metas dos perfis. "
+            f"Disponíveis={resumo}; metas={metas}; faltas={faltas}. "
+            "Aumente o pool ou revise os filtros/limites de geração."
+        )
+
+    selecionados = []
+    usados_ids = set()
+    contagem = {perfil: 0 for perfil in metas}
+    dezenas_universo = set(range(1, 26))
+
+    # Seleção gulosa global: respeita a quota de cada perfil e dá prioridade
+    # às dezenas ainda ausentes, sem abandonar a pontuação específica do perfil.
+    while len(selecionados) < sum(metas.values()):
+        faltantes = dezenas_universo - {
+            n for item in selecionados for n in item["nums"]
+        }
+        melhor = None
+        melhor_perfil = None
+        melhor_score = float("-inf")
+
+        for perfil, meta in metas.items():
+            if contagem[perfil] >= meta:
+                continue
+            for cand in grupos[perfil]:
+                ident = id(cand)
+                if ident in usados_ids:
+                    continue
+                nums = set(cand["nums"])
+                novas = len(nums & faltantes)
+                overlap_max = max(
+                    (len(nums & set(sel["nums"])) for sel in selecionados),
+                    default=0
+                )
+                penalidade_overlap = max(0, overlap_max - 9) * 0.012
+                # A cobertura tem peso suficiente para garantir representação
+                # ampla, mas não substitui a avaliação de qualidade do perfil.
+                score_selecao = (
+                    float(cand["scores_perfil"][perfil])
+                    + (novas / 15.0) * 0.30
+                    - penalidade_overlap
+                )
+                if score_selecao > melhor_score:
+                    melhor = cand
+                    melhor_perfil = perfil
+                    melhor_score = score_selecao
+
+        if melhor is None:
+            raise RuntimeError(
+                "Não foi possível completar as 30 seleções sem duplicar jogos."
+            )
+
+        melhor["perfil"] = melhor_perfil
+        melhor["score_perfil"] = float(melhor["scores_perfil"][melhor_perfil])
+        selecionados.append(melhor)
+        usados_ids.add(id(melhor))
+        contagem[melhor_perfil] += 1
+
+    dezenas_usadas = {n for item in selecionados for n in item["nums"]}
+    faltantes = sorted(dezenas_universo - dezenas_usadas)
+    if faltantes:
+        raise RuntimeError(
+            f"Portfólio selecionado não cobre as 25 dezenas. Ausentes: {faltantes}. "
+            "Nenhum palpite deve ser gravado."
+        )
+
+    # Ordena por perfil e depois pela pontuação específica, para facilitar auditoria.
+    ordem = {"conservador": 0, "equilibrado": 1, "agressivo": 2}
+    selecionados.sort(
+        key=lambda c: (ordem.get(c.get("perfil"), 9), -c.get("score_perfil", 0))
+    )
+    return selecionados
+
+
+def validar_portfolio_final(finais):
+    """Validação final obrigatória imediatamente antes de montar o payload."""
+    if len(finais) != QTD_FINAL:
+        raise RuntimeError(
+            f"Portfólio inválido: {len(finais)} jogos; esperado {QTD_FINAL}."
+        )
+    combinacoes = set()
+    dezenas = set()
+    for idx, item in enumerate(finais, 1):
+        nums = item.get("nums", [])
+        if len(nums) != 15 or len(set(nums)) != 15:
+            raise RuntimeError(f"Jogo {idx} não possui 15 dezenas únicas.")
+        if any(not isinstance(n, int) or n < 1 or n > 25 for n in nums):
+            raise RuntimeError(f"Jogo {idx} contém dezena fora do intervalo 1..25.")
+        chave = tuple(sorted(nums))
+        if chave in combinacoes:
+            raise RuntimeError(f"Jogo duplicado detectado na posição {idx}.")
+        combinacoes.add(chave)
+        dezenas.update(nums)
+    ausentes = sorted(set(range(1, 26)) - dezenas)
+    if ausentes:
+        raise RuntimeError(f"Cobertura incompleta: dezenas ausentes {ausentes}.")
+    contagem = Counter(item.get("perfil") for item in finais)
+    if any(contagem.get(perfil, 0) != qtd for perfil, qtd in METAS_PERFIS.items()):
+        raise RuntimeError(
+            f"Distribuição de perfis inválida: {dict(contagem)}; metas={METAS_PERFIS}."
+        )
+    return contagem
+
 # ======================================================
 # MOTOR DE GERAÇÃO - Versão Modulada para o Meta-Validador
 # ======================================================
@@ -543,10 +760,22 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         "max_linha_limite": 5
     }
     
-    for _ in range(MAX_TENTATIVAS):
-    
+    tentativas_realizadas = 0
+    for tentativa in range(MAX_TENTATIVAS):
+        tentativas_realizadas = tentativa + 1
         if len(candidatos) >= MAX_CANDIDATOS:
             break
+        # A partir de 300 candidatos, verifica se já há massa suficiente
+        # em cada perfil. Se algum perfil estiver sub-representado, continua
+        # ampliando o pool em blocos de 100, até 900 candidatos ou o limite.
+        if len(candidatos) >= MIN_CANDIDATOS_POOL and len(candidatos) % 100 == 0:
+            calcular_indicadores_perfis(candidatos)
+            distribuicao_pool = Counter(c.get("perfil") for c in candidatos)
+            if all(
+                distribuicao_pool.get(perfil, 0) >= meta
+                for perfil, meta in METAS_PERFIS.items()
+            ):
+                break
     
         # v19.6: maioria dos candidatos sai da matriz reduzida
         usar_matriz = random.random() < PROPORCAO_MATRIZ
@@ -562,12 +791,16 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     
         estrutura = extrair_estrutura(jogo)
     
-        if not validar_autonomo(
+        # As restrições estruturais passam a ser pontuadas, não bloqueios.
+        # O único critério rígido aqui é a validade combinatória (15 dezenas únicas).
+        if len(jogo) != 15 or len(set(jogo)) != 15 or any(n < 1 or n > 25 for n in jogo):
+            continue
+        dentro_limites = validar_autonomo(
             filtros,
             estrutura["linhas"],
             limites
-        ):
-            continue
+        )
+        penalidade_estrutura = 0.0 if dentro_limites else 0.035
     
         # =====================================
         # MEMÓRIA ESTRUTURAL
@@ -604,12 +837,8 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
                 )
             )
 
-            if (
-                vezes_tmp >= 8
-                and score_ctx_tmp < 4.5
-                and score_real_tmp < 7.5
-            ):
-                continue
+            # Estruturas historicamente fracas recebem penalidade adiante;
+            # não são descartadas nesta etapa de geração.
     
         score_contextual = 0.0
         score_previsibilidade = 0.0
@@ -658,13 +887,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         # FILTRO DE ESTRUTURAS RUINS
         # =====================================
         
-        if memoria_estrutura:
-        
-            if (
-                score_medio_real < 5.5
-                and vezes_gerado >= 5
-            ):
-                continue
+        penalidade_memoria = 0.0
+        if memoria_estrutura and score_medio_real < 5.5 and vezes_gerado >= 5:
+            penalidade_memoria = 0.045
     
         # =====================================
         # FEATURES
@@ -687,23 +912,21 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             features
         )
     
-        if not diversidade_avancada_ok(
+        diversidade_ok = diversidade_avancada_ok(
             jogo,
             candidatos[-40:],
             estrutura,
             cluster_id
-        ):
-            continue
+        )
+        penalidade_diversidade = 0.0 if diversidade_ok else 0.035
     
+        overlap_medio_local = 0.0
         if candidatos:
-    
-            overlap_medio_local = np.mean([
+            overlap_medio_local = float(np.mean([
                 len(set(jogo) & set(c["nums"]))
                 for c in candidatos[-50:]
-            ])
-    
-            if overlap_medio_local > 9.2:
-                continue
+            ]))
+        penalidade_overlap_pool = max(0.0, overlap_medio_local - 9.2) * 0.012
     
         # =====================================
         # SCORE ESTATÍSTICO
@@ -801,6 +1024,12 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             contador_dezenas[n] * 0.018
             for n in jogo
         )
+        score_final -= (
+            penalidade_estrutura
+            + penalidade_memoria
+            + penalidade_diversidade
+            + penalidade_overlap_pool
+        )
     
         score_final = aplicar_entropia_modo(
             score_final,
@@ -831,7 +1060,15 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             "filtros": filtros,
             "estrutura": estrutura,
             "features": features,
-            "cluster_id": cluster_id
+            "cluster_id": cluster_id,
+            "vezes_gerado": int(vezes_gerado),
+            "taxa_sobrevivencia": float(taxa_sobrevivencia),
+            "penalidades_geracao": {
+                "estrutura": float(penalidade_estrutura),
+                "memoria": float(penalidade_memoria),
+                "diversidade": float(penalidade_diversidade),
+                "overlap_pool": float(penalidade_overlap_pool)
+            }
         })
 
         # Impede duplicatas no conjunto de candidatos.
@@ -840,152 +1077,54 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         for n in jogo:
             contador_dezenas[n] += 1
 
-    # Filtro global
+    print(
+        f"\n📦 Pool gerado: {len(candidatos)} candidatos válidos "
+        f"em {tentativas_realizadas:,} tentativas."
+    )
+
+    if len(candidatos) < QTD_FINAL:
+        raise RuntimeError(
+            f"Pool insuficiente: apenas {len(candidatos)} candidatos válidos "
+            f"para selecionar {QTD_FINAL} jogos. Nenhum dado será gravado."
+        )
+
+    # Penalidade global de saturação permanece como ajuste de score, sem descarte.
     contador_global = Counter()
-    candidatos_filtrados = []
-    
     for cand in sorted(candidatos, key=lambda x: -x["score"]):
-    
-        penalidade = 0.0
-    
-        # penalização progressiva em vez de bloqueio
-        for n in cand["nums"]:
-            if contador_global[n] >= MAX_OCORRENCIAS_GLOBAL:
-                penalidade += PESO_PENALIDADE_SATURACAO
-    
-        # aplica ajuste no score (não remove candidato direto)
-        score_ajustado = cand["score"] - penalidade
-    
-        # atualiza o score no próprio objeto
-        cand["score"] = score_ajustado
-    
-        candidatos_filtrados.append(cand)
-    
-        # mantém rastreio global
+        penalidade = sum(
+            PESO_PENALIDADE_SATURACAO
+            for n in cand["nums"]
+            if contador_global[n] >= MAX_OCORRENCIAS_GLOBAL
+        )
+        cand["score"] = float(cand["score"] - penalidade)
         for n in cand["nums"]:
             contador_global[n] += 1
 
-    # ==================== SELEÇÃO FINAL ROBUSTA ====================
+    # Classificação objetiva e seleção com metas explícitas por perfil.
+    finais = selecionar_portfolio_perfis(candidatos, METAS_PERFIS)
+    distribuicao_perfis = validar_portfolio_final(finais)
 
-    candidatos_filtrados.sort(
-        key=lambda x: (
-            x["score"],
-            x.get("score_contextual", 0)
-        ),
-        reverse=True
-    )
-
-    if len(candidatos_filtrados) < QTD_FINAL:
-        print(
-            f"⚠️ Candidatos filtrados insuficientes "
-            f"({len(candidatos_filtrados)} para {QTD_FINAL}). "
-            "Aplicando fallback pela ordenação dos candidatos disponíveis."
-        )
-
-        candidatos_filtrados = sorted(
-            candidatos,
-            key=lambda x: (
-                x["score"],
-                x.get("score_contextual", 0),
-                x.get("score_medio_real", 0)
-            ),
-            reverse=True
-        )
-
-    finais = []
-
-    # =====================================================
-    # SELEÇÃO FINAL v19.6 — Elite de hits + Cobertura da Matriz
-    # =====================================================
-    # 1) Elite por qualidade real (hits históricos + potencial)
-    elite_memoria = sorted(
-        candidatos_filtrados,
-        key=lambda x: (
-            x.get("score_medio_real", 0) * 1.4 +
-            x.get("score_potencial", 0) * 1.1 +
-            x.get("score_hits_reais", 0) * 1.3 +
-            x.get("score_contextual", 0) * 0.6 +
-            x["score"] * 0.5
-        ),
-        reverse=True
-    )
-
-    elite_selecionada = elite_memoria[:QTD_ELITE_MEMORIA]
-    finais.extend(elite_selecionada)
-
-    # 2) Demais jogos: maximiza cobertura da matriz + diversidade
-    ids_elite = {id(c) for c in finais}
-    resto = [c for c in candidatos_filtrados if id(c) not in ids_elite]
-
-    # Ordena o resto por contribuição de cobertura + score
-    def chave_cobertura(c):
-        cov = score_cobertura_portfolio(c["nums"], finais, matriz)
-        return (
-            cov * 1.6 +
-            c.get("score_potencial", 0) * 0.9 +
-            c.get("score_hits_reais", 0) * 0.8 +
-            c["score"] * 0.5
-        )
-
-    resto.sort(key=chave_cobertura, reverse=True)
-
-    for cand in resto:
-        if len(finais) >= QTD_FINAL:
-            break
-
-        overlap_max = max(
-            (len(set(cand["nums"]) & set(f["nums"])) for f in finais),
-            default=0
-        )
-
-        limite_overlap = 9 if len(finais) < 10 else 11
-
-        # Aceita se não sobrepõe demais OU se traz cobertura nova importante
-        traz_cobertura = score_cobertura_portfolio(cand["nums"], finais, matriz) > 0.35
-
-        if overlap_max <= limite_overlap or (overlap_max <= 12 and traz_cobertura):
-            finais.append(cand)
-
-    # 3) Preenchimento de segurança
-    if len(finais) < QTD_FINAL:
-        ids_finais = {id(c) for c in finais}
-        for prox in candidatos_filtrados:
-            if len(finais) >= QTD_FINAL:
-                break
-            if id(prox) not in ids_finais:
-                finais.append(prox)
-                ids_finais.add(id(prox))
-
-    finais = finais[:QTD_FINAL]
-
-    if len(finais) < QTD_FINAL:
-        print(
-            f"⚠️ ATENÇÃO: foram selecionados apenas {len(finais)} "
-            f"de {QTD_FINAL} palpites. "
-            f"Candidatos únicos disponíveis: {len(candidatos_filtrados)}."
-        )
-
-    # Métricas de cobertura da matriz
-    dezenas_usadas = set()
-    for f in finais:
-        dezenas_usadas.update(f["nums"])
-
+    dezenas_usadas = {n for f in finais for n in f["nums"]}
+    faltantes_geral = sorted(set(range(1, 26)) - dezenas_usadas)
     cob_matriz = cobertura_matriz([f["nums"] for f in finais], matriz)
     faltantes_matriz = sorted(set(matriz) - dezenas_usadas)
-    faltantes_geral = sorted(set(range(1, 26)) - dezenas_usadas)
 
-    print(f"📊 Cobertura da matriz: {cob_matriz*100:.1f}% ({len(matriz) - len(faltantes_matriz)}/{len(matriz)})")
-    if faltantes_matriz:
-        print(f"   Dezenas da matriz ainda não cobertas: {faltantes_matriz}")
+    print("\n===== AUDITORIA DO PORTFÓLIO =====")
+    print(f"✅ Jogos finais: {len(finais)}/{QTD_FINAL}")
+    print(f"✅ Perfis: {dict(distribuicao_perfis)}")
+    print(f"✅ Cobertura geral: {len(dezenas_usadas)}/25 dezenas")
+    print(f"📊 Cobertura da matriz de {len(matriz)} dezenas: {cob_matriz*100:.1f}%")
     if faltantes_geral:
-        print(f"⚠️ Dezenas ausentes no portfolio: {faltantes_geral}")
-    
-    if len(finais) < QTD_FINAL:
-        print(
-            f"⚠️ Ainda faltaram palpites. "
-            f"Gerados: {len(finais)}"
-        )
-    
+        raise RuntimeError(f"Cobertura geral incompleta: {faltantes_geral}")
+    if faltantes_matriz:
+        print(f"ℹ️ Dezenas da matriz não utilizadas: {faltantes_matriz}")
+
+    # Frequência de cada dezena no portfólio final.
+    frequencia_dezenas_final = Counter(
+        n for jogo in finais for n in jogo["nums"]
+    )
+    print("📌 Frequência das dezenas no portfólio:", dict(sorted(frequencia_dezenas_final.items())))
+
     # Investimento estimado - baseado na quantidade real selecionada
     
     calcular_roi(len(finais))
@@ -1015,13 +1154,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     
     for i, c in enumerate(finais, 1):
     
-        tier = (
-            "conservador"
-            if i <= 9
-            else "equilibrado"
-            if i <= 21
-            else "agressivo"
-        )
+        tier = c["perfil"]
     
         score_estrutural = round(
             (
@@ -1032,12 +1165,17 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             8
         )
     
+        ind = c.get("indicadores_perfil", {})
         texto_linha_telegram = (
             f"{i}º | {c['score']:.5f} | "
             f"Pot={c['score_potencial']:.3f} | "
             f"Hits={c.get('score_hits_reais', 0):.2f} | "
-            f"MC={c['score_mc']:.4f} | "
-            f"{tier.upper()} | {c['nums']}"
+            f"Perfil={tier.upper()}({c.get('score_perfil', 0):.3f}) | "
+            f"Est={ind.get('estabilidade', 0):.2f} "
+            f"Ader={ind.get('aderencia', 0):.2f} "
+            f"Exp={ind.get('exploracao', 0):.2f} "
+            f"Div={ind.get('diversidade', 0):.2f} | "
+            f"{c['nums']}"
         )
     
         linhas_telegram.append(texto_linha_telegram)
@@ -1212,6 +1350,12 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
                     ),
                     8
                 ),
+
+                "perfil": tier,
+                "score_perfil": round(float(c.get("score_perfil", 0)), 8),
+                "indicadores_perfil": c.get("indicadores_perfil", {}),
+                "scores_perfil": c.get("scores_perfil", {}),
+                "penalidades_geracao": c.get("penalidades_geracao", {}),
     
                 "score_final": round(
                     float(
@@ -1271,7 +1415,12 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         "linhas_telegram": linhas_telegram,
         "concurso": concurso_ref,
         "matriz": matriz,
-        "cobertura_matriz": cob_matriz
+        "cobertura_matriz": cob_matriz,
+        "cobertura_geral": len(dezenas_usadas) / 25.0,
+        "distribuicao_perfis": dict(distribuicao_perfis),
+        "frequencia_dezenas": dict(sorted(frequencia_dezenas_final.items())),
+        "tentativas_realizadas": tentativas_realizadas,
+        "candidatos_gerados": len(candidatos)
     }
 
 # ======================================================
@@ -1338,6 +1487,9 @@ if __name__ == "__main__":
 
         if resultado_teste:
 
+            if len(resultado_teste.get("palpites", [])) != QTD_FINAL:
+                raise RuntimeError("Resultado incompleto: gravação cancelada.")
+
             payload_teste = [
                 p.copy()
                 for p in resultado_teste["palpites"]
@@ -1364,8 +1516,9 @@ if __name__ == "__main__":
 
             print(
                 f"✅ [TESTE BUCKET] "
-                f"{len(payload_teste)} "
-                f"palpites gravados no banco."
+                f"{len(payload_teste)} palpites gravados no banco. "
+                f"Perfis: {resultado_teste.get('distribuicao_perfis')} | "
+                f"Cobertura: {resultado_teste.get('cobertura_geral', 0)*100:.0f}%"
             )
 
             print(
