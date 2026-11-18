@@ -217,29 +217,26 @@ jobs:
       # ==================================================
       - name: Extrair metadados para o Telegram
         run: |
-          awk '
-            index($0, "📲 TELEGRAM_PAYLOAD_START") { capturing = 1; current = ""; next }
-            index($0, "📲 TELEGRAM_PAYLOAD_END") && capturing {
-              selected = current
-              found = 1
-              capturing = 0
-              next
-            }
-            capturing { current = current (length(current) ? "\n" : "") $0 }
-            END {
-              if (!found) {
-                print "Nenhum payload validado foi gerado pelo pipeline."
-                print "Revise a etapa Meta validação final nos logs da GitHub Action."
-              }
-              if (found) {
-                printf "%s", selected
-              }
-            }
-          ' saida.txt > palpites.txt
+          python - <<'PY'
+          from pathlib import Path
 
-          echo "PALPITES<<EOF" >> $GITHUB_ENV
-          cat palpites.txt >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          output = Path("saida.txt").read_text(encoding="utf-8")
+          start = "📲 TELEGRAM_PAYLOAD_START"
+          end = "📲 TELEGRAM_PAYLOAD_END"
+
+          if start not in output or end not in output:
+              payload = (
+                  "Nenhum payload validado foi gerado pelo pipeline.\n"
+                  "Revise a etapa Meta validação final nos logs da GitHub Action."
+              )
+          else:
+              payload = output.split(start, 1)[1].split(end, 1)[0].strip()
+
+          if not payload:
+              payload = "A etapa Meta validação final não gerou conteúdo para o Telegram."
+
+          Path("palpites.txt").write_text(payload, encoding="utf-8")
+          PY
 
       # ==================================================
       # ETAPA 4.2
@@ -279,10 +276,11 @@ jobs:
           import os
           import urllib.error
           import urllib.request
+          from pathlib import Path
 
           token = os.environ.get("TG_TOKEN")
           chat_id = os.environ.get("TG_CHAT_ID")
-          message = os.environ.get("PALPITES", "").strip()
+          message = Path("palpites.txt").read_text(encoding="utf-8").strip()
           if not token or not chat_id or not message:
               raise SystemExit("Telegram credentials or validated payload are missing.")
 
