@@ -104,7 +104,7 @@ def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
     overlap_medio = round(statistics.mean(overlaps), 6) if overlaps else 0.0
     entropia = round(calcular_entropia(contador), 6)
     diversidade = calcular_score_diversidade([x["numeros"] for x in jogos])
-    limite_exposicao_real = max(limite_exposicao, math.ceil(((len(jogos) * 15) / 25) * 1.20))
+    limite_exposicao_real = max(limite_exposicao, math.ceil(((len(jogos) * 15) / 25) * 1.30))
     dezenas_superexpostas = [
         dez
         for dez, qtd in contador.items()

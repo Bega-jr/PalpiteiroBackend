@@ -135,6 +135,21 @@ class MetaValidationTests(unittest.TestCase):
                 [{"indice_palpite": 1, "numeros": [1, 1, 3]}]
             )
 
+    def test_exposure_limit_allows_the_expected_portfolio_distribution(self):
+        jogos = [
+            {
+                "numeros": [
+                    ((offset + index) % 25) + 1
+                    for index in range(15)
+                ]
+            }
+            for offset in range(meta_validacao_final.QTD_FINAL)
+        ]
+        analysis = meta_validacao_final.analisar_portfolio(jogos)
+
+        self.assertEqual(analysis["limite_exposicao_real"], 16)
+        self.assertNotIn("Superexposição", " ".join(analysis["alertas"]))
+
 
 if __name__ == "__main__":
     unittest.main()
