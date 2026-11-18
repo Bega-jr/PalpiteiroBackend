@@ -2,17 +2,20 @@ import sys
 import json
 import math
 import statistics
-import subprocess
 from pathlib import Path
 from collections import Counter
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(BASE_DIR))
+sys.path.insert(0, str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
+from scripts.gerar_palpites_diarios import (
+    QTD_FINAL,
+    executar_motor_geracao,
+    montar_msg_telegram,
+)
 
-VERSAO = "v2.0-meta-validacao-autoregenerativa"
-MIN_PALPITES_ACEITAVEIS = 7  # Elasticidade da IA (Aceita entre 7 e 10 jogos)
+VERSAO = "v2.1-meta-validacao-segura"
 LIMITE_OVERLAP_MEDIO = 11.5
 LIMITE_EXPOSICAO_DEZENA = 8
 LIMITE_ENTROPIA = 2.60
@@ -51,18 +54,27 @@ def interpretar_risco(risco):
     if risco == 2: return "MODERADO"
     return "ALTO"
 
-def carregar_palpites(supabase, concurso):
-    rows = supabase.table("palpites_validos").select("*").eq("concurso_referencia", concurso).order("indice_palpite").execute().data
+def normalizar_palpites(rows):
     jogos = []
     for r in rows:
         dado_bruto = r["numeros"]
         if isinstance(dado_bruto, str):
-            try:
-                numeros_convertidos = json.loads(dado_bruto)
-                if isinstance(numeros_convertidos, str): numeros_convertidos = json.loads(numeros_convertidos)
-            except Exception: numeros_convertidos = []
-        elif isinstance(dado_bruto, list): numeros_convertidos = dado_bruto
-        else: numeros_convertidos = []
+            numeros_convertidos = json.loads(dado_bruto)
+            if isinstance(numeros_convertidos, str):
+                numeros_convertidos = json.loads(numeros_convertidos)
+        else:
+            numeros_convertidos = dado_bruto
+
+        if (
+            not isinstance(numeros_convertidos, list)
+            or len(numeros_convertidos) != 15
+            or any(type(numero) is not int or not 1 <= numero <= 25 for numero in numeros_convertidos)
+            or len(set(numeros_convertidos)) != 15
+        ):
+            raise ValueError(
+                f"Palpite {r.get('indice_palpite')} não contém 15 dezenas únicas válidas."
+            )
+
         jogos.append({
             "indice": r["indice_palpite"],
             "numeros": numeros_convertidos,
@@ -122,11 +134,8 @@ def analisar_portfolio(jogos, limite_exposicao=8, limite_overlap=11.2):
         "dezenas_superexpostas": dezenas_superexpostas, "alertas": alertas, "limite_exposicao_real": limite_exposicao_real
     }
 
-def remover_palpites_ruins(supabase, concurso):
-    supabase.table("palpites_validos").delete().eq("concurso_referencia", concurso).execute()
-
 # ======================================================
-# MAIN (EXECUÇÃO EVOLUTIVA POR SUBPROCESS)
+# MAIN (VALIDAÇÃO ANTES DA PERSISTÊNCIA)
 # ======================================================
 def main():
     print(f"🧠 {VERSAO}")
@@ -138,16 +147,13 @@ def main():
         concurso = int(hist[-1]["concurso"]) + 1
     except Exception as e:
         print(f"❌ Falha Crítica ao ler histórico: {e}")
-        return
+        return 1
 
     print(f"🎯 Concurso definitivo definido para validação: {concurso}")
 
     tentativa = 1
     limite_exp_dinamico = LIMITE_EXPOSICAO_DEZENA
     limite_ov_dinamico = LIMITE_OVERLAP_MEDIO
-
-    # Primeiro passo: Limpa o banco preventivamente para iniciar a primeira rodada limpa
-    # limpeza apenas quando houver reprovação
 
     while tentativa <= MAX_REGENERACOES:
         print(f"\n♻️ Tentativa {tentativa}/{MAX_REGENERACOES}")
@@ -163,17 +169,14 @@ def main():
             limite_exp_dinamico = 10
             limite_ov_dinamico = 11.5
 
-        print(f"🚀 Disparando motor de IA via Subprocess no modo: {modo_ia.upper()}...")
+        print(f"🚀 Executando motor de IA no modo: {modo_ia.upper()}...")
         
-        # Dispara a IA passando os argumentos dinâmicos. Usamos --force a partir da tentativa 2
-        cmd = [sys.executable, "scripts/gerar_palpites_diarios.py", "--modo", modo_ia]
-        if tentativa > 1:
-            cmd.append("--force")
-            
-        subprocess.run(cmd, check=True)
-
-        # Lê o que a IA acabou de persistir no banco para auditar
-        jogos = carregar_palpites(supabase, concurso)
+        resultado = executar_motor_geracao(
+            concurso_alvo=concurso,
+            modo_variacao=modo_ia,
+        )
+        palpites = resultado.get("palpites", []) if resultado else []
+        jogos = normalizar_palpites(palpites)
 
         score_montecarlo_medio = statistics.mean([
             j.get("score_montecarlo", 0) or 0
@@ -190,8 +193,11 @@ def main():
             for j in jogos
         ]) if jogos else 0
 
-        if not jogos or len(jogos) < MIN_PALPITES_ACEITAVEIS:
-            print(f"⚠️ Lote rejeitado por volume: Apenas {len(jogos)} jogos salvos. Mínimo aceitável: {MIN_PALPITES_ACEITAVEIS}")
+        if len(palpites) != QTD_FINAL or len(jogos) != QTD_FINAL:
+            print(
+                f"⚠️ Lote rejeitado por volume: {len(jogos)} jogos válidos; "
+                f"esperados {QTD_FINAL}."
+            )
             status = "REJEITADO_POR_FALTA_DE_DADOS"
             analise = {
                 "overlap_medio": 0.0, "entropia": 0.0, "diversidade": 0,
@@ -245,70 +251,90 @@ def main():
         print(f"🏗️ Score Estrutural Médio: {score_estrutural_medio:.4f}")
         print(f"🧩 Cluster Dominante: {max_cluster}")
 
-        try:
-        
-            payload_meta = {
-        
-                "concurso_referencia": concurso,
-        
-                "overlap_medio": analise["overlap_medio"],
-                "entropia_global": analise["entropia"],
-                "diversidade_global": analise["diversidade"],
-        
-                "risco_colapso": analise["risco_colapso"],
-                "nivel_risco": analise["nivel_risco"],
-        
-                "dezenas_superexpostas": analise["dezenas_superexpostas"],
-        
-                "status_validacao": status,
-                "alertas": analise["alertas"],
-        
-                "tentativa": tentativa,
-                "versao": VERSAO,
-        
-                "maior_cluster": max_cluster,
-                "maior_estrutura": max_estrutura,
-                
-                "qtd_palpites": len(jogos),
-        
-                "score_montecarlo_medio": round(
-                    score_montecarlo_medio,
-                    6
-                ),
-        
-                "score_potencial_medio": round(
-                    score_potencial_medio,
-                    6
+        payload_meta = {
+            "concurso_referencia": concurso,
+            "overlap_medio": analise["overlap_medio"],
+            "entropia_global": analise["entropia"],
+            "diversidade_global": analise["diversidade"],
+            "risco_colapso": analise["risco_colapso"],
+            "nivel_risco": analise["nivel_risco"],
+            "dezenas_superexpostas": analise["dezenas_superexpostas"],
+            "status_validacao": status,
+            "alertas": analise["alertas"],
+            "tentativa": tentativa,
+            "versao": VERSAO,
+            "maior_cluster": max_cluster,
+            "maior_estrutura": max_estrutura,
+            "qtd_palpites": len(jogos),
+            "score_montecarlo_medio": round(score_montecarlo_medio, 6),
+            "score_potencial_medio": round(score_potencial_medio, 6),
+        }
+
+        # Persist only after the generated portfolio passes validation.
+        if status == "OK":
+            if len(palpites) != QTD_FINAL:
+                raise RuntimeError(
+                    f"Resultado incompleto: esperados {QTD_FINAL} palpites, "
+                    f"recebidos {len(palpites)}."
                 )
-            }
-        
-            supabase.table(
-                "meta_validacao_execucoes"
-            ).upsert(
-                payload_meta,
-                on_conflict="concurso_referencia"
-            ).execute()
-        
-        except Exception as e:
-        
-            print(
-                f"⚠️ Falha ao salvar telemetria: {e}"
+
+            (
+                supabase.table("palpites_validos")
+                .upsert(
+                    palpites,
+                    on_conflict="concurso_referencia,indice_palpite",
+                )
+                .execute()
+            )
+            (
+                supabase.table("palpites_validos")
+                .delete()
+                .eq("concurso_referencia", concurso)
+                .gt("indice_palpite", len(palpites))
+                .execute()
+            )
+            (
+                supabase.table("meta_validacao_execucoes")
+                .upsert(
+                    payload_meta,
+                    on_conflict="concurso_referencia",
+                )
+                .execute()
             )
 
-        # CRITÉRIO DE SUCESSO: Se o lote estiver saudável, mantém os dados e encerra
-        if status == "OK":
             print(f"\n✅ Portfólio de {len(jogos)} jogos aprovado com sucesso no modo {modo_ia.upper()}!")
-            return
+            print("\n📲 TELEGRAM_PAYLOAD_START")
+            print(
+                montar_msg_telegram(
+                    resultado["concurso"],
+                    resultado["linhas_telegram"],
+                    matriz=resultado.get("matriz"),
+                    cobertura=resultado.get("cobertura_matriz"),
+                )
+            )
+            print("📲 TELEGRAM_PAYLOAD_END")
+            return 0
 
-        # Se falhar, limpa o banco de dados e força a próxima mutação da IA
+        (
+            supabase.table("meta_validacao_execucoes")
+            .upsert(
+                payload_meta,
+                on_conflict="concurso_referencia",
+            )
+            .execute()
+        )
+
         if tentativa < MAX_REGENERACOES:
-            print(f"\n🔥 Portfólio rejeitado na tentativa {tentativa}. Limpando banco e forçando mutação da IA...")
-            remover_palpites_ruins(supabase, concurso)
+            print(
+                f"\n🔥 Portfólio rejeitado na tentativa {tentativa}; "
+                "dados persistidos preservados."
+            )
             tentativa += 1
         else:
             break
 
     print("\n❌ PIPELINE FINALIZADO COM RESTRIÇÕES MÁXIMAS")
+    return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

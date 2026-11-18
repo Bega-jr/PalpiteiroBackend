@@ -142,15 +142,21 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          AUDITORIA: ${{ env.AUDITORIA }}
         run: |
-
-          TEXT_AUDITORIA="${{ env.AUDITORIA }}"
-
-          TEXT_AUDITORIA=$(echo "$TEXT_AUDITORIA" | cut -c1-3900)
-
-          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+          response=$(curl --silent --show-error \
+            --connect-timeout 10 \
+            --retry 3 \
+            --retry-delay 2 \
+            -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT_AUDITORIA" | jq -Rs .)}"
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "text=${AUDITORIA}")
+
+          if ! jq -e '.ok == true' <<< "$response" > /dev/null; then
+            jq -r '.description // "Telegram rejected the audit message."' <<< "$response" >&2
+            exit 1
+          fi
 
 
       # ==================================================
@@ -211,10 +217,23 @@ jobs:
       # ==================================================
       - name: Extrair metadados para o Telegram
         run: |
-          sed -n '/📲 TELEGRAM_PAYLOAD_START/,/📲 TELEGRAM_PAYLOAD_END/p' \
-            saida.txt > bloco.txt || true
-
-          sed '1d;$d' bloco.txt > palpites.txt
+          awk '
+            index($0, "📲 TELEGRAM_PAYLOAD_START") { capturing = 1; current = ""; next }
+            index($0, "📲 TELEGRAM_PAYLOAD_END") && capturing {
+              selected = current
+              found = 1
+              capturing = 0
+              next
+            }
+            capturing { current = current (length(current) ? "\n" : "") $0 }
+            END {
+              if (!found) {
+                print "Nenhum payload completo de palpites encontrado." > "/dev/stderr"
+                exit 1
+              }
+              printf "%s", selected
+            }
+          ' saida.txt > palpites.txt
 
           echo "PALPITES<<EOF" >> $GITHUB_ENV
           cat palpites.txt >> $GITHUB_ENV
@@ -253,14 +272,62 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
 
-          TEXT="${{ env.PALPITES }}"
-          TEXT=$(echo "$TEXT" | cut -c1-3900)
+          token = os.environ.get("TG_TOKEN")
+          chat_id = os.environ.get("TG_CHAT_ID")
+          message = os.environ.get("PALPITES", "").strip()
+          if not token or not chat_id or not message:
+              raise SystemExit("Telegram credentials or validated payload are missing.")
 
-          curl -s -X POST \
-            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}"
+          max_length = 3500
+
+          def telegram_length(value):
+              return len(value.encode("utf-16-le")) // 2
+
+          chunks = []
+          current = []
+          for line in message.splitlines():
+              if telegram_length(line) > max_length:
+                  raise SystemExit("A generated Telegram line exceeds the safe message limit.")
+              candidate = "\n".join((*current, line))
+              if current and telegram_length(candidate) > max_length:
+                  chunks.append("\n".join(current))
+                  current = [line]
+              else:
+                  current.append(line)
+          if current:
+              chunks.append("\n".join(current))
+
+          url = f"https://api.telegram.org/bot{token}/sendMessage"
+          for index, chunk in enumerate(chunks, start=1):
+              payload = json.dumps({"chat_id": chat_id, "text": chunk}).encode()
+              request = urllib.request.Request(
+                  url,
+                  data=payload,
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      result = json.loads(response.read())
+              except urllib.error.HTTPError as error:
+                  result = json.loads(error.read())
+                  description = result.get("description", "request failed")
+                  raise SystemExit(f"Telegram returned HTTP {error.code}: {description}") from None
+              except urllib.error.URLError:
+                  raise SystemExit("Could not reach the Telegram API.") from None
+              if result.get("ok") is not True:
+                  raise SystemExit(
+                      f"Telegram rejected message {index}/{len(chunks)}: "
+                      f"{result.get('description', 'unknown API error')}"
+                  )
+          print(f"Telegram delivered {len(chunks)} message(s).")
+          PY
 
       # ==================================================
       # TELEGRAM ALERTA DE ERRO (FALHA - URL CORRIGIDA)
@@ -272,11 +339,17 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
 
-          curl -s \
+          response=$(curl --silent --show-error \
             --retry 3 \
             --retry-delay 5 \
             --connect-timeout 10 \
             -X POST \
             "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"🔴 Erro detectado no pipeline Lotofácil v19.2. Verifique os logs da GitHub Action.\"}"
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "text=🔴 Erro detectado no pipeline Lotofácil v19.7. Verifique os logs da GitHub Action.")
+
+          if ! jq -e '.ok == true' <<< "$response" > /dev/null; then
+            jq -r '.description // "Telegram rejected the failure alert."' <<< "$response" >&2
+            exit 1
+          fi
