@@ -145,10 +145,13 @@ class MetaValidationTests(unittest.TestCase):
             }
             for offset in range(meta_validacao_final.QTD_FINAL)
         ]
+        for offset in range(1, 8):
+            jogos[offset]["numeros"][-1] = 1
+
         analysis = meta_validacao_final.analisar_portfolio(jogos)
 
-        self.assertEqual(analysis["limite_exposicao_real"], 16)
-        self.assertNotIn("Superexposição", " ".join(analysis["alertas"]))
+        self.assertEqual(analysis["limite_exposicao_real"], 18)
+        self.assertEqual(analysis["dezenas_superexpostas"], [])
 
 
 if __name__ == "__main__":

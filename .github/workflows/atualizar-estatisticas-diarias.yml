@@ -224,6 +224,7 @@ jobs:
       # ==================================================
       - name: Meta validação final
         run: |
+          set -o pipefail
           python scripts/meta_validacao_final.py | tee saida.txt
 
       # ==================================================
