@@ -105,7 +105,7 @@ jobs:
       # ==================================================
       - name: Validar integridade pipeline
         run: |
-          python scripts/validar_integridade_pipeline.py || true
+          python -m scripts.validar_integridade_pipeline
 
 
       # ==================================================
@@ -177,7 +177,7 @@ jobs:
       # ==================================================
       - name: Hub central auditoria
         run: |
-          python scripts/hub_analytics.py || true
+          python scripts/hub_analytics.py
 
 
       # ==================================================

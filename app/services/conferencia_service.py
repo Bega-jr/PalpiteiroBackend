@@ -42,7 +42,8 @@ def conferir_jogos_do_dia():
             .execute()
         )
 
-        if not p_data := palpites_res.data:
+        p_data = palpites_res.data
+        if not p_data:
             continue
 
         resumo = {}

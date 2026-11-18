@@ -1,6 +1,5 @@
 from uuid import UUID
-from typing import List, Optional
-import json
+from typing import List
 
 # Ajuste na importação para usar o serviço centralizado
 from app.services.supabase_service import get_supabase
@@ -11,11 +10,7 @@ from app.services.supabase_service import get_supabase
 # Inicializa o cliente Supabase corretamente
 supabase = get_supabase()
 
-# ==========================================
-# REGISTRAR JOGO (SAVED_GAMES)
-# ==========================================
-# Use o schema de criação da sua tabela saved_games
-def registrar_jogo(user_id: UUID, jogo) -> dict: # Retorno alterado para dict
+def registrar_jogo(user_id: UUID, jogo) -> dict:
     """
     Salva um jogo na tabela saved_games vinculado ao usuário.
     """
@@ -30,38 +25,26 @@ def registrar_jogo(user_id: UUID, jogo) -> dict: # Retorno alterado para dict
         # Adicione quaisquer outros campos obrigatórios da saved_games aqui (ex: data_referencia)
     }
 
-    try:
-        # Tabela correta: saved_games
-        res = supabase.table("saved_games").insert(dados).execute()
-        if not res.data:
-            raise Exception("Erro ao salvar jogo")
-        # Retorna o primeiro item da lista gerada pelo insert
-        return res.data[0] # Retorno alterado
-    except Exception as e:
-        raise Exception(f"Falha ao registrar jogo: {e}")
+    res = supabase.table("saved_games").insert(dados).execute()
+    if not res.data:
+        raise RuntimeError("Supabase não retornou o jogo criado.")
+    return res.data[0]
 
 # ==========================================
 # LISTAR HISTÓRICO (SAVED_GAMES)
 # ==========================================
-def listar_historico(user_id: UUID) -> List[dict]: # Retorno alterado para List[dict]
+def listar_historico(user_id: UUID) -> List[dict]:
     """
     Lista o histórico de jogos do usuário na tabela saved_games.
     """
-    try:
-        # Tabela correta: saved_games
-        res = (
-            supabase.table("saved_games")
-            .select("*")
-            .eq("user_id", str(user_id))
-            .order("created_at", desc=True)
-            .execute()
-        )
-        if not res.data:
-            return []
-        return res.data # Retorno alterado
-    except Exception as e:
-        # Em produção, você pode querer logar esse erro
-        return []
+    res = (
+        supabase.table("saved_games")
+        .select("*")
+        .eq("user_id", str(user_id))
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return res.data or []
 
 # ==========================================
 # RESUMO FINANCEIRO
@@ -69,9 +52,13 @@ def listar_historico(user_id: UUID) -> List[dict]: # Retorno alterado para List[
 def resumo_financeiro(user_id: UUID):
     # Usa a função atualizada que lê de saved_games
     jogos = listar_historico(user_id) 
-    total_apostado = sum(j['valor_aposta'] for j in jogos) # Acessa via chave de dict
+    total_apostado = sum(float(j.get("valor_aposta") or 0) for j in jogos)
     total_jogos = len(jogos)
-    total_premio = sum(j.get('valor_premio', 0.0) for j in jogos if j.get('conferido', False)) # Soma prêmios conferidos
+    total_premio = sum(
+        float(j.get("premio") or 0)
+        for j in jogos
+        if j.get("conferido", False)
+    )
 
     return {
         "total_jogos": total_jogos,

@@ -1,5 +1,6 @@
 from app.services.supabase_service import get_supabase
 from collections import defaultdict
+import ast
 import json
 import os
 import math
@@ -86,8 +87,27 @@ def carregar_cache():
                 f
             )
 
-    except Exception:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        print(f"⚠️ Cache de padrões inválido; será recalculado: {exc}")
         return None
+
+
+def _parse_cache_key(chave):
+    if not isinstance(chave, str):
+        raise ValueError("Chave de cache deve ser texto.")
+
+    valor = ast.literal_eval(chave)
+    if (
+        not isinstance(valor, tuple)
+        or len(valor) != 4
+        or any(type(parte) is not int for parte in valor[:3])
+        or not isinstance(valor[3], tuple)
+        or len(valor[3]) != 5
+        or any(type(linha) is not int for linha in valor[3])
+    ):
+        raise ValueError("Formato de chave de cache inválido.")
+
+    return valor
 
 
 # ======================================================
@@ -113,22 +133,20 @@ def calcular_score_combinacoes_reais(
         cache = carregar_cache()
 
         if cache:
-
-            print(
-                "⚡ usando cache"
-            )
-
-            scores = {
-                eval(k): v
-                for k, v in cache["scores"].items()
-            }
-
-            metadata = {
-                eval(k): v
-                for k, v in cache["metadata"].items()
-            }
-
-            return scores, metadata
+            try:
+                scores = {
+                    _parse_cache_key(k): float(v)
+                    for k, v in cache["scores"].items()
+                }
+                metadata = {
+                    _parse_cache_key(k): v
+                    for k, v in cache["metadata"].items()
+                }
+            except (AttributeError, KeyError, SyntaxError, TypeError, ValueError) as exc:
+                print(f"⚠️ Cache de padrões incompatível; será recalculado: {exc}")
+            else:
+                print("⚡ usando cache")
+                return scores, metadata
 
     supabase = get_supabase()
 

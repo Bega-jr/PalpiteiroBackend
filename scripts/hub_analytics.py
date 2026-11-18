@@ -61,9 +61,12 @@ def executar_etapa(nome, func):
 
     try:
         inicio = datetime.now()
-        func() 
+        resultado = func()
         fim = datetime.now()
         delta = (fim - inicio).total_seconds()
+        if resultado is False:
+            print(f"❌ {nome} sinalizou falha após {delta:.2f}s")
+            return False
         print(f"✅ {nome} concluído em {delta:.2f}s")
         return True
 
@@ -122,6 +125,7 @@ def main():
     print("\n" + "=" * 60)
     print(f"✅ HUB FINALIZADO | Sucesso: {total_ok} | Falhas: {total_fail}")
     print("=" * 60 + "\n")
+    return 1 if total_fail else 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

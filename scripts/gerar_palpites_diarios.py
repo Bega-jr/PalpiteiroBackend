@@ -1,7 +1,6 @@
 import sys
 import json
 import random
-import itertools
 import numpy as np
 import pytz
 import time
@@ -16,41 +15,35 @@ from app.services.supabase_service import get_supabase
 from app.services.aprendizado_service_v3 import obter_fator_aprendizado_global
 from app.services.estatisticas_combinacao_v3 import calcular_score_combinacoes_reais
 from app.services.meta_learning_service import obter_pesos_ensemble
-from app.services.persistencia_analytics_service import persistir_telemetria
 from app.services.recompensa_evolutiva_service import calcular_recompensa_evolutiva
 from app.services.feature_store_service import gerar_features_jogo
 from app.services.clusterizacao_service import identificar_cluster_jogo
 from app.services.diversidade_service import diversidade_avancada_ok
 from app.services.montecarlo_service import simular_probabilidade_jogo
 from app.services.motores_ensemble_service import calcular_score_ensemble
-from app.services.selecao_genetica_service import selecionar_populacao_final
 from scripts.processamento_diario_lotofacil import carregar_historico, extrair_estrutura
 
 VERSAO = "v19.7-perfis-cobertura-total"
 
 # Quantidade de palpites selecionados por execução.
-# Os 20 primeiros formam o grupo-base; os 10 restantes permitem
-# medir o ganho marginal do aumento de volume.
-QTD_FINAL = 30
+QTD_FINAL = 20
 QTD_COMPARACAO = 20
-QTD_ELITE_MEMORIA = 10  # Aumentado levemente para priorizar estruturas com histórico real de hits altos
 
-# Mantidos inicialmente para isolar o efeito do aumento de palpites.
-MAX_TENTATIVAS = 450000
-MAX_CANDIDATOS = 900
-MIN_CANDIDATOS_POOL = 300
+MAX_TENTATIVAS = 180_000
+MAX_CANDIDATOS = 600
+MIN_CANDIDATOS_POOL = 250
 CUSTO_POR_APOSTA = 3.50
 
 MAX_OCORRENCIAS_GLOBAL = 8
 PESO_PENALIDADE_SATURACAO = 0.020
 
 # ---- Matriz + Cobertura (v19.6) ----
-TAMANHO_MATRIZ = 20          # 18–21 é o sweet spot clássico
-PROPORCAO_MATRIZ = 0.72      # ~72% dos candidatos vêm da matriz
-COBERTURA_MINIMA_MATRIZ = 0.90
+TAMANHO_MATRIZ = 18
+PROPORCAO_MATRIZ = 0.78
+COBERTURA_MINIMA_MATRIZ = 0.88
 
 # Metas iniciais dos perfis; a classificação é calculada pelos indicadores.
-METAS_PERFIS = {"conservador": 9, "equilibrado": 12, "agressivo": 9}
+METAS_PERFIS = {"conservador": 6, "equilibrado": 8, "agressivo": 6}
 
 PRIMOS = {2, 3, 5, 7, 11, 13, 17, 19, 23}
 MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
@@ -159,16 +152,15 @@ def validar_autonomo(filtros, linhas, limites):
     )
 
 def score_base(jogo, base):
-    s1 = media_segura([base.get((n,), 0.5) for n in jogo])
-    s2 = media_segura([
-        base.get(tuple(sorted(p)), 0.5)
-        for p in itertools.combinations(jogo, 2)
-    ])
-    ternos = list(itertools.combinations(jogo, 3))
-    random.shuffle(ternos)
-    scores_ternos = [base.get(tuple(sorted(t)), 0.5) for t in ternos[:120]]
-    s3 = (media_segura(scores_ternos) * 0.70) + (max(scores_ternos) * 0.30)
-    return s1, s2, s3
+    metricas = extrair_estrutura(jogo)
+    chave = (
+        round(sum(jogo) / 20) * 20,
+        (metricas["pares"] // 2) * 2,
+        (metricas["primos"] // 2) * 2,
+        tuple(min(4, qtd) for qtd in metricas["linhas"]),
+    )
+    score = float(base.get(chave, 0.5))
+    return score, score, score
 
 def bonus_estrutura(mem):
 
@@ -380,12 +372,12 @@ def calcular_frequencia_ponderada(historico, janela=50):
     return freq
 
 
-def construir_matriz_reduzida(historico, base_scores, tamanho=TAMANHO_MATRIZ):
+def construir_matriz_reduzida(historico, scores_dezenas, tamanho=TAMANHO_MATRIZ):
     """
     Constrói uma matriz de 18–21 dezenas priorizando:
     - Frequência ponderada recente
     - Atraso moderado (não extremo)
-    - Score individual da base_scores
+    - Frequência ponderada e score individual normalizado
     - Equilíbrio de paridade e moldura
     """
     freq = calcular_frequencia_ponderada(historico, janela=45)
@@ -395,7 +387,7 @@ def construir_matriz_reduzida(historico, base_scores, tamanho=TAMANHO_MATRIZ):
     for n in range(1, 26):
         f = freq.get(n, 0)
         a = atraso.get(n, 0)
-        s = base_scores.get((n,), 0.5)
+        s = scores_dezenas.get((n,), 0.5)
 
         # Atraso ideal: nem zero (muito quente) nem muito alto
         score_atraso = 1.0 - abs(a - 4.5) / 12.0
@@ -619,7 +611,8 @@ def selecionar_portfolio_perfis(candidatos, metas=None):
 
         if melhor is None:
             raise RuntimeError(
-                "Não foi possível completar as 30 seleções sem duplicar jogos."
+                f"Não foi possível completar {sum(metas.values())} seleções "
+                "sem duplicar jogos."
             )
 
         melhor["perfil"] = melhor_perfil
@@ -698,7 +691,34 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         print(f"ℹ️ Concurso {concurso_ref} já processado.")
         return []
 
-    base_scores, _ = calcular_score_combinacoes_reais()
+    scores_padroes, _ = calcular_score_combinacoes_reais()
+    if not scores_padroes:
+        raise RuntimeError("Não foi possível carregar os scores de padrões.")
+
+    score_min = min(scores_padroes.values())
+    score_max = max(scores_padroes.values())
+    score_range = score_max - score_min
+    base_scores = {
+        chave: (
+            (float(score) - score_min) / score_range
+            if score_range
+            else 0.5
+        )
+        for chave, score in scores_padroes.items()
+    }
+
+    frequencias_dezenas = calcular_frequencia_ponderada(hist, janela=120)
+    frequencia_min = min(frequencias_dezenas.get(n, 0) for n in range(1, 26))
+    frequencia_max = max(frequencias_dezenas.get(n, 0) for n in range(1, 26))
+    frequencia_range = frequencia_max - frequencia_min
+    scores_dezenas = {
+        (n,): (
+            (frequencias_dezenas.get(n, 0) - frequencia_min) / frequencia_range
+            if frequencia_range
+            else 0.5
+        )
+        for n in range(1, 26)
+    }
     fator_global = obter_fator_aprendizado_global()["fator"]
     pesos = obter_pesos_ensemble()
     contexto = detectar_contexto(hist)
@@ -734,8 +754,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     # =====================================================
     # MATRIZ REDUZIDA (v19.6)
     # =====================================================
-    matriz = construir_matriz_reduzida(hist, base_scores, tamanho=TAMANHO_MATRIZ)
-    matriz_set = set(matriz)
+    matriz = construir_matriz_reduzida(hist, scores_dezenas, tamanho=TAMANHO_MATRIZ)
     print(f"📦 Matriz reduzida ({len(matriz)} dezenas): {matriz}")
 
     # Geração
@@ -759,16 +778,17 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
         "seq_max_limite": 5,
         "max_linha_limite": 5
     }
-    
+
     tentativas_realizadas = 0
     for tentativa in range(MAX_TENTATIVAS):
         tentativas_realizadas = tentativa + 1
         if len(candidatos) >= MAX_CANDIDATOS:
             break
-        # A partir de 300 candidatos, verifica se já há massa suficiente
-        # em cada perfil. Se algum perfil estiver sub-representado, continua
-        # ampliando o pool em blocos de 100, até 900 candidatos ou o limite.
-        if len(candidatos) >= MIN_CANDIDATOS_POOL and len(candidatos) % 100 == 0:
+        # Verifica os perfis a partir do mínimo e depois em blocos de 100.
+        if (
+            len(candidatos) >= MIN_CANDIDATOS_POOL
+            and (len(candidatos) - MIN_CANDIDATOS_POOL) % 100 == 0
+        ):
             calcular_indicadores_perfis(candidatos)
             distribuicao_pool = Counter(c.get("perfil") for c in candidatos)
             if all(
@@ -943,11 +963,8 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             + s3 * 0.35
         )
     
-        score_potencial = score_potencial_alto(
-            jogo,
-            hist,
-            base_scores
-        )
+        # Esses componentes dependem apenas do jogo e do histórico desta execução.
+        score_potencial = score_potencial_alto(jogo, hist, scores_dezenas)
 
         # Novo score explícito de acertos históricos (foco 13/14)
         score_hits_reais = score_historico_acertos(jogo, hist)
@@ -1116,6 +1133,11 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     print(f"📊 Cobertura da matriz de {len(matriz)} dezenas: {cob_matriz*100:.1f}%")
     if faltantes_geral:
         raise RuntimeError(f"Cobertura geral incompleta: {faltantes_geral}")
+    if cob_matriz < COBERTURA_MINIMA_MATRIZ:
+        raise RuntimeError(
+            f"Cobertura da matriz insuficiente: {cob_matriz:.1%}; "
+            f"mínimo={COBERTURA_MINIMA_MATRIZ:.0%}. Nenhum dado será gravado."
+        )
     if faltantes_matriz:
         print(f"ℹ️ Dezenas da matriz não utilizadas: {faltantes_matriz}")
 

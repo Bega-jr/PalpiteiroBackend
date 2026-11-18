@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(BASE_DIR))
+sys.path.insert(0, str(BASE_DIR))
 
 
 MODULOS_CRITICOS = [
@@ -163,6 +163,8 @@ def main():
 
         print("⚠️ Existem inconsistências")
 
+    return 1 if falhas else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
