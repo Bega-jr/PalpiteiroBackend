@@ -129,34 +129,49 @@ jobs:
           sed -n '/==================================================/,/====================/p' \
             saida_conferencia.txt > auditoria.txt || true
 
-          echo "AUDITORIA<<EOF" >> $GITHUB_ENV
-          cat auditoria.txt >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
 
       # ==================================================
       # TELEGRAM AUDITORIA
       # ==================================================
       - name: Telegram auditoria acertos
-        if: "success() && contains(env.AUDITORIA, 'Palpite #')"
+        if: success()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOK }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          AUDITORIA: ${{ env.AUDITORIA }}
         run: |
-          response=$(curl --silent --show-error \
-            --connect-timeout 10 \
-            --retry 3 \
-            --retry-delay 2 \
-            -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            --data-urlencode "chat_id=${TG_CHAT_ID}" \
-            --data-urlencode "text=${AUDITORIA}")
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
 
-          if ! jq -e '.ok == true' <<< "$response" > /dev/null; then
-            jq -r '.description // "Telegram rejected the audit message."' <<< "$response" >&2
-            exit 1
-          fi
+          audit_path = Path("auditoria.txt")
+          if not audit_path.exists():
+              raise SystemExit("Audit file is missing.")
+
+          message = audit_path.read_text(encoding="utf-8").strip()
+          if "Palpite #" not in message:
+              print("No processed predictions found; Telegram audit skipped.")
+              raise SystemExit(0)
+
+          token = os.environ.get("TG_TOKEN")
+          chat_id = os.environ.get("TG_CHAT_ID")
+          if not token or not chat_id:
+              raise SystemExit("Telegram credentials are missing.")
+
+          payload = json.dumps({"chat_id": chat_id, "text": message}).encode()
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              result = json.loads(response.read())
+          if result.get("ok") is not True:
+              raise SystemExit(result.get("description", "Telegram rejected the audit message."))
+          print("Telegram audit delivered.")
+          PY
 
 
       # ==================================================
