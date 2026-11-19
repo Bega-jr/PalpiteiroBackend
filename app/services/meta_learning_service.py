@@ -202,6 +202,20 @@ def aplicar_entropia_dinamica(
         print("📊 Entropia alta: reduzindo ruído estrutural")
     return pesos
 
+
+def feedback_ja_aplicado(supabase, concurso_ref):
+    rows = (
+        supabase
+        .table("meta_learning_execucoes")
+        .select("concurso_referencia")
+        .eq("concurso_referencia", concurso_ref)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(rows)
+
+
 # ==================================================
 # FEEDBACK + EVOLUÇÃO DOS PESOS (ASSINATURA INTACTA)
 # ==================================================
@@ -216,8 +230,15 @@ def atualizar_meta_learning(
     dispersao: int = 0,
     qtd_palpites: int = 7,
     score_estrutural: float = 0.0
-):
+) -> bool:
     supabase = get_supabase()
+    if feedback_ja_aplicado(supabase, concurso_ref):
+        print(
+            f"ℹ️ Meta-learning do concurso {concurso_ref} já aplicado; "
+            "ajuste duplicado ignorado."
+        )
+        return False
+
     pesos = obter_pesos_ensemble()
     try:
         # ==========================================
@@ -300,8 +321,10 @@ def atualizar_meta_learning(
         }
         supabase.table("meta_learning_execucoes").upsert(payload_execucao, on_conflict="concurso_referencia").execute()
         print(f"🧠 Meta-Learning v19 | Concurso {concurso_ref} | Média={media_acertos:.2f} | Best={melhor_acerto} | Spread={dispersao} | Entropia={score_entropia:.4f}")
+        return True
     except Exception as e:
         print(f"⚠️ Erro meta-learning: {e}")
+        raise
 
 # ==================================================
 # BRIDGE EXCLUSIVA COMPATÍVEL COM O HUB ANALYTICS v20

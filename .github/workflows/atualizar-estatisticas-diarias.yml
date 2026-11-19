@@ -185,15 +185,6 @@ jobs:
 
       # ==================================================
       # ETAPA 2.2
-      # FEEDBACK META LEARNING
-      # ==================================================
-      - name: Processamento feedback meta
-        run: |
-          python scripts/processamento_feedback_meta.py || true
-
-
-      # ==================================================
-      # ETAPA 2.3
       # HUB CENTRAL AUDITORIA
       # ==================================================
       - name: Hub central auditoria

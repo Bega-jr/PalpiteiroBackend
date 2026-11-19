@@ -256,6 +256,7 @@ def main():
                 )
             except Exception as e:
                 print(f"⚠️ Erro ao atualizar meta-learning: {e}")
+                raise
 
             # ======================================================
             # 2. AUTO-AJUSTE DA MEMÓRIA DE CENÁRIOS E ESTRUTURAS

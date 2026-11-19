@@ -7,7 +7,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from app.services.supabase_service import get_supabase
-from app.services.meta_learning_service import atualizar_meta_learning
+from app.services.meta_learning_service import (
+    atualizar_meta_learning,
+    feedback_ja_aplicado,
+)
 from scripts.processamento_diario_lotofacil import carregar_historico, extrair_estrutura
 
 def avaliar_desempenho_concurso():
@@ -18,6 +21,13 @@ def avaliar_desempenho_concurso():
     
     concurso_real = int(ultimo_concurso["concurso"])
     numeros_sorteados = set(ultimo_concurso["numeros"])
+
+    if feedback_ja_aplicado(supabase, concurso_real):
+        print(
+            f"ℹ️ Feedback do concurso {concurso_real} já aplicado; "
+            "reprocessamento ignorado."
+        )
+        return
     
     print(f"🎲 [Modo Manual] Reprocessando Concurso {concurso_real} -> {sorted(list(numeros_sorteados))}")
     
