@@ -67,12 +67,12 @@ def main():
     except Exception as e:
 
         print(f"❌ Erro leitura: {e}")
-        return
+        return 1
 
     if not rows:
 
         print("⚠️ Nenhum palpite encontrado")
-        return
+        return 1
 
     scores = []
     montecarlo = []
@@ -227,7 +227,10 @@ def main():
         print(
             f"\n⚠️ Erro persistência: {e}"
         )
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

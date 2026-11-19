@@ -137,7 +137,7 @@ def exportar_tabela(
 
 def limpar_backups_antigos(
     pasta,
-    manter=15
+    manter=16
 ):
 
     arquivos = sorted(
@@ -205,6 +205,8 @@ def main():
         f"📂 Pasta: {pasta}"
     )
 
+    return 1 if falhas else 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

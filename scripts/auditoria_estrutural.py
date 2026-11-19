@@ -158,6 +158,8 @@ def main():
 
         print("⚠️ Existem inconsistências estruturais")
 
+    return 1 if falhas else 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
