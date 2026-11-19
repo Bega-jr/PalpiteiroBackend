@@ -1,6 +1,6 @@
 fastapi==0.163.2
 pandas==3.1.1
-numpy==2.5.5
+numpy==2.4.6
 openpyxl==3.1.5
 python-multipart==0.0.34
 supabase==2.34.1
