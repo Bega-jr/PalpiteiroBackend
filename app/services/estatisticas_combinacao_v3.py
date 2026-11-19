@@ -4,8 +4,11 @@ import ast
 import json
 import os
 import math
+import tempfile
+from pathlib import Path
 
-CACHE_FILE = "tmp/padroes_cache_v3.json"
+CACHE_FILE = Path(__file__).resolve().parents[2] / "tmp" / "padroes_cache_v3.json"
+CACHE_VERSION = 1
 
 
 # ======================================================
@@ -49,43 +52,32 @@ def extrair_metricas_jogo(nums):
 # CACHE
 # ======================================================
 def salvar_cache(payload):
-
-    os.makedirs(
-        "tmp",
-        exist_ok=True
-    )
-
-    with open(
-        CACHE_FILE,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        json.dump(
-            payload,
-            f,
-            ensure_ascii=False
-        )
+    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=CACHE_FILE.parent,
+            delete=False,
+        ) as cache_file:
+            temp_path = Path(cache_file.name)
+            json.dump(payload, cache_file, ensure_ascii=False)
+        os.replace(temp_path, CACHE_FILE)
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
 
 
 def carregar_cache():
 
-    if not os.path.exists(
-        CACHE_FILE
-    ):
+    if not CACHE_FILE.exists():
         return None
 
     try:
 
-        with open(
-            CACHE_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            return json.load(
-                f
-            )
+        with CACHE_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
 
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         print(f"⚠️ Cache de padrões inválido; será recalculado: {exc}")
@@ -115,7 +107,8 @@ def _parse_cache_key(chave):
 # ======================================================
 def calcular_score_combinacoes_reais(
     limite_concursos: int = 1000,
-    usar_cache: bool = False
+    usar_cache: bool = False,
+    historico=None
 ):
     """
     Aprende padrões reais.
@@ -124,15 +117,21 @@ def calcular_score_combinacoes_reais(
         scores
         metadata
     """
+    if type(limite_concursos) is not int or limite_concursos <= 0:
+        raise ValueError("limite_concursos deve ser um inteiro positivo.")
 
     # ==================================================
     # CACHE
     # ==================================================
-    if usar_cache:
+    if usar_cache and historico is None:
 
         cache = carregar_cache()
 
-        if cache:
+        if (
+            isinstance(cache, dict)
+            and cache.get("cache_version") == CACHE_VERSION
+            and cache.get("limite_concursos") == limite_concursos
+        ):
             try:
                 scores = {
                     _parse_cache_key(k): float(v)
@@ -147,48 +146,37 @@ def calcular_score_combinacoes_reais(
             else:
                 print("⚡ usando cache")
                 return scores, metadata
-
-    supabase = get_supabase()
+        elif cache:
+            print("⚠️ Cache de padrões desatualizado; será recalculado.")
 
     print(
         f"📊 Aprendizado: últimos "
         f"{limite_concursos} concursos"
     )
 
-    try:
-
-        res = (
-            supabase
-            .table(
-                "lotofacil_concursos"
+    if historico is not None:
+        rows = [
+            {"dezenas": concurso["numeros"]}
+            for concurso in reversed(historico[-limite_concursos:])
+        ]
+    else:
+        supabase = get_supabase()
+        try:
+            rows = (
+                supabase
+                .table("lotofacil_concursos")
+                .select("dezenas")
+                .order("concurso", desc=True)
+                .limit(limite_concursos)
+                .execute()
+                .data
             )
-            .select(
-                "dezenas"
-            )
-            .order(
-                "concurso",
-                desc=True
-            )
-            .limit(
-                limite_concursos
-            )
-            .execute()
-        )
+        except Exception as e:
+            print(f"❌ erro Supabase: {e}")
+            return {}, {}
 
-    except Exception as e:
-
-        print(
-            f"❌ erro Supabase: {e}"
-        )
-
-        return {}, {}
-
-    if not res.data:
-
-        print(
-            "⚠️ dados vazios"
-        )
-
+    if not rows:
+        print("⚠️ dados vazios")
         return {}, {}
 
     freq_base = defaultdict(
@@ -207,65 +195,33 @@ def calcular_score_combinacoes_reais(
         }
     )
 
-    total = len(
-        res.data
-    )
+    total = len(rows)
 
     # ==================================================
     # LEITURA DOS CONCURSOS
     # ==================================================
-    for idx, row in enumerate(
-        res.data
-    ):
-
+    for idx, row in enumerate(rows):
         try:
+            raw = row["dezenas"]
 
-            raw = row[
-                "dezenas"
-            ]
-
-            if isinstance(
-                raw,
-                str
-            ):
-
-                nums = json.loads(
-                    raw
-                )
-
+            if isinstance(raw, str):
+                nums = json.loads(raw)
             else:
                 nums = raw
 
-            nums = sorted(
-                int(n)
-                for n in nums
-            )
+            nums = sorted(int(n) for n in nums)
 
             if len(nums) != 15:
                 continue
 
-            m = extrair_metricas_jogo(
-                nums
-            )
+            m = extrair_metricas_jogo(nums)
 
             # reduz granularidade para criar reincidência real
-            soma_bucket = round(
-                m["soma"] / 20
-            ) * 20
-            
-            pares_bucket = (
-                m["pares"] // 2
-            ) * 2
-            
-            primos_bucket = (
-                m["primos"] // 2
-            ) * 2
-            
-            linhas_bucket = tuple(
-                min(4, x)
-                for x in m["linhas"]
-            )
-            
+            soma_bucket = round(m["soma"] / 20) * 20
+            pares_bucket = (m["pares"] // 2) * 2
+            primos_bucket = (m["primos"] // 2) * 2
+            linhas_bucket = tuple(min(4, x) for x in m["linhas"])
+
             chave = (
                 soma_bucket,
                 pares_bucket,
@@ -274,51 +230,21 @@ def calcular_score_combinacoes_reais(
             )
 
             # frequência bruta
-            freq_base[
-                chave
-            ] += 1
+            freq_base[chave] += 1
 
             # recência
-            peso_rec = (
-                1 +
-                (
-                    1 -
-                    (idx / total)
-                )
-            )
-
-            freq_rec[
-                chave
-            ] += peso_rec
+            peso_rec = 1 + (1 - (idx / total))
+            freq_rec[chave] += peso_rec
 
             # performance real baseada em reincidência
-            freq_atual = freq_base[
-                chave
-            ]
+            freq_atual = freq_base[chave]
 
             if freq_atual >= 4:
-
-                performance[
-                    chave
-                ][
-                    "hits_15"
-                ] += 1
-
+                performance[chave]["hits_15"] += 1
             elif freq_atual >= 2:
-
-                performance[
-                    chave
-                ][
-                    "hits_14"
-                ] += 1
-
+                performance[chave]["hits_14"] += 1
             else:
-
-                performance[
-                    chave
-                ][
-                    "hits_13"
-                ] += 1
+                performance[chave]["hits_13"] += 1
 
         except Exception:
             continue
@@ -427,6 +353,8 @@ def calcular_score_combinacoes_reais(
     # CACHE
     # ==================================================
     payload = {
+        "cache_version": CACHE_VERSION,
+        "limite_concursos": limite_concursos,
 
         "scores": {
 
@@ -443,9 +371,8 @@ def calcular_score_combinacoes_reais(
         }
     }
 
-    salvar_cache(
-        payload
-    )
+    if historico is None:
+        salvar_cache(payload)
 
     print(
         f"✅ Aprendizado concluído: "

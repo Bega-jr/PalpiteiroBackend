@@ -1,9 +1,10 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from app.services.supabase_service import get_supabase
 
 router = APIRouter(prefix="/resultados", tags=["Resultados"])
-
-supabase = get_supabase()
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -19,7 +20,7 @@ def listar_resultados(
         offset = (page - 1) * limit
 
         resp = (
-            supabase
+            get_supabase()
             .table("lotofacil_concursos")
             .select(
                 "concurso, data, dezenas, soma, pares, impares"
@@ -36,8 +37,9 @@ def listar_resultados(
             "resultados": resp.data or []
         }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception("Falha ao listar resultados")
+        raise HTTPException(status_code=503, detail="Falha ao consultar resultados") from exc
 
 
 @router.get("/total")
@@ -47,7 +49,7 @@ def total_resultados():
     """
     try:
         resp = (
-            supabase
+            get_supabase()
             .table("lotofacil_concursos")
             .select("concurso", count="exact")
             .execute()
@@ -58,8 +60,9 @@ def total_resultados():
             "total": resp.count or 0
         }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception("Falha ao contar resultados")
+        raise HTTPException(status_code=503, detail="Falha ao consultar resultados") from exc
 
 
 @router.get("/{numero}")
@@ -69,7 +72,7 @@ def obter_concurso(numero: int):
     """
     try:
         resp = (
-            supabase
+            get_supabase()
             .table("lotofacil_concursos")
             .select("*")
             .eq("concurso", numero)
@@ -90,5 +93,6 @@ def obter_concurso(numero: int):
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception("Falha ao consultar concurso")
+        raise HTTPException(status_code=503, detail="Falha ao consultar concurso") from exc

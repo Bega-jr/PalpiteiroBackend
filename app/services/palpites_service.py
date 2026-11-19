@@ -50,8 +50,8 @@ def _safe_json(valor):
     if isinstance(valor, str):
         try:
             return json.loads(valor)
-        except:
-            return {}
+        except json.JSONDecodeError as exc:
+            raise ValueError("Campo JSON inválido em registro de palpite.") from exc
     return valor or {}
 
 

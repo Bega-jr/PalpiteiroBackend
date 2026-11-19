@@ -102,6 +102,42 @@ def concurso_ja_processado(supabase, concurso_ref):
         .limit(1).execute().data
     return len(rows) > 0
 
+def classificar_dezenas_populares(historico):
+    if len(historico) < 10:
+        raise ValueError(
+            "São necessários 10 concursos históricos para classificar as dezenas."
+        )
+
+    frequencias = {numero: 0 for numero in range(1, 26)}
+    for concurso in historico[-10:]:
+        numeros = concurso.get("numeros")
+        if (
+            not isinstance(numeros, list)
+            or len(numeros) != 15
+            or any(
+                type(numero) is not int or not 1 <= numero <= 25
+                for numero in numeros
+            )
+            or len(set(numeros)) != 15
+        ):
+            raise ValueError(
+                f"Concurso {concurso.get('concurso')} não contém 15 dezenas válidas."
+            )
+        for numero in numeros:
+            frequencias[numero] += 1
+
+    ranking = sorted(
+        frequencias,
+        key=lambda numero: (-frequencias[numero], numero),
+    )
+    return set(ranking[:10]), set(ranking[-10:])
+
+def calcular_flags_popularidade(numeros, mais_sorteados, menos_sorteados):
+    return {
+        "usa_mais_sorteados": any(numero in mais_sorteados for numero in numeros),
+        "usa_menos_sorteados": any(numero in menos_sorteados for numero in numeros),
+    }
+
 def calcular_filtros(nums, ultimo):
     pares = sum(1 for n in nums if n % 2 == 0)
     primos = sum(1 for n in nums if n in PRIMOS)
@@ -678,6 +714,9 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
     hoje = datetime.now(fuso).date().isoformat()
     hist = carregar_historico()
     ultimo = hist[-1]["numeros"]
+    dezenas_mais_sorteadas, dezenas_menos_sorteadas = (
+        classificar_dezenas_populares(hist)
+    )
     
     # Se o validador enviou o concurso correto, usamos ele. Se não, calculamos.
     if concurso_alvo is None:
@@ -1219,6 +1258,7 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             "indice_palpite": i,
     
             "tipo": tier,
+            "origem": "sistema",
     
             "numeros": c["nums"],
     
@@ -1227,6 +1267,11 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             # =========================
     
             "score": round(
+                float(c["score"]),
+                8
+            ),
+
+            "score_modelo": round(
                 float(c["score"]),
                 8
             ),
@@ -1310,11 +1355,14 @@ def executar_motor_geracao(concurso_alvo=None, modo_variacao="moderado"):
             ],
     
             # =========================
-            # FLAGS FUTURAS
+            # FLAGS DE POPULARIDADE
             # =========================
     
-            "usa_mais_sorteados": None,
-            "usa_menos_sorteados": None,
+            **calcular_flags_popularidade(
+                c["nums"],
+                dezenas_mais_sorteadas,
+                dezenas_menos_sorteadas,
+            ),
     
             # =========================
             # MÉTRICAS COMPLETAS

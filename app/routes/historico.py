@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from uuid import UUID
 from typing import List
 from app.schemas.historico_schema import HistoricoCreate, HistoricoRead
@@ -29,8 +29,12 @@ def criar_jogo(
 # LISTAR HISTÓRICO
 # ==========================================
 @router.get("/", response_model=List[HistoricoRead])
-def obter_historico(user=Depends(get_user)):
-    return listar_historico(_authenticated_user_id(user))
+def obter_historico(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    user=Depends(get_user),
+):
+    return listar_historico(_authenticated_user_id(user), page=page, limit=limit)
 
 # ==========================================
 # RESUMO FINANCEIRO

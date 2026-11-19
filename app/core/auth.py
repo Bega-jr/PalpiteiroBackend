@@ -1,59 +1,61 @@
 from fastapi import HTTPException, Header
-from datetime import datetime, timezone
-from typing import Dict
-from threading import Lock, Thread
-import time
 import logging
+import time
+from threading import Lock
 
 from app.services.supabase_service import get_supabase
 
-supabase = get_supabase()
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("auth_cache")
 
-token_cache: Dict[str, dict] = {}
+token_cache: dict[str, dict] = {}
 cache_lock = Lock()
-
-CLEANUP_INTERVAL = 60
-
-
-def cleanup_cache():
-    while True:
-        time.sleep(CLEANUP_INTERVAL)
-        now_ts = datetime.now(timezone.utc).timestamp()
-        with cache_lock:
-            expired = [
-                t for t, v in token_cache.items()
-                if v["expires_at"] < now_ts
-            ]
-            for t in expired:
-                del token_cache[t]
-
-
-Thread(target=cleanup_cache, daemon=True).start()
+MAX_TOKEN_CACHE_ENTRIES = 1024
 
 
 def validate_token(token: str):
-    now_ts = datetime.now(timezone.utc).timestamp()
+    now_ts = time.time()
 
     with cache_lock:
+        expired = [
+            cached_token
+            for cached_token, value in token_cache.items()
+            if value["expires_at"] <= now_ts
+        ]
+        for cached_token in expired:
+            del token_cache[cached_token]
+
         cached = token_cache.get(token)
         if cached and cached["expires_at"] > now_ts:
             return cached["user"]
 
     try:
-        response = supabase.auth.get_user(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido")
+        response = get_supabase().auth.get_user(token)
+    except Exception as exc:
+        status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+        try:
+            status = int(status)
+        except (TypeError, ValueError):
+            status = None
+        if status in (400, 401, 403):
+            raise HTTPException(status_code=401, detail="Token inválido") from exc
+
+        logger.exception("Falha ao validar token de autenticação")
+        raise HTTPException(
+            status_code=503,
+            detail="Serviço de autenticação indisponível",
+        ) from exc
 
     user = getattr(response, "user", None)
     if not user:
         raise HTTPException(status_code=401, detail="Não autorizado")
 
-    expires_at = getattr(user, "token_exp", now_ts + 300)
+    expires_at = getattr(user, "token_exp", None)
+    if not isinstance(expires_at, (int, float)) or expires_at <= now_ts:
+        expires_at = now_ts + 300
 
     with cache_lock:
+        if len(token_cache) >= MAX_TOKEN_CACHE_ENTRIES:
+            token_cache.pop(next(iter(token_cache)))
         token_cache[token] = {
             "user": user,
             "expires_at": expires_at
@@ -63,9 +65,9 @@ def validate_token(token: str):
 
 
 def get_user(authorization: str = Header(...)):
-    if not authorization.startswith("Bearer "):
+    scheme, separator, token = authorization.partition(" ")
+    if not separator or scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(status_code=401, detail="Token ausente")
 
-    token = authorization.replace("Bearer ", "")
-    return validate_token(token)
+    return validate_token(token.strip())
 

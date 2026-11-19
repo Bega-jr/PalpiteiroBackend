@@ -1,8 +1,4 @@
-# Ajuste na importação para usar o serviço correto
 from app.services.supabase_service import get_supabase
-
-# Inicializa o cliente Supabase
-supabase = get_supabase()
 
 def carregar_estatisticas_diarias():
     """
@@ -10,7 +6,7 @@ def carregar_estatisticas_diarias():
     """
 
     response = (
-        supabase
+        get_supabase()
         .table("estatisticas_diarias_v2")
         .select("*")
         .order("data_referencia", desc=True)

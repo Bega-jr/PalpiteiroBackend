@@ -1,8 +1,11 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from app.services.supabase_service import get_supabase
 import json
 
 router = APIRouter(prefix="/home", tags=["Home"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -40,10 +43,9 @@ def home():
             "data": data
         }
 
-    except Exception as e:
-        return {
-            "status": "error",
-            "data": None,
-            "message": "Falha ao carregar dados da Home",
-            "detail": str(e)
-        }
+    except Exception as exc:
+        logger.exception("Falha ao carregar dados da Home")
+        raise HTTPException(
+            status_code=503,
+            detail="Falha ao carregar dados da Home",
+        ) from exc
