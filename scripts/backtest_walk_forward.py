@@ -161,6 +161,8 @@ def executar_backtest(
     medias_aleatorias_por_concurso = []
     melhores_modelo = []
     melhores_aleatorio = []
+    carteiras_com_13_ou_14_modelo = 0
+    carteiras_com_13_ou_14_aleatorio = 0
 
     for indice in range(inicio, len(historico)):
         treino = historico[:indice]
@@ -176,6 +178,9 @@ def executar_backtest(
         acertos_modelo.extend(pontos_modelo)
         medias_modelo_por_concurso.append(statistics.mean(pontos_modelo))
         melhores_modelo.append(max(pontos_modelo))
+        carteiras_com_13_ou_14_modelo += any(
+            acertos in (13, 14) for acertos in pontos_modelo
+        )
 
         sorteios_anteriores = {
             tuple(sorted(concurso["numeros"]))
@@ -193,6 +198,9 @@ def executar_backtest(
             acertos_aleatorios.extend(pontos_aleatorios)
             medias_aleatorias.append(statistics.mean(pontos_aleatorios))
             melhores_aleatorio.append(max(pontos_aleatorios))
+            carteiras_com_13_ou_14_aleatorio += any(
+                acertos in (13, 14) for acertos in pontos_aleatorios
+            )
         medias_aleatorias_por_concurso.append(statistics.mean(medias_aleatorias))
 
     diferencas = [
@@ -246,6 +254,34 @@ def executar_backtest(
             / len(acertos_aleatorios)
             * 1000
         ),
+        "acertos_13_exatos_modelo_por_1000": (
+            sum(acertos == 13 for acertos in acertos_modelo)
+            / len(acertos_modelo)
+            * 1000
+        ),
+        "acertos_13_exatos_aleatorio_por_1000": (
+            sum(acertos == 13 for acertos in acertos_aleatorios)
+            / len(acertos_aleatorios)
+            * 1000
+        ),
+        "acertos_14_exatos_modelo_por_1000": (
+            sum(acertos == 14 for acertos in acertos_modelo)
+            / len(acertos_modelo)
+            * 1000
+        ),
+        "acertos_14_exatos_aleatorio_por_1000": (
+            sum(acertos == 14 for acertos in acertos_aleatorios)
+            / len(acertos_aleatorios)
+            * 1000
+        ),
+        "carteiras_com_13_ou_14_modelo_por_100": (
+            carteiras_com_13_ou_14_modelo / ultimos * 100
+        ),
+        "carteiras_com_13_ou_14_aleatorio_por_100": (
+            carteiras_com_13_ou_14_aleatorio
+            / (ultimos * replicas_aleatorias)
+            * 100
+        ),
         "acertos_15_modelo": sum(acertos == 15 for acertos in acertos_modelo),
         "acertos_15_aleatorio": sum(acertos == 15 for acertos in acertos_aleatorios),
         "concursos_com_15_modelo": sum(acertos == 15 for acertos in melhores_modelo),
@@ -295,6 +331,18 @@ def imprimir_relatorio(resultado):
         f"{resultado['acertos_14_mais_modelo_por_1000']:.2f}; "
         f"aleatório={resultado['acertos_13_mais_aleatorio_por_1000']:.2f} / "
         f"{resultado['acertos_14_mais_aleatorio_por_1000']:.2f}"
+    )
+    print(
+        "Acertos exatos por 1.000 jogos (13 / 14): "
+        f"modelo={resultado['acertos_13_exatos_modelo_por_1000']:.2f} / "
+        f"{resultado['acertos_14_exatos_modelo_por_1000']:.2f}; "
+        f"aleatório={resultado['acertos_13_exatos_aleatorio_por_1000']:.2f} / "
+        f"{resultado['acertos_14_exatos_aleatorio_por_1000']:.2f}"
+    )
+    print(
+        "Carteiras com ao menos um jogo de 13 ou 14 acertos (%): "
+        f"modelo={resultado['carteiras_com_13_ou_14_modelo_por_100']:.2f}; "
+        f"aleatório={resultado['carteiras_com_13_ou_14_aleatorio_por_100']:.2f}"
     )
     print(
         f"15 acertos: modelo={resultado['acertos_15_modelo']}/{total_jogos_modelo}; "
